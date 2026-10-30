@@ -1,0 +1,150 @@
+.admin-modules-page {
+  width: 100%;
+}
+
+.admin-modules-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.admin-primary-button,
+.admin-secondary-button,
+.admin-link-button {
+  font: inherit;
+  cursor: pointer;
+}
+
+.admin-primary-button {
+  padding: 9px 14px;
+  border: 1px solid #f28428;
+  border-radius: 8px;
+  background: #f28428;
+  color: #07192a;
+  font-weight: 700;
+}
+
+.admin-secondary-button {
+  padding: 9px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #0a2137;
+  color: var(--text-main);
+}
+
+.admin-primary-button:disabled,
+.admin-secondary-button:disabled,
+.admin-link-button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.admin-module-editor {
+  margin-bottom: 18px;
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #0a1d30;
+}
+
+.admin-module-editor-title {
+  margin-bottom: 14px;
+  color: var(--text-main);
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.admin-module-form {
+  display: grid;
+  grid-template-columns:
+    minmax(180px, 0.8fr)
+    minmax(240px, 1.2fr);
+  gap: 14px;
+}
+
+.admin-module-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.admin-module-form label > span {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.admin-module-form input,
+.admin-module-form textarea {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #071a2b;
+  color: var(--text-main);
+  font: inherit;
+}
+
+.admin-module-form input:focus,
+.admin-module-form textarea:focus {
+  outline: none;
+  border-color: #f28428;
+}
+
+.admin-module-form input[readonly] {
+  opacity: 0.7;
+}
+
+.admin-module-description {
+  grid-column: 1 / -1;
+}
+
+.admin-module-form-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.admin-modules-table {
+  min-width: 1050px;
+}
+
+.admin-module-description-cell {
+  max-width: 420px;
+  white-space: normal;
+}
+
+.admin-module-row-actions {
+  display: flex;
+  gap: 12px;
+}
+
+.admin-link-button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #f28428;
+  font-weight: 700;
+}
+
+.admin-link-button:hover:not(:disabled) {
+  text-decoration: underline;
+}
+
+@media (max-width: 900px) {
+  .admin-modules-header-actions {
+    align-items: flex-end;
+    flex-direction: column;
+  }
+
+  .admin-module-form {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-module-description,
+  .admin-module-form-actions {
+    grid-column: 1;
+  }
+}

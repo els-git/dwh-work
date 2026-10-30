@@ -1,0 +1,43 @@
+.env
+backups/*
+data/snapshots/*
+*.log
+__pycache__/
+.venv/
+node_modules/
+dist/
+data/snapshots/
+runtime/
+backups/
+etl/.venv/
+etl/packages/
+
+# ============================================================
+# DWH local runtime / development artifacts
+# ============================================================
+
+# Runtime logs: safe to clear when services are stopped.
+runtime/logs/*
+!runtime/logs/.gitkeep
+
+# Temporary development files: safe to clear.
+runtime/temp/*
+!runtime/temp/.gitkeep
+!runtime/temp/scripts/
+!runtime/temp/integration/
+!runtime/temp/backups/
+!runtime/temp/scripts/.gitkeep
+!runtime/temp/integration/.gitkeep
+!runtime/temp/backups/.gitkeep
+
+# Python generated files.
+__pycache__/
+*.py[cod]
+
+# Frontend generated/dependency files.
+frontend/node_modules/
+frontend/dist/
+
+# Local source safety copies.
+*.bak-*
+*.corrupt-*

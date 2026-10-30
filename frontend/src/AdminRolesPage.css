@@ -1,0 +1,194 @@
+.admin-roles-page {
+    width: 100%;
+  }
+  
+  
+  .admin-roles-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  
+  
+  .admin-primary-button,
+  .admin-secondary-button,
+  .admin-link-button {
+    font: inherit;
+    cursor: pointer;
+  }
+  
+  
+  .admin-primary-button {
+    padding: 9px 14px;
+    border: 1px solid #f28428;
+    border-radius: 8px;
+    background: #f28428;
+    color: #07192a;
+    font-weight: 700;
+  }
+  
+  
+  .admin-secondary-button {
+    padding: 9px 14px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: #0a2137;
+    color: var(--text-main);
+  }
+  
+  
+  .admin-primary-button:disabled,
+  .admin-secondary-button:disabled,
+  .admin-link-button:disabled {
+    opacity: 0.55;
+    cursor: default;
+  }
+  
+  
+  .admin-role-editor {
+    margin-bottom: 18px;
+    padding: 18px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: #0a1d30;
+  }
+  
+  
+  .admin-role-editor-title {
+    margin-bottom: 14px;
+    color: var(--text-main);
+    font-size: 16px;
+    font-weight: 700;
+  }
+  
+  
+  .admin-role-form {
+    display: grid;
+    grid-template-columns:
+      minmax(180px, 0.8fr)
+      minmax(240px, 1.2fr);
+    gap: 14px;
+  }
+  
+  
+  .admin-role-form label {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+  }
+  
+  
+  .admin-role-form label > span {
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-weight: 700;
+  }
+  
+  
+  .admin-role-form input,
+  .admin-role-form textarea {
+    box-sizing: border-box;
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: #071a2b;
+    color: var(--text-main);
+    font: inherit;
+  }
+  
+  
+  .admin-role-form input:focus,
+  .admin-role-form textarea:focus {
+    outline: none;
+    border-color: #f28428;
+  }
+  
+  
+  .admin-role-form input[readonly] {
+    opacity: 0.7;
+  }
+  
+  
+  .admin-role-description {
+    grid-column: 1 / -1;
+  }
+  
+  
+  .admin-role-form-actions {
+    grid-column: 1 / -1;
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+  }
+  
+  
+  .admin-roles-table {
+    min-width: 1250px;
+  }
+  
+  
+  .admin-role-description-cell {
+    max-width: 360px;
+    white-space: normal;
+  }
+  
+  
+  .admin-role-row-actions {
+    display: flex;
+    gap: 12px;
+  }
+  
+  
+  .admin-link-button {
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: #f28428;
+    font-weight: 700;
+  }
+  
+  
+  .admin-link-button:hover:not(:disabled) {
+    text-decoration: underline;
+  }
+  
+  
+  .admin-role-system-label {
+    display: block;
+    width: fit-content;
+    margin-top: 5px;
+    padding: 2px 6px;
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    color: var(--text-secondary);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+  }
+  
+  
+  .admin-role-protected {
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-weight: 700;
+  }
+  
+  
+  @media (max-width: 900px) {
+    .admin-roles-header-actions {
+      align-items: flex-end;
+      flex-direction: column;
+    }
+  
+  
+    .admin-role-form {
+      grid-template-columns: 1fr;
+    }
+  
+  
+    .admin-role-description,
+    .admin-role-form-actions {
+      grid-column: 1;
+    }
+  }

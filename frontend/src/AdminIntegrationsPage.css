@@ -1,0 +1,518 @@
+.admin-integrations-page {
+  display: grid;
+  gap: 18px;
+}
+
+.admin-integrations-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.admin-integrations-tabs {
+  display: flex;
+  gap: 8px;
+  border-bottom: 1px solid var(--border-color, #d9dfe7);
+}
+
+.admin-integrations-tab {
+  appearance: none;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  padding: 11px 14px;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 600;
+}
+
+.admin-integrations-tab.active {
+  border-bottom-color: currentColor;
+}
+
+.admin-integrations-toolbar {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.admin-integrations-filter {
+  display: grid;
+  gap: 6px;
+  min-width: 280px;
+}
+
+.admin-integrations-filter span,
+.admin-integrations-form label span {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.admin-integrations-filter select,
+.admin-integrations-form input,
+.admin-integrations-form select,
+.admin-integrations-form textarea {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid #29465f;
+  border-radius: 6px;
+  background: #0f2a40;
+  color: #eaf4ff;
+  padding: 9px 10px;
+  font: inherit;
+  outline: none;
+  transition:
+    border-color 120ms ease,
+    box-shadow 120ms ease,
+    background 120ms ease;
+}
+
+.admin-integrations-filter select:hover,
+.admin-integrations-form input:hover,
+.admin-integrations-form select:hover,
+.admin-integrations-form textarea:hover {
+  border-color: #3f6786;
+  background: #123149;
+}
+
+.admin-integrations-filter select:focus,
+.admin-integrations-form input:focus,
+.admin-integrations-form select:focus,
+.admin-integrations-form textarea:focus {
+  border-color: #ff8a1f;
+  box-shadow: 0 0 0 2px rgba(255, 138, 31, 0.18);
+  background: #123149;
+}
+
+.admin-integrations-filter select option,
+.admin-integrations-form select option {
+  background: #0f2a40;
+  color: #eaf4ff;
+}
+
+.admin-integrations-filter select:disabled,
+.admin-integrations-form input:disabled,
+.admin-integrations-form select:disabled,
+.admin-integrations-form textarea:disabled,
+.admin-integrations-form input[readonly] {
+  background: #0b2032;
+  color: #8ea5b8;
+  border-color: #233d53;
+  cursor: not-allowed;
+}
+
+.admin-integrations-editor {
+  border: 1px solid #d9dfe7;
+  border-radius: 8px;
+  padding: 18px;
+  background: #fff;
+}
+
+.admin-integrations-editor h3 {
+  margin: 0 0 16px;
+}
+
+.admin-integrations-form {
+  display: grid;
+  grid-template-columns:
+    repeat(
+      3,
+      minmax(0, 1fr)
+    );
+  gap: 14px;
+}
+
+.admin-integrations-form label {
+  display: grid;
+  gap: 6px;
+}
+
+.admin-integrations-form .wide {
+  grid-column: 1 / -1;
+}
+
+.admin-integrations-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.admin-integration-row-actions {
+  display: flex;
+  gap: 10px;
+  white-space: nowrap;
+}
+
+.admin-integration-object-table code {
+  white-space: nowrap;
+}
+
+@media (max-width: 1050px) {
+  .admin-integrations-form {
+    grid-template-columns:
+      repeat(
+        2,
+        minmax(0, 1fr)
+      );
+  }
+}
+
+@media (max-width: 720px) {
+  .admin-integrations-form {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-integrations-form .wide {
+    grid-column: auto;
+  }
+}
+
+.integration-admin-panel {
+  display: grid;
+  gap: 18px;
+}
+
+.integration-admin-wide-table {
+  min-width: 1050px;
+}
+
+.integration-admin-check {
+  display: flex !important;
+  flex-direction: row;
+  align-items: center;
+  gap: 9px !important;
+  min-height: 42px;
+}
+
+.integration-admin-check input {
+  width: 16px !important;
+  height: 16px;
+  margin: 0;
+  accent-color: #ff8a1f;
+}
+
+.integration-admin-readonly {
+  color: #8fa9bd;
+  font-size: 12px;
+}
+
+.integration-admin-source-count {
+  display: inline-flex;
+  min-width: 24px;
+  justify-content: center;
+  padding: 3px 7px;
+  border: 1px solid #31526c;
+  border-radius: 999px;
+}
+
+.integration-mapping-sources {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid #28465f;
+  border-radius: 7px;
+  background: #0b2234;
+}
+
+.integration-mapping-sources-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.integration-mapping-sources-header > div {
+  display: grid;
+  gap: 3px;
+}
+
+.integration-mapping-sources-header span {
+  color: #8fa9bd;
+  font-size: 12px;
+}
+
+.integration-mapping-source-row {
+  display: grid;
+  grid-template-columns:
+    34px
+    110px
+    minmax(100px, 1fr)
+    minmax(130px, 1.2fr)
+    minmax(130px, 1.2fr)
+    100px
+    auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.integration-mapping-source-row input,
+.integration-mapping-source-row select {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid #29465f;
+  border-radius: 6px;
+  background: #0f2a40;
+  color: #eaf4ff;
+  padding: 8px 9px;
+  font: inherit;
+  outline: none;
+}
+
+.integration-mapping-source-row input:focus,
+.integration-mapping-source-row select:focus {
+  border-color: #ff8a1f;
+  box-shadow: 0 0 0 2px rgba(255, 138, 31, 0.18);
+}
+
+.integration-mapping-source-row select option {
+  background: #0f2a40;
+  color: #eaf4ff;
+}
+
+.integration-mapping-source-order {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid #36546c;
+  border-radius: 50%;
+  color: #ff9a3d;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.integration-admin-empty {
+  padding: 10px 12px;
+  border: 1px dashed #31526c;
+  border-radius: 6px;
+  color: #8fa9bd;
+}
+
+.integration-dq-error {
+  border-color: #8f4141;
+  color: #ffaaaa;
+}
+
+.integration-dq-warning {
+  border-color: #806221;
+  color: #ffd16a;
+}
+
+@media (max-width: 1200px) {
+  .integration-mapping-source-row {
+    grid-template-columns:
+      34px
+      100px
+      1fr
+      1fr;
+  }
+
+  .integration-mapping-source-row .admin-link-button {
+    justify-self: start;
+  }
+}
+
+.integration-run-warning {
+  display: grid;
+  gap: 5px;
+  padding: 12px 14px;
+  border: 1px solid #79531f;
+  border-radius: 7px;
+  background: #2c2215;
+  color: #ffd18a;
+}
+
+.integration-run-warning strong {
+  color: #ff9a3d;
+}
+
+.integration-run-toolbar-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.integration-run-help {
+  display: grid;
+  gap: 5px;
+  padding: 11px 13px;
+  border: 1px solid #29465f;
+  border-radius: 6px;
+  background: #0b2234;
+  color: #a9bfd0;
+}
+
+.integration-run-help strong {
+  color: #eaf4ff;
+}
+
+.integration-run-muted {
+  color: #8fa9bd;
+  font-size: 12px;
+}
+
+.integration-run-message {
+  min-width: 220px;
+  max-width: 420px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.integration-run-status {
+  white-space: nowrap;
+}
+
+/* RUN CONTROL DARK EDITOR FIX */
+
+.admin-integrations-editor {
+  border: 1px solid #29465f;
+  border-radius: 8px;
+  background: #0b2234;
+  color: #eaf4ff;
+  padding: 18px 20px;
+  box-shadow:
+    0 8px 24px rgba(0, 0, 0, 0.18);
+}
+
+.admin-integrations-editor h3 {
+  margin: 0 0 16px;
+  color: #ffffff;
+}
+
+.admin-integrations-form {
+  background: transparent;
+}
+
+.admin-integrations-form label {
+  color: #c9dbea;
+}
+
+.admin-integrations-form label > span {
+  color: #c9dbea;
+}
+
+.admin-integrations-form input,
+.admin-integrations-form select,
+.admin-integrations-form textarea {
+  box-sizing: border-box;
+  width: 100%;
+  border: 1px solid #29465f;
+  border-radius: 6px;
+  background: #0f2a40;
+  color: #eaf4ff;
+  outline: none;
+}
+
+.admin-integrations-form input:hover,
+.admin-integrations-form select:hover,
+.admin-integrations-form textarea:hover {
+  border-color: #3f6786;
+  background: #123149;
+}
+
+.admin-integrations-form input:focus,
+.admin-integrations-form select:focus,
+.admin-integrations-form textarea:focus {
+  border-color: #ff8a1f;
+  box-shadow:
+    0 0 0 2px rgba(255, 138, 31, 0.18);
+}
+
+.admin-integrations-form select option {
+  background: #0f2a40;
+  color: #eaf4ff;
+}
+
+.admin-integrations-form input:disabled,
+.admin-integrations-form input[readonly],
+.admin-integrations-form select:disabled,
+.admin-integrations-form textarea:disabled {
+  background: #0a1d2c;
+  color: #7893a8;
+  border-color: #213c52;
+}
+
+.integration-run-help {
+  background: #0f2a40;
+  border-color: #29465f;
+  color: #a9bfd0;
+}
+
+.integration-run-help strong {
+  color: #ffffff;
+}
+
+.admin-integrations-form-actions {
+  border-top: 1px solid #29465f;
+  padding-top: 14px;
+}
+
+/* HISTORY / ERRORS */
+
+.integration-history-tabs {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.integration-history-tab {
+  appearance: none;
+  border: 1px solid #29465f;
+  border-radius: 6px;
+  background: #0f2a40;
+  color: #c9dbea;
+  padding: 8px 12px;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 600;
+}
+
+.integration-history-tab:hover {
+  border-color: #3f6786;
+  background: #123149;
+}
+
+.integration-history-tab.active {
+  border-color: #ff8a1f;
+  color: #ffffff;
+  box-shadow:
+    0 0 0 1px rgba(255, 138, 31, 0.18);
+}
+
+.integration-history-message {
+  min-width: 180px;
+  max-width: 420px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.badge-danger {
+  border-color: #8f4141;
+  color: #ffaaaa;
+}
+
+.badge-warning {
+  border-color: #806221;
+  color: #ffd16a;
+}
+
+.integration-history-filter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid #29465f;
+  border-radius: 6px;
+  background: #0b2234;
+  color: #c9dbea;
+}
+
+.integration-history-filter span {
+  font-weight: 600;
+}
+

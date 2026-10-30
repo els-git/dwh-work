@@ -1,0 +1,998 @@
+import {
+  useEffect,
+  useState,
+} from 'react'
+
+import type {
+  FormEvent,
+} from 'react'
+
+import { useAuth } from './AuthGate'
+
+import {
+  createUser,
+  getUsers,
+  setUserAccountLevel,
+  setUserActive,
+  updateUser,
+} from './userCatalogApi'
+
+import type {
+  AssignableAccountLevel,
+  AuthProvider,
+  UserCatalogItem,
+} from './userCatalogApi'
+
+import './AdminUsersPage.css'
+
+
+type EditorMode =
+  | 'create'
+  | 'edit'
+  | null
+
+
+function errorMessage(
+  error: unknown,
+): string {
+  if (error instanceof Error) {
+    return error.message
+  }
+
+  return 'Unknown error'
+}
+
+
+function formatUserDate(
+  value: string,
+): string {
+  const date =
+    new Date(
+      value,
+    )
+
+  if (
+    Number.isNaN(
+      date.getTime(),
+    )
+  ) {
+    return value
+  }
+
+  return date.toLocaleString()
+}
+
+
+function AdminUsersPage() {
+  const {
+    auth,
+  } = useAuth()
+
+  const isSuperadmin =
+    auth.user?.account_level
+    === 'SUPERADMIN'
+
+  const [
+    users,
+    setUsers,
+  ] = useState<UserCatalogItem[]>([])
+
+  const [
+    loading,
+    setLoading,
+  ] = useState(true)
+
+  const [
+    error,
+    setError,
+  ] = useState<string | null>(null)
+
+  const [
+    editorMode,
+    setEditorMode,
+  ] = useState<EditorMode>(null)
+
+  const [
+    editingUser,
+    setEditingUser,
+  ] = useState<UserCatalogItem | null>(null)
+
+  const [
+    username,
+    setUsername,
+  ] = useState('')
+
+  const [
+    displayName,
+    setDisplayName,
+  ] = useState('')
+
+  const [
+    email,
+    setEmail,
+  ] = useState('')
+
+  const [
+    accountLevel,
+    setAccountLevel,
+  ] = useState<AssignableAccountLevel>('USER')
+
+  const [
+    authProvider,
+    setAuthProvider,
+  ] = useState<AuthProvider>('LOCAL')
+
+  const [
+    password,
+    setPassword,
+  ] = useState('')
+
+  const [
+    externalSubject,
+    setExternalSubject,
+  ] = useState('')
+
+  const [
+    mustChangePassword,
+    setMustChangePassword,
+  ] = useState(true)
+
+  const [
+    saving,
+    setSaving,
+  ] = useState(false)
+
+  const [
+    changingUserId,
+    setChangingUserId,
+  ] = useState<number | null>(null)
+
+
+  async function loadUsers() {
+    try {
+      setLoading(true)
+      setError(null)
+
+      const result =
+        await getUsers()
+
+      setUsers(
+        result,
+      )
+    } catch (loadError) {
+      setError(
+        errorMessage(
+          loadError,
+        ),
+      )
+    } finally {
+      setLoading(false)
+    }
+  }
+
+
+  useEffect(() => {
+    void loadUsers()
+  }, [])
+
+
+  function resetEditor() {
+    setEditingUser(null)
+
+    setUsername('')
+    setDisplayName('')
+    setEmail('')
+
+    setAccountLevel('USER')
+    setAuthProvider('LOCAL')
+
+    setPassword('')
+    setExternalSubject('')
+
+    setMustChangePassword(true)
+  }
+
+
+  function openCreate() {
+    resetEditor()
+
+    setEditorMode(
+      'create',
+    )
+
+    setError(null)
+  }
+
+
+  function openEdit(
+    user: UserCatalogItem,
+  ) {
+    if (!user.can_manage) {
+      return
+    }
+
+    setEditingUser(
+      user,
+    )
+
+    setUsername(
+      user.username,
+    )
+
+    setDisplayName(
+      user.display_name
+      ?? '',
+    )
+
+    setEmail(
+      user.email
+      ?? '',
+    )
+
+    setAccountLevel(
+      user.account_level === 'ADMIN'
+        ? 'ADMIN'
+        : 'USER',
+    )
+
+    setAuthProvider(
+      user.auth_provider,
+    )
+
+    setPassword('')
+
+    setExternalSubject(
+      user.external_subject
+      ?? '',
+    )
+
+    setMustChangePassword(
+      user.must_change_password,
+    )
+
+    setEditorMode(
+      'edit',
+    )
+
+    setError(null)
+  }
+
+
+  function closeEditor() {
+    if (saving) {
+      return
+    }
+
+    setEditorMode(null)
+    resetEditor()
+  }
+
+
+  async function submitUser(
+    event: FormEvent<HTMLFormElement>,
+  ) {
+    event.preventDefault()
+
+    try {
+      setSaving(true)
+      setError(null)
+
+      if (editorMode === 'create') {
+        if (
+          authProvider === 'LOCAL'
+          && password.length === 0
+        ) {
+          throw new Error(
+            'Password is required for LOCAL users.',
+          )
+        }
+
+        await createUser({
+          username:
+            username.trim(),
+
+          display_name:
+            displayName.trim()
+            || null,
+
+          email:
+            email.trim()
+            || null,
+
+          account_level:
+            isSuperadmin
+              ? accountLevel
+              : 'USER',
+
+          auth_provider:
+            authProvider,
+
+          password:
+            authProvider === 'LOCAL'
+              ? password
+              : null,
+
+          external_subject:
+            authProvider === 'LOCAL'
+              ? null
+              : (
+                  externalSubject.trim()
+                  || null
+                ),
+
+          must_change_password:
+            authProvider === 'LOCAL'
+              ? mustChangePassword
+              : false,
+        })
+      } else if (
+        editorMode === 'edit'
+        && editingUser !== null
+      ) {
+        await updateUser(
+          editingUser.user_id,
+          {
+            display_name:
+              displayName.trim()
+              || null,
+
+            email:
+              email.trim()
+              || null,
+          },
+        )
+      } else {
+        return
+      }
+
+      setEditorMode(null)
+      resetEditor()
+
+      await loadUsers()
+    } catch (saveError) {
+      setError(
+        errorMessage(
+          saveError,
+        ),
+      )
+    } finally {
+      setSaving(false)
+    }
+  }
+
+
+  async function changeActiveState(
+    user: UserCatalogItem,
+  ) {
+    if (!user.can_manage) {
+      return
+    }
+
+    const nextState =
+      !user.is_active
+
+    const action =
+      nextState
+        ? 'ENABLE'
+        : 'DISABLE'
+
+    const confirmed =
+      window.confirm(
+        `${action} user ${user.username}?`,
+      )
+
+    if (!confirmed) {
+      return
+    }
+
+    try {
+      setChangingUserId(
+        user.user_id,
+      )
+
+      setError(null)
+
+      await setUserActive(
+        user.user_id,
+        nextState,
+      )
+
+      await loadUsers()
+    } catch (stateError) {
+      setError(
+        errorMessage(
+          stateError,
+        ),
+      )
+    } finally {
+      setChangingUserId(null)
+    }
+  }
+
+
+  async function changeAccountLevel(
+    user: UserCatalogItem,
+  ) {
+    if (
+      !isSuperadmin
+      || !user.can_manage
+      || user.account_level === 'SUPERADMIN'
+    ) {
+      return
+    }
+
+    const nextLevel:
+      AssignableAccountLevel =
+        user.account_level === 'ADMIN'
+          ? 'USER'
+          : 'ADMIN'
+
+    const confirmed =
+      window.confirm(
+        `Change ${user.username} account level `
+        + `from ${user.account_level} `
+        + `to ${nextLevel}?`,
+      )
+
+    if (!confirmed) {
+      return
+    }
+
+    try {
+      setChangingUserId(
+        user.user_id,
+      )
+
+      setError(null)
+
+      await setUserAccountLevel(
+        user.user_id,
+        nextLevel,
+      )
+
+      await loadUsers()
+    } catch (levelError) {
+      setError(
+        errorMessage(
+          levelError,
+        ),
+      )
+    } finally {
+      setChangingUserId(null)
+    }
+  }
+
+
+  return (
+    <div className="admin-users-page">
+      <header className="workspace-header">
+        <div>
+          <div className="breadcrumb">
+            DWH / Administration / Users
+          </div>
+
+          <h1>
+            Users
+          </h1>
+
+          <p>
+            User identities, authentication providers,
+            account levels and lifecycle management.
+          </p>
+        </div>
+
+        <div className="admin-users-header-actions">
+          <span className="badge badge-accent">
+            {users.length} USERS
+          </span>
+
+          <button
+            type="button"
+            className="admin-users-primary-button"
+            onClick={openCreate}
+          >
+            Create user
+          </button>
+        </div>
+      </header>
+
+      {
+        error
+          ? (
+            <div className="error">
+              <strong>
+                User Catalog error
+              </strong>
+
+              <span>
+                {error}
+              </span>
+            </div>
+          )
+          : null
+      }
+
+      {
+        editorMode
+          ? (
+            <section className="admin-user-editor">
+              <div className="admin-user-editor-title">
+                {
+                  editorMode === 'create'
+                    ? 'Create user'
+                    : `Edit ${username}`
+                }
+              </div>
+
+              <form
+                className="admin-user-form"
+                onSubmit={submitUser}
+              >
+                <label>
+                  <span>
+                    Username
+                  </span>
+
+                  <input
+                    value={username}
+                    maxLength={128}
+                    required
+                    readOnly={
+                      editorMode === 'edit'
+                    }
+                    autoComplete="off"
+                    onChange={
+                      event =>
+                        setUsername(
+                          event.target.value,
+                        )
+                    }
+                  />
+                </label>
+
+                <label>
+                  <span>
+                    Display name
+                  </span>
+
+                  <input
+                    value={displayName}
+                    maxLength={200}
+                    onChange={
+                      event =>
+                        setDisplayName(
+                          event.target.value,
+                        )
+                    }
+                  />
+                </label>
+
+                <label>
+                  <span>
+                    E-mail
+                  </span>
+
+                  <input
+                    type="email"
+                    value={email}
+                    maxLength={320}
+                    onChange={
+                      event =>
+                        setEmail(
+                          event.target.value,
+                        )
+                    }
+                  />
+                </label>
+
+                {
+                  editorMode === 'create'
+                    ? (
+                      <>
+                        <label>
+                          <span>
+                            Account level
+                          </span>
+
+                          <select
+                            value={accountLevel}
+                            disabled={!isSuperadmin}
+                            onChange={
+                              event =>
+                                setAccountLevel(
+                                  (event.target.value as AssignableAccountLevel),
+                                )
+                            }
+                          >
+                            <option value="USER">
+                              USER
+                            </option>
+
+                            {
+                              isSuperadmin
+                                ? (
+                                  <option value="ADMIN">
+                                    ADMIN
+                                  </option>
+                                )
+                                : null
+                            }
+                          </select>
+                        </label>
+
+                        <label>
+                          <span>
+                            Authentication provider
+                          </span>
+
+                          <select
+                            value={authProvider}
+                            onChange={
+                              event => {
+                                const provider =
+                                  (event.target.value as AuthProvider)
+
+                                setAuthProvider(
+                                  provider,
+                                )
+
+                                if (
+                                  provider !== 'LOCAL'
+                                ) {
+                                  setPassword('')
+                                  setMustChangePassword(false)
+                                }
+
+                                if (
+                                  provider === 'LOCAL'
+                                ) {
+                                  setExternalSubject('')
+                                  setMustChangePassword(true)
+                                }
+                              }
+                            }
+                          >
+                            <option value="LOCAL">
+                              LOCAL
+                            </option>
+
+                            <option value="LDAP">
+                              LDAP
+                            </option>
+
+                            <option value="AD">
+                              AD
+                            </option>
+
+                            <option value="OIDC">
+                              OIDC
+                            </option>
+                          </select>
+                        </label>
+
+                        {
+                          authProvider === 'LOCAL'
+                            ? (
+                              <>
+                                <label>
+                                  <span>
+                                    Initial password
+                                  </span>
+
+                                  <input
+                                    type="password"
+                                    value={password}
+                                    maxLength={512}
+                                    required
+                                    autoComplete="new-password"
+                                    onChange={
+                                      event =>
+                                        setPassword(
+                                          event.target.value,
+                                        )
+                                    }
+                                  />
+                                </label>
+
+                                <label className="admin-user-checkbox-label">
+                                  <input
+                                    type="checkbox"
+                                    checked={mustChangePassword}
+                                    onChange={
+                                      event =>
+                                        setMustChangePassword(
+                                          event.target.checked,
+                                        )
+                                    }
+                                  />
+
+                                  <span>
+                                    Require password change
+                                  </span>
+                                </label>
+                              </>
+                            )
+                            : (
+                              <label>
+                                <span>
+                                  External subject
+                                </span>
+
+                                <input
+                                  value={externalSubject}
+                                  maxLength={512}
+                                  onChange={
+                                    event =>
+                                      setExternalSubject(
+                                        event.target.value,
+                                      )
+                                  }
+                                  placeholder="Optional external identity"
+                                />
+                              </label>
+                            )
+                        }
+                      </>
+                    )
+                    : (
+                      <div className="admin-user-immutable">
+                        <div>
+                          <span>
+                            Account level
+                          </span>
+
+                          <strong>
+                            {editingUser?.account_level}
+                          </strong>
+                        </div>
+
+                        <div>
+                          <span>
+                            Authentication provider
+                          </span>
+
+                          <strong>
+                            {editingUser?.auth_provider}
+                          </strong>
+                        </div>
+
+                        <div>
+                          <span>
+                            Identity fields
+                          </span>
+
+                          <strong>
+                            Immutable after creation
+                          </strong>
+                        </div>
+                      </div>
+                    )
+                }
+
+                <div className="admin-user-form-actions">
+                  <button
+                    type="button"
+                    className="admin-users-secondary-button"
+                    disabled={saving}
+                    onClick={closeEditor}
+                  >
+                    Cancel
+                  </button>
+
+                  <button
+                    type="submit"
+                    className="admin-users-primary-button"
+                    disabled={saving}
+                  >
+                    {
+                      saving
+                        ? 'Saving...'
+                        : 'Save'
+                    }
+                  </button>
+                </div>
+              </form>
+            </section>
+          )
+          : null
+      }
+
+      {
+        loading && users.length === 0
+          ? (
+            <div className="loading-panel">
+              Loading user catalog...
+            </div>
+          )
+          : (
+            <div className="data-table-wrapper">
+              <table className="data-table admin-users-table">
+                <thead>
+                  <tr>
+                    <th>Username</th>
+                    <th>Name</th>
+                    <th>Level</th>
+                    <th>Provider</th>
+                    <th>Roles</th>
+                    <th>Status</th>
+                    <th>System</th>
+                    <th>Updated</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {
+                    users.map(
+                      user => (
+                        <tr key={user.user_id}>
+                          <td>
+                            <strong className="code-value">
+                              {user.username}
+                            </strong>
+
+                            {
+                              user.email
+                                ? (
+                                  <div className="admin-user-email">
+                                    {user.email}
+                                  </div>
+                                )
+                                : null
+                            }
+                          </td>
+
+                          <td>
+                            {user.display_name ?? ''}
+                          </td>
+
+                          <td>
+                            <span
+                              className={
+                                user.account_level === 'SUPERADMIN'
+                                  ? 'badge badge-accent'
+                                  : 'badge'
+                              }
+                            >
+                              {user.account_level}
+                            </span>
+                          </td>
+
+                          <td>
+                            {user.auth_provider}
+                          </td>
+
+                          <td>
+                            {user.business_role_count}
+                          </td>
+
+                          <td>
+                            <span
+                              className={
+                                user.is_active
+                                  ? 'badge badge-success'
+                                  : 'badge'
+                              }
+                            >
+                              {
+                                user.is_active
+                                  ? 'ACTIVE'
+                                  : 'DISABLED'
+                              }
+                            </span>
+                          </td>
+
+                          <td>
+                            {
+                              user.is_system
+                                ? 'YES'
+                                : 'NO'
+                            }
+                          </td>
+
+                          <td>
+                            {
+                              formatUserDate(
+                                user.updated_at,
+                              )
+                            }
+                          </td>
+
+                          <td>
+                            {
+                              user.can_manage
+                                ? (
+                                  <div className="admin-user-row-actions">
+                                    <button
+                                      type="button"
+                                      className="admin-users-link-button"
+                                      disabled={
+                                        changingUserId
+                                        === user.user_id
+                                      }
+                                      onClick={
+                                        () =>
+                                          openEdit(
+                                            user,
+                                          )
+                                      }
+                                    >
+                                      Edit
+                                    </button>
+
+                                    <button
+                                      type="button"
+                                      className="admin-users-link-button"
+                                      disabled={
+                                        changingUserId
+                                        === user.user_id
+                                      }
+                                      onClick={
+                                        () => {
+                                          void changeActiveState(
+                                            user,
+                                          )
+                                        }
+                                      }
+                                    >
+                                      {
+                                        changingUserId === user.user_id
+                                          ? 'Working...'
+                                          : user.is_active
+                                            ? 'Disable'
+                                            : 'Enable'
+                                      }
+                                    </button>
+
+                                    {
+                                      isSuperadmin
+                                      && user.account_level !== 'SUPERADMIN'
+                                        ? (
+                                          <button
+                                            type="button"
+                                            className="admin-users-link-button"
+                                            disabled={
+                                              changingUserId
+                                              === user.user_id
+                                            }
+                                            onClick={
+                                              () => {
+                                                void changeAccountLevel(
+                                                  user,
+                                                )
+                                              }
+                                            }
+                                          >
+                                            {
+                                              user.account_level === 'ADMIN'
+                                                ? 'Make USER'
+                                                : 'Make ADMIN'
+                                            }
+                                          </button>
+                                        )
+                                        : null
+                                    }
+                                  </div>
+                                )
+                                : (
+                                  <span className="admin-user-protected">
+                                    Protected
+                                  </span>
+                                )
+                            }
+                          </td>
+                        </tr>
+                      ),
+                    )
+                  }
+                </tbody>
+              </table>
+            </div>
+          )
+      }
+    </div>
+  )
+}
+
+
+export default AdminUsersPage

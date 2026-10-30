@@ -1,0 +1,241 @@
+.admin-users-page {
+  width: 100%;
+}
+
+.admin-users-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.admin-users-primary-button,
+.admin-users-secondary-button,
+.admin-users-link-button {
+  font: inherit;
+  cursor: pointer;
+}
+
+.admin-users-primary-button {
+  padding: 9px 14px;
+
+  border: 1px solid #f28428;
+  border-radius: 8px;
+
+  background: #f28428;
+  color: #07192a;
+
+  font-weight: 700;
+}
+
+.admin-users-secondary-button {
+  padding: 9px 14px;
+
+  border: 1px solid var(--border);
+  border-radius: 8px;
+
+  background: #0a2137;
+  color: var(--text-main);
+}
+
+.admin-users-primary-button:disabled,
+.admin-users-secondary-button:disabled,
+.admin-users-link-button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.admin-user-editor {
+  margin-bottom: 18px;
+  padding: 18px;
+
+  border: 1px solid var(--border);
+  border-radius: 10px;
+
+  background: #0a1d30;
+}
+
+.admin-user-editor-title {
+  margin-bottom: 14px;
+
+  color: var(--text-main);
+
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.admin-user-form {
+  display: grid;
+
+  grid-template-columns:
+    repeat(
+      2,
+      minmax(220px, 1fr)
+    );
+
+  gap: 14px;
+}
+
+.admin-user-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.admin-user-form label > span {
+  color: var(--text-secondary);
+
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.admin-user-form input,
+.admin-user-form select {
+  box-sizing: border-box;
+  width: 100%;
+
+  padding: 10px 12px;
+
+  border: 1px solid var(--border);
+  border-radius: 8px;
+
+  background: #071a2b;
+  color: var(--text-main);
+
+  font: inherit;
+}
+
+.admin-user-form input:focus,
+.admin-user-form select:focus {
+  outline: none;
+  border-color: #f28428;
+}
+
+.admin-user-form input[readonly],
+.admin-user-form select:disabled {
+  opacity: 0.7;
+}
+
+.admin-user-checkbox-label {
+  flex-direction: row !important;
+  align-items: center;
+  justify-content: flex-start;
+
+  min-height: 42px;
+  padding-top: 20px;
+}
+
+.admin-user-checkbox-label input {
+  width: auto;
+}
+
+.admin-user-checkbox-label > span {
+  color: var(--text-main) !important;
+}
+
+.admin-user-immutable {
+  grid-column: 1 / -1;
+
+  display: grid;
+
+  grid-template-columns:
+    repeat(
+      3,
+      minmax(170px, 1fr)
+    );
+
+  gap: 10px;
+}
+
+.admin-user-immutable > div {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+
+  padding: 10px 12px;
+
+  border: 1px solid var(--border);
+  border-radius: 8px;
+
+  background: #071a2b;
+}
+
+.admin-user-immutable span {
+  color: var(--text-secondary);
+
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.admin-user-immutable strong {
+  color: var(--text-main);
+
+  font-size: 13px;
+}
+
+.admin-user-form-actions {
+  grid-column: 1 / -1;
+
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.admin-users-table {
+  min-width: 1250px;
+}
+
+.admin-user-email {
+  margin-top: 4px;
+
+  color: var(--text-secondary);
+
+  font-size: 11px;
+}
+
+.admin-user-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.admin-users-link-button {
+  padding: 0;
+
+  border: 0;
+
+  background: transparent;
+  color: #f28428;
+
+  font-weight: 700;
+}
+
+.admin-users-link-button:hover:not(:disabled) {
+  text-decoration: underline;
+}
+
+.admin-user-protected {
+  color: var(--text-secondary);
+
+  font-size: 12px;
+  font-weight: 700;
+}
+
+@media (max-width: 900px) {
+  .admin-users-header-actions {
+    align-items: flex-end;
+    flex-direction: column;
+  }
+
+  .admin-user-form {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-user-form-actions,
+  .admin-user-immutable {
+    grid-column: 1;
+  }
+
+  .admin-user-immutable {
+    grid-template-columns: 1fr;
+  }
+}

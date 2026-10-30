@@ -1,0 +1,308 @@
+.admin-access-page {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.admin-access-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.admin-access-header h1 {
+  margin: 8px 0 6px;
+}
+
+.admin-access-header p {
+  margin: 0;
+  color: var(--text-secondary);
+}
+
+.admin-access-error,
+.admin-access-warning {
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #0b2238;
+}
+
+.admin-access-error {
+  color: #ffb1a8;
+}
+
+.admin-access-warning {
+  color: #f3c98b;
+}
+
+.admin-access-layout {
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.admin-access-sidebar {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #081b2e;
+}
+
+.admin-access-sidebar-title {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.admin-access-role {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 13px 16px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-main);
+  text-align: left;
+}
+
+.admin-access-role:hover {
+  background: #0b243c;
+}
+
+.admin-access-role.active {
+  background: #102c48;
+  box-shadow: inset 3px 0 0 #f28428;
+}
+
+.admin-access-role-code {
+  color: #f28428;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.admin-access-role-name {
+  font-weight: 700;
+}
+
+.admin-access-role-counts {
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.admin-access-content {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.admin-access-role-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #081b2e;
+}
+
+.admin-access-role-header h2 {
+  margin: 4px 0;
+}
+
+.admin-access-role-eyebrow {
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.admin-access-selected-code {
+  color: #f28428;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.admin-access-role-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.admin-access-state {
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: #293546;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.admin-access-state.active {
+  background: #173a2e;
+  color: #8fe3b5;
+}
+
+.admin-access-state.inactive {
+  color: #c5cbd4;
+}
+
+.admin-access-policy-card {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #081b2e;
+}
+
+.admin-access-policy-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--border);
+}
+
+.admin-access-policy-header h3 {
+  margin: 0 0 5px;
+}
+
+.admin-access-policy-header p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.admin-access-count {
+  white-space: nowrap;
+  color: #f28428;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.admin-access-table {
+  width: 100%;
+  min-width: 850px;
+  border-collapse: collapse;
+}
+
+.admin-access-table th,
+.admin-access-table td {
+  padding: 11px 13px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: middle;
+}
+
+.admin-access-table th {
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.admin-access-table td {
+  font-size: 12px;
+}
+
+.admin-access-table code {
+  color: #f2a25d;
+  font-size: 11px;
+}
+
+.admin-access-assignment {
+  display: inline-block;
+  padding: 4px 7px;
+  border-radius: 999px;
+  background: #293546;
+  color: #c5cbd4;
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.admin-access-assignment.assigned {
+  background: #173a2e;
+  color: #8fe3b5;
+}
+
+.admin-access-action {
+  padding: 6px 9px;
+  border: 1px solid #f28428;
+  border-radius: 6px;
+  background: transparent;
+  color: #f28428;
+  font-weight: 800;
+}
+
+.admin-access-action:hover:not(:disabled) {
+  background: #f28428;
+  color: #071a2b;
+}
+
+.admin-access-action:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.admin-access-empty,
+.admin-access-empty-panel,
+.admin-access-table-empty {
+  color: var(--text-secondary);
+}
+
+.admin-access-empty {
+  padding: 16px;
+}
+
+.admin-access-empty-panel {
+  padding: 26px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #081b2e;
+}
+
+.admin-access-table-empty {
+  text-align: center !important;
+  padding: 24px !important;
+}
+
+@media (max-width: 1000px) {
+  .admin-access-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-access-sidebar {
+    display: grid;
+    grid-template-columns:
+      repeat(auto-fit, minmax(190px, 1fr));
+  }
+
+  .admin-access-sidebar-title {
+    grid-column: 1 / -1;
+  }
+
+  .admin-access-role {
+    border-right: 1px solid var(--border);
+  }
+}
+
+@media (max-width: 700px) {
+  .admin-access-header,
+  .admin-access-role-header,
+  .admin-access-policy-header {
+    flex-direction: column;
+  }
+}

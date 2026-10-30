@@ -1,0 +1,3838 @@
+import {
+  useEffect,
+  useMemo,
+  useState,
+} from 'react'
+
+import {
+  getDqRunIssues,
+  getDqRunResults,
+  getDqRuns,
+  getEtlRunJobs,
+  getEtlRuns,
+  getHealth,
+  getIntegrationDqRules,
+  getIntegrationErrors,
+  getIntegrationIssues,
+  getIntegrationMappings,
+  getIntegrationOverview,
+  getIntegrationRuns,
+  getIntegrationStructure,
+  getIntegrationValidations,
+  getIntegrations,
+  getRetailReportingOverview,
+  downloadRetailReport,
+} from './api'
+
+import type {
+  DqIssue,
+  DqResult,
+  DqRun,
+  EtlError,
+  EtlJobRun,
+  EtlRun,
+  HealthResponse,
+  IntegrationDqRule,
+  IntegrationMapping,
+  IntegrationObject,
+  IntegrationOverview,
+  RetailReportingOverview,
+  SourceColumn,
+  ValidationContract,
+} from './types'
+
+import './App.css'
+import { useAuth } from './AuthGate'
+import AdminPage from './AdminPage'
+
+
+type PageKey =
+  | 'integrations'
+  | 'etl'
+  | 'dq'
+  | 'reporting'
+  | 'administration'
+
+
+type ReportKey =
+  | 'status'
+  | 'stage'
+  | 'channel'
+  | 'product'
+
+type TabKey =
+  | 'overview'
+  | 'structure'
+  | 'mapping'
+  | 'validations'
+  | 'dq'
+  | 'runs'
+  | 'errors'
+  | 'issues'
+
+
+interface TabDefinition {
+  key: TabKey
+  label: string
+}
+
+
+const tabs: TabDefinition[] = [
+  {
+    key: 'overview',
+    label: 'Overview',
+  },
+  {
+    key: 'structure',
+    label: 'Structure',
+  },
+  {
+    key: 'mapping',
+    label: 'Mapping',
+  },
+  {
+    key: 'validations',
+    label: 'Validations',
+  },
+  {
+    key: 'dq',
+    label: 'DQ Rules',
+  },
+  {
+    key: 'runs',
+    label: 'Runs',
+  },
+  {
+    key: 'errors',
+    label: 'Errors',
+  },
+  {
+    key: 'issues',
+    label: 'Issues',
+  },
+]
+
+
+function formatDate(
+  value: string | null | undefined,
+): string {
+  if (!value) {
+    return ''
+  }
+
+  const date = new Date(value)
+
+  if (Number.isNaN(date.getTime())) {
+    return value
+  }
+
+  return date.toLocaleString()
+}
+
+
+function yesNo(
+  value: boolean,
+): string {
+  return value ? 'YES' : 'NO'
+}
+
+
+function statusClass(
+  status: string | null | undefined,
+): string {
+  const normalized =
+    status?.toUpperCase() ?? ''
+
+  if (
+    normalized === 'SUCCESS'
+    || normalized === 'ACTIVE'
+    || normalized === 'OK'
+  ) {
+    return 'badge badge-success'
+  }
+
+  if (
+    normalized === 'FAILED'
+    || normalized === 'ERROR'
+  ) {
+    return 'badge badge-danger'
+  }
+
+  if (
+    normalized === 'WARNING'
+    || normalized === 'RUNNING'
+  ) {
+    return 'badge badge-warning'
+  }
+
+  return 'badge'
+}
+
+
+function App() {
+  const {
+    auth,
+    hasPermission,
+    hasResource,
+    logout,
+  } = useAuth()
+
+  const hasCdpAccess =
+    hasResource(
+      'MODULE',
+      'CDP',
+    )
+
+  const canIntegration =
+    hasCdpAccess
+    && hasPermission(
+      'NAV_INTEGRATION_VIEW',
+    )
+    && hasPermission(
+      'INTEGRATION_VIEW',
+    )
+
+  const canEtl =
+    hasCdpAccess
+    && hasPermission(
+      'NAV_ETL_VIEW',
+    )
+    && hasPermission(
+      'ETL_VIEW',
+    )
+
+  const canDq =
+    hasCdpAccess
+    && hasPermission(
+      'NAV_DQ_VIEW',
+    )
+    && hasPermission(
+      'DQ_VIEW',
+    )
+
+  const canReporting =
+    hasCdpAccess
+    && hasPermission(
+      'NAV_REPORTING_VIEW',
+    )
+    && hasPermission(
+      'REPORT_VIEW',
+    )
+
+  const isAdministrator =
+    auth.user?.account_level
+      === 'SUPERADMIN'
+    || auth.user?.account_level
+      === 'ADMIN'
+
+  const canAdministration =
+    isAdministrator
+    && (
+      hasPermission(
+        'ADMIN_MODULE_MANAGE',
+      )
+      || hasPermission(
+        'ADMIN_USER_MANAGE',
+      )
+      || hasPermission(
+        'ADMIN_ROLE_MANAGE',
+      )
+      || hasPermission(
+        'ADMIN_ACCESS_MANAGE',
+      )
+    )
+
+  const hasWorkspaceAccess =
+    canIntegration
+    || canEtl
+    || canDq
+    || canReporting
+    || canAdministration
+  const [
+    activePage,
+    setActivePage,
+  ] = useState<PageKey>('integrations')
+
+  const [
+    reportingOverview,
+    setReportingOverview,
+  ] = useState<RetailReportingOverview | null>(null)
+
+  const [
+    reportingLoading,
+    setReportingLoading,
+  ] = useState(false)
+
+  const [
+    reportingError,
+    setReportingError,
+  ] = useState<string | null>(null)
+
+  const [
+    openReportingSections,
+    setOpenReportingSections,
+  ] = useState<ReportKey[]>([])
+
+  const [
+    reportingSearch,
+    setReportingSearch,
+  ] = useState('')
+
+  const [
+    reportingSearchIndex,
+    setReportingSearchIndex,
+  ] = useState(0)
+
+  const [
+    highlightedReport,
+    setHighlightedReport,
+  ] = useState<ReportKey | null>(null)
+
+  const [
+    exportMenuReport,
+    setExportMenuReport,
+  ] = useState<ReportKey | null>(null)
+
+  const [
+    exportingReport,
+    setExportingReport,
+  ] = useState<ReportKey | null>(null)
+
+  const [
+    health,
+    setHealth,
+  ] = useState<HealthResponse | null>(null)
+
+  const [
+    integrations,
+    setIntegrations,
+  ] = useState<IntegrationObject[]>([])
+
+  const [
+    selectedId,
+    setSelectedId,
+  ] = useState<number | null>(null)
+
+  const [
+    activeTab,
+    setActiveTab,
+  ] = useState<TabKey>('overview')
+
+  const [
+    overview,
+    setOverview,
+  ] = useState<IntegrationOverview | null>(null)
+
+  const [
+    structure,
+    setStructure,
+  ] = useState<SourceColumn[]>([])
+
+  const [
+    mappings,
+    setMappings,
+  ] = useState<IntegrationMapping[]>([])
+
+  const [
+    validations,
+    setValidations,
+  ] = useState<ValidationContract[]>([])
+
+  const [
+    dqRules,
+    setDqRules,
+  ] = useState<IntegrationDqRule[]>([])
+
+  const [
+    runs,
+    setRuns,
+  ] = useState<EtlJobRun[]>([])
+
+  const [
+    errors,
+    setErrors,
+  ] = useState<EtlError[]>([])
+
+  const [
+    issues,
+    setIssues,
+  ] = useState<DqIssue[]>([])
+
+  const [
+    etlRuns,
+    setEtlRuns,
+  ] = useState<EtlRun[]>([])
+
+  const [
+    selectedBatchId,
+    setSelectedBatchId,
+  ] = useState<number | null>(null)
+
+  const [
+    etlJobs,
+    setEtlJobs,
+  ] = useState<EtlJobRun[]>([])
+
+  const [
+    etlLoading,
+    setEtlLoading,
+  ] = useState(false)
+
+  const [
+    globalDqRuns,
+    setGlobalDqRuns,
+  ] = useState<DqRun[]>([])
+
+  const [
+    selectedDqRunId,
+    setSelectedDqRunId,
+  ] = useState<number | null>(null)
+
+  const [
+    globalDqResults,
+    setGlobalDqResults,
+  ] = useState<DqResult[]>([])
+
+  const [
+    globalDqIssues,
+    setGlobalDqIssues,
+  ] = useState<DqIssue[]>([])
+
+  const [
+    dqLoading,
+    setDqLoading,
+  ] = useState(false)
+
+  const [
+    initialLoading,
+    setInitialLoading,
+  ] = useState(true)
+
+  const [
+    detailLoading,
+    setDetailLoading,
+  ] = useState(false)
+
+  const [
+    error,
+    setError,
+  ] = useState<string | null>(null)
+
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function loadInitialData() {
+      try {
+        setError(null)
+
+        const healthResult =
+          await getHealth()
+
+        if (cancelled) {
+          return
+        }
+
+        setHealth(
+          healthResult,
+        )
+
+
+        if (canIntegration) {
+          const integrationsResult =
+            await getIntegrations()
+
+          if (cancelled) {
+            return
+          }
+
+          setIntegrations(
+            integrationsResult,
+          )
+
+          if (
+            integrationsResult.length > 0
+          ) {
+            setSelectedId(
+              integrationsResult[0]
+                .source_object_id,
+            )
+          }
+
+          setActivePage(
+            'integrations',
+          )
+
+          return
+        }
+
+
+        setIntegrations([])
+        setSelectedId(null)
+
+
+        if (canEtl) {
+          setActivePage(
+            'etl',
+          )
+
+          return
+        }
+
+
+        if (canDq) {
+          setActivePage(
+            'dq',
+          )
+
+          return
+        }
+
+
+        if (canReporting) {
+          setActivePage(
+            'reporting',
+          )
+
+          setReportingLoading(
+            true,
+          )
+
+          try {
+            const reportingResult =
+              await getRetailReportingOverview()
+
+            if (!cancelled) {
+              setReportingOverview(
+                reportingResult,
+              )
+            }
+          } catch (reportError) {
+            if (!cancelled) {
+              setReportingError(
+                reportError instanceof Error
+                  ? reportError.message
+                  : 'Failed to load reporting data',
+              )
+            }
+          } finally {
+            if (!cancelled) {
+              setReportingLoading(
+                false,
+              )
+            }
+          }
+        }
+      } catch (loadError) {
+        if (cancelled) {
+          return
+        }
+
+        setError(
+          loadError instanceof Error
+            ? loadError.message
+            : 'Unknown error',
+        )
+      } finally {
+        if (!cancelled) {
+          setInitialLoading(
+            false,
+          )
+        }
+      }
+    }
+
+    void loadInitialData()
+
+    return () => {
+      cancelled = true
+    }
+  }, [
+    canDq,
+    canEtl,
+    canIntegration,
+    canReporting,
+  ])
+
+
+  useEffect(() => {
+    if (selectedId === null) {
+      return
+    }
+
+    let cancelled = false
+
+    async function loadIntegrationDetails() {
+      try {
+        setDetailLoading(true)
+        setError(null)
+
+        const [
+          overviewResult,
+          structureResult,
+          mappingsResult,
+          validationsResult,
+          dqRulesResult,
+          runsResult,
+          errorsResult,
+          issuesResult,
+        ] = await Promise.all([
+          getIntegrationOverview(selectedId!),
+          getIntegrationStructure(selectedId!),
+          getIntegrationMappings(selectedId!),
+          getIntegrationValidations(selectedId!),
+          getIntegrationDqRules(selectedId!),
+          getIntegrationRuns(selectedId!),
+          getIntegrationErrors(selectedId!),
+          getIntegrationIssues(selectedId!),
+        ])
+
+        if (cancelled) {
+          return
+        }
+
+        setOverview(
+          overviewResult,
+        )
+
+        setStructure(
+          structureResult,
+        )
+
+        setMappings(
+          mappingsResult,
+        )
+
+        setValidations(
+          validationsResult,
+        )
+
+        setDqRules(
+          dqRulesResult,
+        )
+
+        setRuns(
+          runsResult,
+        )
+
+        setErrors(
+          errorsResult,
+        )
+
+        setIssues(
+          issuesResult,
+        )
+      } catch (loadError) {
+        if (cancelled) {
+          return
+        }
+
+        setError(
+          loadError instanceof Error
+            ? loadError.message
+            : 'Unknown error',
+        )
+      } finally {
+        if (!cancelled) {
+          setDetailLoading(false)
+        }
+      }
+    }
+
+    void loadIntegrationDetails()
+
+    return () => {
+      cancelled = true
+    }
+  }, [selectedId])
+
+
+  useEffect(() => {
+    if (activePage !== 'etl') {
+      return
+    }
+
+    let cancelled = false
+
+    async function loadEtlRuns() {
+      try {
+        setEtlLoading(true)
+        setError(null)
+
+        const runsResult =
+          await getEtlRuns()
+
+        if (cancelled) {
+          return
+        }
+
+        setEtlRuns(
+          runsResult,
+        )
+
+        const firstBatchId =
+          selectedBatchId
+          ?? runsResult[0]?.batch_run_id
+          ?? null
+
+        if (firstBatchId === null) {
+          setSelectedBatchId(null)
+          setEtlJobs([])
+          return
+        }
+
+        setSelectedBatchId(
+          firstBatchId,
+        )
+
+        const jobsResult =
+          await getEtlRunJobs(
+            firstBatchId,
+          )
+
+        if (!cancelled) {
+          setEtlJobs(
+            jobsResult,
+          )
+        }
+      } catch (loadError) {
+        if (!cancelled) {
+          setError(
+            loadError instanceof Error
+              ? loadError.message
+              : 'Unknown error',
+          )
+        }
+      } finally {
+        if (!cancelled) {
+          setEtlLoading(false)
+        }
+      }
+    }
+
+    void loadEtlRuns()
+
+    return () => {
+      cancelled = true
+    }
+  }, [activePage])
+
+
+  async function selectBatch(
+    batchRunId: number,
+  ) {
+    try {
+      setSelectedBatchId(
+        batchRunId,
+      )
+
+      setEtlLoading(true)
+      setError(null)
+
+      const jobsResult =
+        await getEtlRunJobs(
+          batchRunId,
+        )
+
+      setEtlJobs(
+        jobsResult,
+      )
+    } catch (loadError) {
+      setError(
+        loadError instanceof Error
+          ? loadError.message
+          : 'Unknown error',
+      )
+    } finally {
+      setEtlLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    if (activePage !== 'dq') {
+      return
+    }
+
+    let cancelled = false
+
+    async function loadDataQuality() {
+      try {
+        setDqLoading(true)
+        setError(null)
+
+        const runsResult =
+          await getDqRuns()
+
+        if (cancelled) {
+          return
+        }
+
+        setGlobalDqRuns(
+          runsResult,
+        )
+
+        const firstRunId =
+          selectedDqRunId
+          ?? runsResult[0]?.dq_run_id
+          ?? null
+
+        if (firstRunId === null) {
+          setSelectedDqRunId(null)
+          setGlobalDqResults([])
+          setGlobalDqIssues([])
+          return
+        }
+
+        setSelectedDqRunId(
+          firstRunId,
+        )
+
+        const [
+          resultsResult,
+          issuesResult,
+        ] = await Promise.all([
+          getDqRunResults(firstRunId),
+          getDqRunIssues(firstRunId),
+        ])
+
+        if (!cancelled) {
+          setGlobalDqResults(
+            resultsResult,
+          )
+
+          setGlobalDqIssues(
+            issuesResult,
+          )
+        }
+      } catch (loadError) {
+        if (!cancelled) {
+          setError(
+            loadError instanceof Error
+              ? loadError.message
+              : 'Unknown error',
+          )
+        }
+      } finally {
+        if (!cancelled) {
+          setDqLoading(false)
+        }
+      }
+    }
+
+    void loadDataQuality()
+
+    return () => {
+      cancelled = true
+    }
+  }, [activePage])
+
+
+  async function selectDqRun(
+    dqRunId: number,
+  ) {
+    try {
+      setSelectedDqRunId(
+        dqRunId,
+      )
+
+      setDqLoading(true)
+      setError(null)
+
+      const [
+        resultsResult,
+        issuesResult,
+      ] = await Promise.all([
+        getDqRunResults(dqRunId),
+        getDqRunIssues(dqRunId),
+      ])
+
+      setGlobalDqResults(
+        resultsResult,
+      )
+
+      setGlobalDqIssues(
+        issuesResult,
+      )
+    } catch (loadError) {
+      setError(
+        loadError instanceof Error
+          ? loadError.message
+          : 'Unknown error',
+      )
+    } finally {
+      setDqLoading(false)
+    }
+  }
+
+  const selectedIntegration = useMemo(
+    () => integrations.find(
+      item =>
+        item.source_object_id
+        === selectedId,
+    ) ?? null,
+    [
+      integrations,
+      selectedId,
+    ],
+  )
+
+
+  function selectIntegration(
+    sourceObjectId: number,
+  ) {
+    setSelectedId(
+      sourceObjectId,
+    )
+
+    setActiveTab(
+      'overview',
+    )
+  }
+
+
+  function renderOverview() {
+    if (!overview) {
+      return null
+    }
+
+    return (
+      <>
+        <div className="metric-grid">
+          <article className="metric-card">
+            <span>Source columns</span>
+            <strong>
+              {
+                overview.integration.source_columns
+              }
+            </strong>
+            <small>
+              PK: {
+                overview.integration.pk_columns
+              }
+            </small>
+          </article>
+
+          <article className="metric-card">
+            <span>Mappings</span>
+            <strong>
+              {
+                overview.integration.total_mappings
+              }
+            </strong>
+            <small>
+              Source coverage: {
+                overview.integration.mapped_source_columns
+              }
+            </small>
+          </article>
+
+          <article className="metric-card">
+            <span>Contracts</span>
+            <strong>
+              {
+                overview.integration.active_contracts
+              }
+            </strong>
+            <small>
+              Required: {
+                overview.integration.required_columns
+              }
+            </small>
+          </article>
+
+          <article className="metric-card">
+            <span>DQ Rules</span>
+            <strong>
+              {
+                overview.dq_rules_total
+              }
+            </strong>
+            <small>
+              {
+                overview.dq_error_rules
+              } ERROR / {
+                overview.dq_warning_rules
+              } WARNING
+            </small>
+          </article>
+
+          <article className="metric-card">
+            <span>Open DQ issues</span>
+            <strong>
+              {
+                overview.open_dq_issues
+              }
+            </strong>
+            <small>
+              Current unresolved issues
+            </small>
+          </article>
+
+          <article className="metric-card">
+            <span>Technical errors</span>
+            <strong>
+              {
+                overview.technical_errors
+              }
+            </strong>
+            <small>
+              Historical ETL error records
+            </small>
+          </article>
+        </div>
+
+        <div className="overview-grid">
+          <section className="info-card">
+            <h3>Integration</h3>
+
+            <dl>
+              <dt>Source</dt>
+              <dd>
+                {
+                  overview.integration.source_schema
+                }.{
+                  overview.integration.source_object
+                }
+              </dd>
+
+              <dt>STG</dt>
+              <dd>
+                {
+                  overview.integration.stg_schema
+                }.{
+                  overview.integration.stg_table
+                }
+              </dd>
+
+              <dt>ODS</dt>
+              <dd>
+                {overview.ods_schema}.{
+                  overview.ods_object
+                }
+              </dd>
+
+              <dt>Strategy</dt>
+              <dd>
+                {
+                  overview.integration.load_strategy
+                }
+              </dd>
+
+              <dt>Watermark</dt>
+              <dd>
+                {
+                  overview.integration.watermark_column
+                  ?? ''
+                }
+              </dd>
+
+              <dt>Metadata captured</dt>
+              <dd>
+                {
+                  formatDate(
+                    overview.integration.metadata_captured_at,
+                  )
+                }
+              </dd>
+            </dl>
+          </section>
+
+          <section className="info-card">
+            <h3>Latest ETL job</h3>
+
+            {
+              overview.latest_job
+                ? (
+                  <dl>
+                    <dt>Status</dt>
+                    <dd>
+                      <span
+                        className={
+                          statusClass(
+                            overview.latest_job.job_status,
+                          )
+                        }
+                      >
+                        {
+                          overview.latest_job.job_status
+                        }
+                      </span>
+                    </dd>
+
+                    <dt>Batch</dt>
+                    <dd>
+                      {
+                        overview.latest_job.batch_run_id
+                      }
+                    </dd>
+
+                    <dt>Mode</dt>
+                    <dd>
+                      {
+                        overview.latest_job.run_mode
+                        ?? ''
+                      }
+                    </dd>
+
+                    <dt>Attempt</dt>
+                    <dd>
+                      {
+                        overview.latest_job.attempt_no
+                        ?? ''
+                      }
+                    </dd>
+
+                    <dt>Rows read</dt>
+                    <dd>
+                      {
+                        overview.latest_job.rows_read
+                        ?? 0
+                      }
+                    </dd>
+
+                    <dt>Finished</dt>
+                    <dd>
+                      {
+                        formatDate(
+                          overview.latest_job.finished_at,
+                        )
+                      }
+                    </dd>
+                  </dl>
+                )
+                : (
+                  <p className="empty">
+                    No ETL history
+                  </p>
+                )
+            }
+          </section>
+
+          <section className="info-card">
+            <h3>Latest DQ run</h3>
+
+            {
+              overview.latest_dq_run
+                ? (
+                  <dl>
+                    <dt>Status</dt>
+                    <dd>
+                      <span
+                        className={
+                          statusClass(
+                            overview.latest_dq_run.status,
+                          )
+                        }
+                      >
+                        {
+                          overview.latest_dq_run.status
+                        }
+                      </span>
+                    </dd>
+
+                    <dt>DQ run</dt>
+                    <dd>
+                      {
+                        overview.latest_dq_run.dq_run_id
+                      }
+                    </dd>
+
+                    <dt>Rules</dt>
+                    <dd>
+                      {
+                        overview.latest_dq_run.rules_total
+                      }
+                    </dd>
+
+                    <dt>Passed</dt>
+                    <dd>
+                      {
+                        overview.latest_dq_run.rules_passed
+                      }
+                    </dd>
+
+                    <dt>Failed</dt>
+                    <dd>
+                      {
+                        overview.latest_dq_run.rules_failed
+                      }
+                    </dd>
+
+                    <dt>Finished</dt>
+                    <dd>
+                      {
+                        formatDate(
+                          overview.latest_dq_run.finished_at,
+                        )
+                      }
+                    </dd>
+                  </dl>
+                )
+                : (
+                  <p className="empty">
+                    No DQ history
+                  </p>
+                )
+            }
+          </section>
+        </div>
+      </>
+    )
+  }
+
+
+  function renderStructure() {
+    return (
+      <div className="data-table-wrapper">
+        <table className="data-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Column</th>
+              <th>Source type</th>
+              <th>Nullable</th>
+              <th>PK</th>
+              <th>Unique</th>
+              <th>Identity</th>
+              <th>Generated</th>
+            </tr>
+          </thead>
+
+          <tbody>
+            {
+              structure.map(
+                column => (
+                  <tr
+                    key={
+                      `${column.ordinal_position}-${column.source_column}`
+                    }
+                  >
+                    <td>
+                      {
+                        column.ordinal_position
+                      }
+                    </td>
+
+                    <td className="code-value">
+                      {
+                        column.source_column
+                      }
+                    </td>
+
+                    <td>
+                      {
+                        column.source_type
+                      }
+                    </td>
+
+                    <td>
+                      {
+                        yesNo(
+                          column.is_nullable,
+                        )
+                      }
+                    </td>
+
+                    <td>
+                      {
+                        yesNo(
+                          column.is_primary_key,
+                        )
+                      }
+                    </td>
+
+                    <td>
+                      {
+                        yesNo(
+                          column.is_unique_key,
+                        )
+                      }
+                    </td>
+
+                    <td>
+                      {
+                        yesNo(
+                          column.is_identity,
+                        )
+                      }
+                    </td>
+
+                    <td>
+                      {
+                        yesNo(
+                          column.is_generated,
+                        )
+                      }
+                    </td>
+                  </tr>
+                ),
+              )
+            }
+          </tbody>
+        </table>
+      </div>
+    )
+  }
+
+
+  function renderMappings() {
+    return (
+      <div className="data-table-wrapper">
+        <table className="data-table mapping-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Type</th>
+              <th>Source</th>
+              <th>Target</th>
+              <th>PG type</th>
+              <th>Expression</th>
+              <th>Version</th>
+            </tr>
+          </thead>
+
+          <tbody>
+            {
+              mappings.map(
+                mapping => (
+                  <tr
+                    key={
+                      mapping.mapping_id
+                    }
+                  >
+                    <td>
+                      {
+                        mapping.mapping_position
+                      }
+                    </td>
+
+                    <td>
+                      <span className="badge badge-accent">
+                        {
+                          mapping.mapping_type
+                        }
+                      </span>
+                    </td>
+
+                    <td>
+                      {
+                        mapping.sources.length > 0
+                          ? mapping.sources.map(
+                            source => (
+                              <div
+                                className="source-ref"
+                                key={
+                                  `${source.source_layer}-${source.source_position}-${source.source_column}`
+                                }
+                              >
+                                <small>
+                                  {
+                                    source.source_layer
+                                  }
+                                </small>
+
+                                <span>
+                                  {
+                                    source.source_schema
+                                  }.{
+                                    source.source_object
+                                  }.{
+                                    source.source_column
+                                  }
+                                </span>
+                              </div>
+                            ),
+                          )
+                          : ''
+                      }
+                    </td>
+
+                    <td className="code-value">
+                      {
+                        mapping.target_schema
+                      }.{
+                        mapping.target_object
+                      }.{
+                        mapping.target_column
+                      }
+                    </td>
+
+                    <td>
+                      {
+                        mapping.expected_pg_type
+                        ?? ''
+                      }
+                    </td>
+
+                    <td className="expression">
+                      {
+                        mapping.transform_expression
+                        ?? ''
+                      }
+                    </td>
+
+                    <td>
+                      v{
+                        mapping.version_no
+                      }
+                    </td>
+                  </tr>
+                ),
+              )
+            }
+          </tbody>
+        </table>
+      </div>
+    )
+  }
+
+
+  function renderValidations() {
+    return (
+      <div className="data-table-wrapper">
+        <table className="data-table">
+          <thead>
+            <tr>
+              <th>Column</th>
+              <th>Source type</th>
+              <th>Expected PG</th>
+              <th>Required</th>
+              <th>Allow blank</th>
+              <th>Target</th>
+              <th>Version</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+
+          <tbody>
+            {
+              validations.map(
+                validation => (
+                  <tr
+                    key={
+                      validation.contract_id
+                    }
+                  >
+                    <td className="code-value">
+                      {
+                        validation.source_column
+                      }
+                    </td>
+
+                    <td>
+                      {
+                        validation.source_type
+                      }
+                    </td>
+
+                    <td>
+                      {
+                        validation.expected_pg_type
+                      }
+                    </td>
+
+                    <td>
+                      {
+                        yesNo(
+                          validation.is_required,
+                        )
+                      }
+                    </td>
+
+                    <td>
+                      {
+                        yesNo(
+                          validation.allow_blank,
+                        )
+                      }
+                    </td>
+
+                    <td className="code-value">
+                      {
+                        validation.contract_target_schema
+                      }.{
+                        validation.contract_target_object
+                      }.{
+                        validation.contract_target_column
+                      }
+                    </td>
+
+                    <td>
+                      v{
+                        validation.contract_version
+                      }
+                    </td>
+
+                    <td>
+                      <span
+                        className={
+                          validation.contract_active
+                            ? 'badge badge-success'
+                            : 'badge'
+                        }
+                      >
+                        {
+                          validation.contract_active
+                            ? 'ACTIVE'
+                            : 'CLOSED'
+                        }
+                      </span>
+                    </td>
+                  </tr>
+                ),
+              )
+            }
+          </tbody>
+        </table>
+      </div>
+    )
+  }
+
+
+  function renderDqRules() {
+    return (
+      <div className="data-table-wrapper">
+        <table className="data-table">
+          <thead>
+            <tr>
+              <th>Rule</th>
+              <th>Severity</th>
+              <th>Category</th>
+              <th>Relation</th>
+              <th>Source</th>
+              <th>Target</th>
+              <th>Column</th>
+            </tr>
+          </thead>
+
+          <tbody>
+            {
+              dqRules.map(
+                rule => (
+                  <tr
+                    key={
+                      rule.rule_id
+                    }
+                  >
+                    <td>
+                      <strong>
+                        {
+                          rule.rule_name
+                        }
+                      </strong>
+
+                      <small className="block-muted">
+                        {
+                          rule.rule_code
+                        }
+                      </small>
+                    </td>
+
+                    <td>
+                      <span
+                        className={
+                          rule.severity === 'ERROR'
+                            ? 'badge badge-danger'
+                            : 'badge badge-warning'
+                        }
+                      >
+                        {
+                          rule.severity
+                        }
+                      </span>
+                    </td>
+
+                    <td>
+                      {
+                        rule.category
+                      }
+                    </td>
+
+                    <td>
+                      <span className="badge badge-accent">
+                        {
+                          rule.relation_role
+                        }
+                      </span>
+                    </td>
+
+                    <td className="code-value">
+                      {
+                        rule.rule_source_object
+                      }
+                    </td>
+
+                    <td className="code-value">
+                      {
+                        rule.rule_target_object
+                      }
+                    </td>
+
+                    <td className="code-value">
+                      {
+                        rule.target_column
+                        ?? ''
+                      }
+                    </td>
+                  </tr>
+                ),
+              )
+            }
+          </tbody>
+        </table>
+      </div>
+    )
+  }
+
+
+  function renderRuns() {
+    if (runs.length === 0) {
+      return (
+        <div className="empty-state">
+          No ETL run history for this integration.
+        </div>
+      )
+    }
+
+    return (
+      <div className="data-table-wrapper">
+        <table className="data-table history-table">
+          <thead>
+            <tr>
+              <th>Batch</th>
+              <th>Attempt</th>
+              <th>Mode</th>
+              <th>Batch status</th>
+              <th>Job status</th>
+              <th>Reuse</th>
+              <th>Rows read</th>
+              <th>Inserted</th>
+              <th>Updated</th>
+              <th>Rejected</th>
+              <th>Errors</th>
+              <th>Finished</th>
+              <th>Message</th>
+            </tr>
+          </thead>
+
+          <tbody>
+            {
+              runs.map(
+                run => (
+                  <tr key={run.job_run_id}>
+                    <td className="code-value">
+                      {run.batch_run_id}
+                    </td>
+
+                    <td>
+                      {run.attempt_no ?? ''}
+                    </td>
+
+                    <td>
+                      <span className="badge badge-accent">
+                        {run.run_mode ?? ''}
+                      </span>
+                    </td>
+
+                    <td>
+                      <span
+                        className={
+                          statusClass(
+                            run.batch_status,
+                          )
+                        }
+                      >
+                        {run.batch_status}
+                      </span>
+                    </td>
+
+                    <td>
+                      <span
+                        className={
+                          statusClass(
+                            run.job_status,
+                          )
+                        }
+                      >
+                        {run.job_status}
+                      </span>
+                    </td>
+
+                    <td className="code-value">
+                      {
+                        run.reused_from_job_run_id
+                        ?? ''
+                      }
+                    </td>
+
+                    <td>
+                      {run.rows_read ?? 0}
+                    </td>
+
+                    <td>
+                      {run.rows_inserted ?? 0}
+                    </td>
+
+                    <td>
+                      {run.rows_updated ?? 0}
+                    </td>
+
+                    <td>
+                      {run.rows_rejected ?? 0}
+                    </td>
+
+                    <td>
+                      {run.error_count ?? 0}
+                    </td>
+
+                    <td>
+                      {
+                        formatDate(
+                          run.finished_at,
+                        )
+                      }
+                    </td>
+
+                    <td className="message-cell">
+                      {run.message ?? ''}
+                    </td>
+                  </tr>
+                ),
+              )
+            }
+          </tbody>
+        </table>
+      </div>
+    )
+  }
+
+
+  function renderErrors() {
+    if (errors.length === 0) {
+      return (
+        <div className="empty-state success-empty">
+          No technical ETL errors recorded for this integration.
+        </div>
+      )
+    }
+
+    return (
+      <div className="data-table-wrapper">
+        <table className="data-table history-table">
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>Batch</th>
+              <th>Stage</th>
+              <th>Code</th>
+              <th>Source PK</th>
+              <th>Column</th>
+              <th>Bad value</th>
+              <th>Expected</th>
+              <th>Exception</th>
+              <th>Message</th>
+            </tr>
+          </thead>
+
+          <tbody>
+            {
+              errors.map(
+                errorItem => (
+                  <tr key={errorItem.error_id}>
+                    <td>
+                      {
+                        formatDate(
+                          errorItem.occurred_at,
+                        )
+                      }
+                    </td>
+
+                    <td className="code-value">
+                      {
+                        errorItem.batch_run_id
+                        ?? ''
+                      }
+                    </td>
+
+                    <td>
+                      {
+                        errorItem.error_stage
+                        ?? ''
+                      }
+                    </td>
+
+                    <td>
+                      <span className="badge badge-danger">
+                        {
+                          errorItem.error_code
+                          ?? 'ERROR'
+                        }
+                      </span>
+                    </td>
+
+                    <td className="code-value">
+                      {
+                        errorItem.source_pk
+                        ?? ''
+                      }
+                    </td>
+
+                    <td className="code-value">
+                      {
+                        errorItem.column_name
+                        ?? ''
+                      }
+                    </td>
+
+                    <td className="bad-value">
+                      {
+                        errorItem.bad_value
+                        ?? ''
+                      }
+                    </td>
+
+                    <td>
+                      {
+                        errorItem.expected_value
+                        ?? ''
+                      }
+                    </td>
+
+                    <td>
+                      {
+                        errorItem.exception_type
+                        ?? ''
+                      }
+                    </td>
+
+                    <td className="message-cell">
+                      {
+                        errorItem.error_message
+                        ?? ''
+                      }
+                    </td>
+                  </tr>
+                ),
+              )
+            }
+          </tbody>
+        </table>
+      </div>
+    )
+  }
+
+
+  function renderIssues() {
+    if (issues.length === 0) {
+      return (
+        <div className="empty-state success-empty">
+          No DQ issues recorded for this integration.
+        </div>
+      )
+    }
+
+    return (
+      <div className="data-table-wrapper">
+        <table className="data-table history-table">
+          <thead>
+            <tr>
+              <th>Created</th>
+              <th>DQ run</th>
+              <th>Rule</th>
+              <th>Severity</th>
+              <th>Status</th>
+              <th>Source PK</th>
+              <th>Column</th>
+              <th>Bad value</th>
+              <th>Expected</th>
+              <th>Message</th>
+              <th>Resolved</th>
+            </tr>
+          </thead>
+
+          <tbody>
+            {
+              issues.map(
+                issue => (
+                  <tr key={issue.dq_issue_id}>
+                    <td>
+                      {
+                        formatDate(
+                          issue.created_at,
+                        )
+                      }
+                    </td>
+
+                    <td className="code-value">
+                      {issue.dq_run_id}
+                    </td>
+
+                    <td>
+                      <strong>
+                        {issue.rule_name}
+                      </strong>
+
+                      <small className="block-muted">
+                        {issue.rule_code}
+                      </small>
+                    </td>
+
+                    <td>
+                      <span
+                        className={
+                          issue.severity === 'ERROR'
+                            ? 'badge badge-danger'
+                            : 'badge badge-warning'
+                        }
+                      >
+                        {issue.severity}
+                      </span>
+                    </td>
+
+                    <td>
+                      <span
+                        className={
+                          issue.issue_status === 'OPEN'
+                            ? 'badge badge-danger'
+                            : 'badge badge-success'
+                        }
+                      >
+                        {issue.issue_status}
+                      </span>
+                    </td>
+
+                    <td className="code-value">
+                      {issue.source_pk ?? ''}
+                    </td>
+
+                    <td className="code-value">
+                      {issue.column_name ?? ''}
+                    </td>
+
+                    <td className="bad-value">
+                      {issue.bad_value ?? ''}
+                    </td>
+
+                    <td>
+                      {issue.expected_value ?? ''}
+                    </td>
+
+                    <td className="message-cell">
+                      {issue.error_message ?? ''}
+                    </td>
+
+                    <td>
+                      {
+                        formatDate(
+                          issue.resolved_at,
+                        )
+                      }
+                    </td>
+                  </tr>
+                ),
+              )
+            }
+          </tbody>
+        </table>
+      </div>
+    )
+  }
+
+  function renderActiveTab() {
+    switch (activeTab) {
+      case 'overview':
+        return renderOverview()
+
+      case 'structure':
+        return renderStructure()
+
+      case 'mapping':
+        return renderMappings()
+
+      case 'validations':
+        return renderValidations()
+
+      case 'dq':
+        return renderDqRules()
+
+      case 'runs':
+        return renderRuns()
+
+      case 'errors':
+        return renderErrors()
+
+      case 'issues':
+        return renderIssues()
+
+      default:
+        return null
+    }
+  }
+
+
+  function renderDqPage() {
+    return (
+      <>
+        <header className="workspace-header">
+          <div>
+            <div className="breadcrumb">
+              DWH / Data Quality
+            </div>
+
+            <h1>
+              Data Quality
+            </h1>
+
+            <p>
+              DQ execution history, exact rule results
+              and row-level data issues.
+            </p>
+          </div>
+
+          <div className="header-meta">
+            <span className="badge badge-accent">
+              {globalDqRuns.length} RUNS
+            </span>
+          </div>
+        </header>
+
+        {
+          error
+            ? (
+              <div className="error">
+                <strong>API error</strong>
+                <span>{error}</span>
+              </div>
+            )
+            : null
+        }
+
+        {
+          dqLoading
+          && globalDqRuns.length === 0
+            ? (
+              <div className="loading-panel">
+                Loading Data Quality...
+              </div>
+            )
+            : (
+              <>
+                <div className="data-table-wrapper">
+                  <table className="data-table dq-run-table">
+                    <thead>
+                      <tr>
+                        <th>DQ Run</th>
+                        <th>Source batch</th>
+                        <th>Business date</th>
+                        <th>Status</th>
+                        <th>Rules</th>
+                        <th>Passed</th>
+                        <th>Warnings</th>
+                        <th>Failed</th>
+                        <th>Issues</th>
+                        <th>Open</th>
+                        <th>Frozen versions</th>
+                        <th>Finished</th>
+                      </tr>
+                    </thead>
+
+                    <tbody>
+                      {
+                        globalDqRuns.map(
+                          run => (
+                            <tr
+                              key={run.dq_run_id}
+                              className={
+                                selectedDqRunId
+                                  === run.dq_run_id
+                                  ? 'clickable-row selected-row'
+                                  : 'clickable-row'
+                              }
+                              onClick={
+                                () => {
+                                  void selectDqRun(
+                                    run.dq_run_id,
+                                  )
+                                }
+                              }
+                            >
+                              <td className="code-value">
+                                {run.dq_run_id}
+                              </td>
+
+                              <td className="code-value">
+                                {
+                                  run.source_batch_run_id
+                                }
+                              </td>
+
+                              <td>
+                                {
+                                  run.business_date
+                                  ?? ''
+                                }
+                              </td>
+
+                              <td>
+                                <span
+                                  className={
+                                    statusClass(
+                                      run.status,
+                                    )
+                                  }
+                                >
+                                  {run.status}
+                                </span>
+                              </td>
+
+                              <td>
+                                {run.rules_total}
+                              </td>
+
+                              <td>
+                                {run.rules_passed}
+                              </td>
+
+                              <td>
+                                {run.rules_warned}
+                              </td>
+
+                              <td>
+                                {run.rules_failed}
+                              </td>
+
+                              <td>
+                                {run.issues_total}
+                              </td>
+
+                              <td>
+                                {run.issues_open}
+                              </td>
+
+                              <td>
+                                {
+                                  run.frozen_rule_versions
+                                }
+                              </td>
+
+                              <td>
+                                {
+                                  formatDate(
+                                    run.finished_at,
+                                  )
+                                }
+                              </td>
+                            </tr>
+                          ),
+                        )
+                      }
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="section-heading">
+                  <div>
+                    <span>Rule results</span>
+
+                    <strong>
+                      {
+                        selectedDqRunId
+                        ?? ''
+                      }
+                    </strong>
+                  </div>
+
+                  <small>
+                    {
+                      globalDqResults.length
+                    } rules
+                  </small>
+                </div>
+
+                <div className="data-table-wrapper">
+                  <table className="data-table dq-result-table">
+                    <thead>
+                      <tr>
+                        <th>Rule</th>
+                        <th>Version</th>
+                        <th>Severity</th>
+                        <th>Category</th>
+                        <th>Column</th>
+                        <th>Result</th>
+                        <th>Checked</th>
+                        <th>Failed</th>
+                        <th>Issues</th>
+                        <th>Metric</th>
+                        <th>Expected</th>
+                        <th>Checked at</th>
+                      </tr>
+                    </thead>
+
+                    <tbody>
+                      {
+                        globalDqResults.map(
+                          result => (
+                            <tr key={result.dq_result_id}>
+                              <td>
+                                <strong>
+                                  {result.rule_name}
+                                </strong>
+
+                                <small className="block-muted">
+                                  {result.rule_code}
+                                </small>
+                              </td>
+
+                              <td>
+                                v{result.rule_version}
+                              </td>
+
+                              <td>
+                                <span
+                                  className={
+                                    result.severity === 'ERROR'
+                                      ? 'badge badge-danger'
+                                      : 'badge badge-warning'
+                                  }
+                                >
+                                  {result.severity}
+                                </span>
+                              </td>
+
+                              <td>
+                                {result.category}
+                              </td>
+
+                              <td className="code-value">
+                                {
+                                  result.target_column
+                                  ?? ''
+                                }
+                              </td>
+
+                              <td>
+                                <span
+                                  className={
+                                    result.status === 'PASS'
+                                      ? 'badge badge-success'
+                                      : 'badge badge-danger'
+                                  }
+                                >
+                                  {result.status}
+                                </span>
+                              </td>
+
+                              <td>
+                                {
+                                  result.checked_rows
+                                  ?? ''
+                                }
+                              </td>
+
+                              <td>
+                                {result.failed_rows}
+                              </td>
+
+                              <td>
+                                {result.issue_count}
+                              </td>
+
+                              <td>
+                                {
+                                  result.metric_value
+                                  ?? ''
+                                }
+                              </td>
+
+                              <td>
+                                {
+                                  result.expected_value
+                                  ?? ''
+                                }
+                              </td>
+
+                              <td>
+                                {
+                                  formatDate(
+                                    result.checked_at,
+                                  )
+                                }
+                              </td>
+                            </tr>
+                          ),
+                        )
+                      }
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="section-heading">
+                  <div>
+                    <span>Row-level issues</span>
+
+                    <strong>
+                      {globalDqIssues.length}
+                    </strong>
+                  </div>
+                </div>
+
+                {
+                  globalDqIssues.length === 0
+                    ? (
+                      <div className="empty-state success-empty">
+                        No row-level issues for this DQ run.
+                      </div>
+                    )
+                    : (
+                      <div className="data-table-wrapper">
+                        <table className="data-table history-table">
+                          <thead>
+                            <tr>
+                              <th>Rule</th>
+                              <th>Severity</th>
+                              <th>Status</th>
+                              <th>Source</th>
+                              <th>PK</th>
+                              <th>Application</th>
+                              <th>Column</th>
+                              <th>Bad value</th>
+                              <th>Expected</th>
+                              <th>Message</th>
+                              <th>Created</th>
+                              <th>Resolved</th>
+                            </tr>
+                          </thead>
+
+                          <tbody>
+                            {
+                              globalDqIssues.map(
+                                issue => (
+                                  <tr key={issue.dq_issue_id}>
+                                    <td>
+                                      <strong>
+                                        {issue.rule_name}
+                                      </strong>
+
+                                      <small className="block-muted">
+                                        {issue.rule_code}
+                                      </small>
+                                    </td>
+
+                                    <td>
+                                      <span
+                                        className={
+                                          issue.severity === 'ERROR'
+                                            ? 'badge badge-danger'
+                                            : 'badge badge-warning'
+                                        }
+                                      >
+                                        {issue.severity}
+                                      </span>
+                                    </td>
+
+                                    <td>
+                                      {issue.issue_status}
+                                    </td>
+
+                                    <td className="code-value">
+                                      {issue.source_schema}.{
+                                        issue.source_object
+                                      }
+                                    </td>
+
+                                    <td className="code-value">
+                                      {issue.source_pk ?? ''}
+                                    </td>
+
+                                    <td className="code-value">
+                                      {
+                                        issue.application_id
+                                        ?? ''
+                                      }
+                                    </td>
+
+                                    <td className="code-value">
+                                      {
+                                        issue.column_name
+                                        ?? ''
+                                      }
+                                    </td>
+
+                                    <td className="bad-value">
+                                      {
+                                        issue.bad_value
+                                        ?? ''
+                                      }
+                                    </td>
+
+                                    <td>
+                                      {
+                                        issue.expected_value
+                                        ?? ''
+                                      }
+                                    </td>
+
+                                    <td className="message-cell">
+                                      {
+                                        issue.error_message
+                                        ?? ''
+                                      }
+                                    </td>
+
+                                    <td>
+                                      {
+                                        formatDate(
+                                          issue.created_at,
+                                        )
+                                      }
+                                    </td>
+
+                                    <td>
+                                      {
+                                        formatDate(
+                                          issue.resolved_at,
+                                        )
+                                      }
+                                    </td>
+                                  </tr>
+                                ),
+                              )
+                            }
+                          </tbody>
+                        </table>
+                      </div>
+                    )
+                }
+              </>
+            )
+        }
+      </>
+    )
+  }
+
+  async function selectReportingPage() {
+    setActivePage('reporting')
+
+    // Every entry into Reporting starts collapsed.
+    setOpenReportingSections([])
+
+    // Reset report navigation.
+    setReportingSearch('')
+    setReportingSearchIndex(0)
+    setHighlightedReport(null)
+    setExportMenuReport(null)
+
+    setReportingLoading(true)
+    setReportingError(null)
+
+    try {
+      const data =
+        await getRetailReportingOverview()
+
+      setReportingOverview(data)
+    } catch (err) {
+      setReportingError(
+        err instanceof Error
+          ? err.message
+          : 'Failed to load reporting data',
+      )
+    } finally {
+      setReportingLoading(false)
+    }
+  }
+
+
+  function getReportingSections(): Array<{
+    key: ReportKey
+    title: string
+    items: RetailReportingOverview['by_status']
+  }> {
+    if (!reportingOverview) {
+      return []
+    }
+
+    return [
+      {
+        key: 'status',
+        title: 'Status',
+        items: reportingOverview.by_status,
+      },
+      {
+        key: 'stage',
+        title: 'Stage',
+        items: reportingOverview.by_stage,
+      },
+      {
+        key: 'channel',
+        title: 'Sales channel',
+        items: reportingOverview.by_channel,
+      },
+      {
+        key: 'product',
+        title: 'Bank pre-approved product',
+        items: reportingOverview.by_product,
+      },
+    ]
+  }
+
+
+  function getReportingSearchMatches() {
+    const query =
+      reportingSearch
+        .trim()
+        .toLocaleLowerCase()
+
+    // Search starts only after at least
+    // three non-space characters are entered.
+    if (query.length < 3) {
+      return []
+    }
+
+    return getReportingSections().filter(
+      section =>
+        section.title
+          .toLocaleLowerCase()
+          .includes(query),
+    )
+  }
+
+
+  function toggleReportingSection(
+    reportKey: ReportKey,
+  ) {
+    setOpenReportingSections(
+      current =>
+        current.includes(reportKey)
+          ? current.filter(
+              key => key !== reportKey,
+            )
+          : [
+              ...current,
+              reportKey,
+            ],
+    )
+  }
+
+
+  function goToNextReportingMatch() {
+    const matches =
+      getReportingSearchMatches()
+
+    if (matches.length === 0) {
+      return
+    }
+
+    const targetIndex =
+      reportingSearchIndex
+      % matches.length
+
+    const target =
+      matches[targetIndex]
+
+    setReportingSearchIndex(
+      (targetIndex + 1)
+      % matches.length,
+    )
+
+    // Remove the class first so the animation
+    // can be restarted even for the same report.
+    setHighlightedReport(null)
+
+    window.setTimeout(
+      () => {
+        const element =
+          document.getElementById(
+            `report-${target.key}`,
+          )
+
+        element?.scrollIntoView({
+          behavior: 'smooth',
+          block: 'start',
+        })
+
+        setHighlightedReport(
+          target.key,
+        )
+      },
+      30,
+    )
+  }
+
+
+  async function exportReportingSection(
+    reportKey: ReportKey,
+    fileFormat: 'xlsx' | 'pdf' | 'txt',
+  ) {
+    setExportMenuReport(null)
+    setExportingReport(reportKey)
+    setReportingError(null)
+
+    try {
+      await downloadRetailReport(
+        reportKey,
+        fileFormat,
+      )
+    } catch (err) {
+      setReportingError(
+        err instanceof Error
+          ? err.message
+          : 'Failed to export report',
+      )
+    } finally {
+      setExportingReport(null)
+    }
+  }
+
+
+  function renderReportingDimension(
+    reportKey: ReportKey,
+    title: string,
+    items: RetailReportingOverview['by_status'],
+  ) {
+    const showCode =
+      items.some(
+        item => item.code !== null,
+      )
+
+    const isOpen =
+      openReportingSections.includes(
+        reportKey,
+      )
+
+    const isHighlighted =
+      highlightedReport === reportKey
+
+    const exportMenuOpen =
+      exportMenuReport === reportKey
+
+    const isExporting =
+      exportingReport === reportKey
+
+    return (
+      <section
+        id={`report-${reportKey}`}
+        className={
+          [
+            'reporting-panel',
+
+            isHighlighted
+              ? 'reporting-search-hit'
+              : '',
+
+            exportMenuOpen
+              ? 'reporting-export-open'
+              : '',
+          ]
+            .filter(Boolean)
+            .join(' ')
+        }
+      >
+        <div className="reporting-panel-header-row">
+
+          <button
+            type="button"
+            className="reporting-panel-toggle"
+            aria-expanded={isOpen}
+            onClick={
+              () =>
+                toggleReportingSection(
+                  reportKey,
+                )
+            }
+          >
+            <div className="reporting-panel-title">
+              <h2>
+                {title}
+              </h2>
+            </div>
+          </button>
+
+
+          <div className="reporting-panel-actions">
+
+            <span className="reporting-record-count">
+              {items.length} records
+            </span>
+
+
+            <div className="reporting-export-wrap">
+
+              <button
+                type="button"
+                className="reporting-export-button"
+                disabled={isExporting}
+                aria-expanded={exportMenuOpen}
+                aria-haspopup="menu"
+                onClick={
+                  () => {
+                    setExportMenuReport(
+                      current =>
+                        current === reportKey
+                          ? null
+                          : reportKey,
+                    )
+                  }
+                }
+              >
+                <span
+                  className="reporting-export-icon"
+                  aria-hidden="true"
+                >
+                  
+                </span>
+
+                {
+                  isExporting
+                    ? 'Выгрузка...'
+                    : 'Выгрузить'
+                }
+
+                <span
+                  className="reporting-export-caret"
+                  aria-hidden="true"
+                >
+                  ▾
+                </span>
+              </button>
+
+
+              {
+                exportMenuOpen
+                  ? (
+                    <div
+                      className="reporting-export-menu"
+                      role="menu"
+                    >
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={
+                          () => {
+                            void exportReportingSection(
+                              reportKey,
+                              'xlsx',
+                            )
+                          }
+                        }
+                      >
+                        <strong>
+                          Excel
+                        </strong>
+
+                        <span>
+                          .xlsx
+                        </span>
+                      </button>
+
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={
+                          () => {
+                            void exportReportingSection(
+                              reportKey,
+                              'pdf',
+                            )
+                          }
+                        }
+                      >
+                        <strong>
+                          PDF
+                        </strong>
+
+                        <span>
+                          .pdf
+                        </span>
+                      </button>
+
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={
+                          () => {
+                            void exportReportingSection(
+                              reportKey,
+                              'txt',
+                            )
+                          }
+                        }
+                      >
+                        <strong>
+                          Text
+                        </strong>
+
+                        <span>
+                          .txt
+                        </span>
+                      </button>
+                    </div>
+                  )
+                  : null
+              }
+
+            </div>
+
+
+            <button
+              type="button"
+              className="reporting-chevron-button"
+              aria-label={
+                isOpen
+                  ? `Collapse ${title}`
+                  : `Expand ${title}`
+              }
+              aria-expanded={isOpen}
+              onClick={
+                () =>
+                  toggleReportingSection(
+                    reportKey,
+                  )
+              }
+            >
+              <span
+                className={
+                  isOpen
+                    ? 'reporting-chevron open'
+                    : 'reporting-chevron'
+                }
+                aria-hidden="true"
+              >
+                {isOpen ? '-' : '+'}
+              </span>
+            </button>
+
+          </div>
+        </div>
+
+
+        {
+          isOpen
+            ? (
+              <div className="reporting-panel-body">
+                <div className="data-table-wrapper">
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th>ID</th>
+
+                        {
+                          showCode
+                            ? <th>Code</th>
+                            : null
+                        }
+
+                        <th>Name</th>
+                        <th>Applications</th>
+                      </tr>
+                    </thead>
+
+                    <tbody>
+                      {
+                        items.map(
+                          item => (
+                            <tr
+                              key={
+                                [
+                                  title,
+                                  item.id ?? '',
+                                  item.code ?? '',
+                                ].join('-')
+                              }
+                            >
+                              <td className="code-value">
+                                {item.id ?? ''}
+                              </td>
+
+                              {
+                                showCode
+                                  ? (
+                                    <td className="code-value">
+                                      {item.code ?? ''}
+                                    </td>
+                                  )
+                                  : null
+                              }
+
+                              <td>
+                                {item.name ?? ''}
+                              </td>
+
+                              <td>
+                                {item.applications}
+                              </td>
+                            </tr>
+                          ),
+                        )
+                      }
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )
+            : null
+        }
+      </section>
+    )
+  }
+
+  function renderReportingPage() {
+    const sections =
+      getReportingSections()
+
+    const searchMatches =
+      getReportingSearchMatches()
+
+    return (
+      <div className="reporting-page">
+
+        <div className="reporting-sticky-top">
+
+          <header className="workspace-header">
+            <div>
+              <div className="breadcrumb">
+                DWH / Reporting
+              </div>
+
+              <h1>
+                Retail Applications
+              </h1>
+
+              <p>
+                Current application snapshot from
+                the Retail Data Mart.
+              </p>
+            </div>
+
+            {
+              reportingOverview
+                ? (
+                  <div className="header-meta">
+                    <span className="badge badge-accent">
+                      {
+                        reportingOverview.applications
+                      } APPLICATIONS
+                    </span>
+                  </div>
+                )
+                : null
+            }
+          </header>
+
+
+          {
+            reportingError
+              ? (
+                <div className="error">
+                  <strong>
+                    Reporting API error
+                  </strong>
+
+                  <span>
+                    {reportingError}
+                  </span>
+                </div>
+              )
+              : null
+          }
+
+
+          {
+            reportingOverview
+              ? (
+                <>
+                  <section className="reporting-kpi-grid">
+
+                    <article className="reporting-kpi-card">
+                      <span className="reporting-kpi-label">
+                        Applications
+                      </span>
+
+                      <strong className="reporting-kpi-value">
+                        {
+                          reportingOverview.applications
+                        }
+                      </strong>
+
+                      <small>
+                        Current Data Mart snapshot
+                      </small>
+                    </article>
+
+
+                    <article className="reporting-kpi-card">
+                      <span className="reporting-kpi-label">
+                        Bank pre-approved conditions
+                      </span>
+
+                      <strong className="reporting-kpi-value">
+                        {
+                          reportingOverview
+                            .requested_amount_rows
+                        }
+                      </strong>
+
+                      <small>
+                        of {
+                          reportingOverview.applications
+                        } applications
+                      </small>
+                    </article>
+
+
+                    <article className="reporting-kpi-card">
+                      <span className="reporting-kpi-label">
+                        Client-selected conditions
+                      </span>
+
+                      <strong className="reporting-kpi-value">
+                        {
+                          reportingOverview
+                            .chosen_amount_rows
+                        }
+                      </strong>
+
+                      <small>
+                        of {
+                          reportingOverview.applications
+                        } applications
+                      </small>
+                    </article>
+
+
+                    <article className="reporting-kpi-card">
+                      <span className="reporting-kpi-label">
+                        Final issue conditions
+                      </span>
+
+                      <strong className="reporting-kpi-value">
+                        {
+                          reportingOverview
+                            .final_amount_rows
+                        }
+                      </strong>
+
+                      <small>
+                        of {
+                          reportingOverview.applications
+                        } applications
+                      </small>
+                    </article>
+
+                  </section>
+
+
+                  <div className="reporting-search-bar">
+
+                    <label className="reporting-search-field">
+                      <span>
+                        Report filter
+                      </span>
+
+                      <input
+                        type="text"
+                        value={reportingSearch}
+                        placeholder="Minimum 3 characters"
+                        onChange={
+                          event => {
+                            setReportingSearch(
+                              event.target.value,
+                            )
+
+                            setReportingSearchIndex(0)
+                            setHighlightedReport(null)
+                          }
+                        }
+                        onKeyDown={
+                          event => {
+                            if (event.key === 'Enter') {
+                              goToNextReportingMatch()
+                            }
+                          }
+                        }
+                      />
+                    </label>
+
+
+                    <div className="reporting-search-count">
+                      Found:
+                      {' '}
+                      <strong>
+                        {searchMatches.length}
+                      </strong>
+                    </div>
+
+
+                    <button
+                      type="button"
+                      className="reporting-search-next"
+                      disabled={
+                        searchMatches.length === 0
+                      }
+                      onClick={
+                        goToNextReportingMatch
+                      }
+                    >
+                      Перейти
+                    </button>
+
+                  </div>
+                </>
+              )
+              : null
+          }
+
+        </div>
+
+
+        {
+          reportingLoading
+          && reportingOverview === null
+            ? (
+              <div className="loading-panel">
+                Loading reporting data...
+              </div>
+            )
+            : null
+        }
+
+
+        {
+          reportingOverview
+            ? (
+              <div className="reporting-reports">
+
+                <div className="reporting-grid">
+                  {
+                    sections.map(
+                      section =>
+                        renderReportingDimension(
+                          section.key,
+                          section.title,
+                          section.items,
+                        ),
+                    )
+                  }
+                </div>
+
+              </div>
+            )
+            : null
+        }
+
+      </div>
+    )
+  }
+
+  function renderEtlPage() {
+    return (
+      <>
+        <header className="workspace-header">
+          <div>
+            <div className="breadcrumb">
+              DWH / ETL Runs
+            </div>
+
+            <h1>
+              ETL Runs
+            </h1>
+
+            <p>
+              Batch history, attempts, FULL / CONTINUE
+              execution and job-level results.
+            </p>
+          </div>
+
+          <div className="header-meta">
+            <span className="badge badge-accent">
+              {etlRuns.length} RUNS
+            </span>
+          </div>
+        </header>
+
+        {
+          error
+            ? (
+              <div className="error">
+                <strong>
+                  API error
+                </strong>
+
+                <span>
+                  {error}
+                </span>
+              </div>
+            )
+            : null
+        }
+
+        {
+          etlLoading && etlRuns.length === 0
+            ? (
+              <div className="loading-panel">
+                Loading ETL history...
+              </div>
+            )
+            : (
+              <>
+                <section className="etl-layout">
+                  <div className="data-table-wrapper">
+                    <table className="data-table etl-run-table">
+                      <thead>
+                        <tr>
+                          <th>Batch</th>
+                          <th>Mode</th>
+                          <th>Attempt</th>
+                          <th>Status</th>
+                          <th>Root</th>
+                          <th>Resume from</th>
+                          <th>Success</th>
+                          <th>Failed</th>
+                          <th>Skipped</th>
+                          <th>Contracts</th>
+                          <th>Mappings</th>
+                          <th>Finished</th>
+                        </tr>
+                      </thead>
+
+                      <tbody>
+                        {
+                          etlRuns.map(
+                            run => (
+                              <tr
+                                key={run.batch_run_id}
+                                className={
+                                  selectedBatchId
+                                    === run.batch_run_id
+                                    ? 'clickable-row selected-row'
+                                    : 'clickable-row'
+                                }
+                                onClick={
+                                  () => {
+                                    void selectBatch(
+                                      run.batch_run_id,
+                                    )
+                                  }
+                                }
+                              >
+                                <td className="code-value">
+                                  {run.batch_run_id}
+                                </td>
+
+                                <td>
+                                  <span className="badge badge-accent">
+                                    {run.run_mode ?? ''}
+                                  </span>
+                                </td>
+
+                                <td>
+                                  {run.attempt_no ?? ''}
+                                </td>
+
+                                <td>
+                                  <span
+                                    className={
+                                      statusClass(
+                                        run.status,
+                                      )
+                                    }
+                                  >
+                                    {run.status}
+                                  </span>
+                                </td>
+
+                                <td className="code-value">
+                                  {
+                                    run.root_batch_run_id
+                                    ?? ''
+                                  }
+                                </td>
+
+                                <td className="code-value">
+                                  {
+                                    run.resume_from_batch_run_id
+                                    ?? ''
+                                  }
+                                </td>
+
+                                <td>
+                                  {run.jobs_success}
+                                </td>
+
+                                <td>
+                                  {run.jobs_failed}
+                                </td>
+
+                                <td>
+                                  {run.jobs_skipped}
+                                </td>
+
+                                <td>
+                                  {run.contract_versions}
+                                </td>
+
+                                <td>
+                                  {run.mapping_versions}
+                                </td>
+
+                                <td>
+                                  {
+                                    formatDate(
+                                      run.finished_at,
+                                    )
+                                  }
+                                </td>
+                              </tr>
+                            ),
+                          )
+                        }
+                      </tbody>
+                    </table>
+                  </div>
+                </section>
+
+                <div className="section-heading">
+                  <div>
+                    <span>
+                      Selected batch
+                    </span>
+
+                    <strong>
+                      {
+                        selectedBatchId
+                        ?? ''
+                      }
+                    </strong>
+                  </div>
+
+                  <small>
+                    {
+                      etlJobs.length
+                    } jobs
+                  </small>
+                </div>
+
+                <div className="data-table-wrapper">
+                  <table className="data-table etl-jobs-table">
+                    <thead>
+                      <tr>
+                        <th>Order</th>
+                        <th>Job</th>
+                        <th>Status</th>
+                        <th>Target</th>
+                        <th>Reuse</th>
+                        <th>Rows read</th>
+                        <th>Inserted</th>
+                        <th>Updated</th>
+                        <th>Rejected</th>
+                        <th>Errors</th>
+                        <th>Finished</th>
+                      </tr>
+                    </thead>
+
+                    <tbody>
+                      {
+                        etlJobs.map(
+                          job => (
+                            <tr key={job.job_run_id}>
+                              <td>
+                                {job.execution_order}
+                              </td>
+
+                              <td>
+                                <strong>
+                                  {job.job_code}
+                                </strong>
+
+                                <small className="block-muted">
+                                  job_run_id={
+                                    job.job_run_id
+                                  }
+                                </small>
+                              </td>
+
+                              <td>
+                                <span
+                                  className={
+                                    statusClass(
+                                      job.job_status,
+                                    )
+                                  }
+                                >
+                                  {job.job_status}
+                                </span>
+                              </td>
+
+                              <td className="code-value">
+                                {job.target_schema}.{
+                                  job.target_object
+                                }
+                              </td>
+
+                              <td className="code-value">
+                                {
+                                  job.reused_from_job_run_id
+                                  ?? ''
+                                }
+                              </td>
+
+                              <td>
+                                {job.rows_read ?? 0}
+                              </td>
+
+                              <td>
+                                {job.rows_inserted ?? 0}
+                              </td>
+
+                              <td>
+                                {job.rows_updated ?? 0}
+                              </td>
+
+                              <td>
+                                {job.rows_rejected ?? 0}
+                              </td>
+
+                              <td>
+                                {job.error_count ?? 0}
+                              </td>
+
+                              <td>
+                                {
+                                  formatDate(
+                                    job.finished_at,
+                                  )
+                                }
+                              </td>
+                            </tr>
+                          ),
+                        )
+                      }
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )
+        }
+      </>
+    )
+  }
+
+  if (initialLoading) {
+    return (
+      <div className="startup-screen">
+        <div className="startup-logo">
+          DWH
+        </div>
+
+        <p>
+          Loading Integration Control...
+        </p>
+      </div>
+    )
+  }
+
+
+  if (!hasWorkspaceAccess) {
+    return (
+      <div className="startup-screen">
+        <div className="startup-logo">
+          DWH
+        </div>
+
+        <p>
+          No permitted DWH workspace is assigned
+          to this account.
+        </p>
+      </div>
+    )
+  }
+
+
+  return (
+    <div className="app-shell">
+      <aside className="sidebar">
+        <div className="brand">
+          <div className="brand-mark">
+            DWH
+          </div>
+
+          <div>
+            <strong>
+              Data Warehouse
+            </strong>
+
+            <small>
+              Control Center
+            </small>
+          </div>
+        </div>
+
+        <nav className="main-nav">
+          {
+            canIntegration
+              ? (
+                <button
+                  type="button"
+                  className={
+                    activePage === 'integrations'
+                      ? 'nav-item active'
+                      : 'nav-item'
+                  }
+                  onClick={
+                    () =>
+                      setActivePage(
+                        'integrations',
+                      )
+                  }
+                >
+                  Integration Control
+                </button>
+              )
+              : null
+          }
+
+          {
+            canEtl
+              ? (
+                <button
+                  type="button"
+                  className={
+                    activePage === 'etl'
+                      ? 'nav-item active'
+                      : 'nav-item'
+                  }
+                  onClick={
+                    () =>
+                      setActivePage(
+                        'etl',
+                      )
+                  }
+                >
+                  ETL Runs
+                </button>
+              )
+              : null
+          }
+
+          {
+            canDq
+              ? (
+                <button
+                  type="button"
+                  className={
+                    activePage === 'dq'
+                      ? 'nav-item active'
+                      : 'nav-item'
+                  }
+                  onClick={
+                    () =>
+                      setActivePage(
+                        'dq',
+                      )
+                  }
+                >
+                  Data Quality
+                </button>
+              )
+              : null
+          }
+
+          {
+            canReporting
+              ? (
+                <button
+                  type="button"
+                  className={
+                    activePage === 'reporting'
+                      ? 'nav-item active'
+                      : 'nav-item'
+                  }
+                  onClick={
+                    () => {
+                      void selectReportingPage()
+                    }
+                  }
+                >
+                  Reporting
+                </button>
+              )
+              : null
+          }
+
+          {
+            canAdministration
+              ? (
+                <button
+                  type="button"
+                  className={
+                    activePage === 'administration'
+                      ? 'nav-item active'
+                      : 'nav-item'
+                  }
+                  onClick={
+                    () =>
+                      setActivePage(
+                        'administration',
+                      )
+                  }
+                >
+                  Administration
+                </button>
+              )
+              : null
+          }
+        </nav>
+
+        <div
+          className={
+            activePage === 'integrations'
+              ? 'sidebar-integration-area'
+              : 'sidebar-integration-area hidden'
+          }
+        >
+        <div className="sidebar-section-title">
+          Integrations
+          <span>
+            {
+              integrations.length
+            }
+          </span>
+        </div>
+
+        <div className="integration-list">
+          {
+            integrations.map(
+              integration => (
+                <button
+                  type="button"
+                  key={
+                    integration.source_object_id
+                  }
+                  className={
+                    integration.source_object_id
+                      === selectedId
+                      ? 'integration-item selected'
+                      : 'integration-item'
+                  }
+                  onClick={
+                    () =>
+                      selectIntegration(
+                        integration.source_object_id,
+                      )
+                  }
+                >
+                  <span className="integration-name">
+                    {
+                      integration.source_object
+                    }
+                  </span>
+
+                  <small>
+                    {
+                      integration.load_strategy
+                    }
+                  </small>
+                </button>
+              ),
+            )
+          }
+        </div>
+
+        </div>
+
+        <div className="sidebar-footer">
+          <div className="sidebar-user">
+            <div className="sidebar-user-text">
+              <strong>
+                {
+                  auth.user?.display_name
+                  ?? auth.user?.username
+                  ?? ''
+                }
+              </strong>
+
+              <small>
+                {
+                  auth.user?.account_level
+                  ?? ''
+                }
+              </small>
+            </div>
+
+            <button
+              type="button"
+              className="sidebar-signout"
+              onClick={
+                () => {
+                  void logout()
+                }
+              }
+            >
+              Sign out
+            </button>
+          </div>
+
+          <div className="sidebar-health">
+            <span
+              className={
+                statusClass(
+                  health?.status,
+                )
+              }
+            >
+              {
+                health?.status
+                ?? 'UNKNOWN'
+              }
+            </span>
+
+            <small>
+              {
+                health?.database_user
+                ?? ''
+              } @ {
+                health?.database_name
+                ?? ''
+              }
+            </small>
+          </div>
+        </div>
+      </aside>
+
+
+      <main
+        className={
+          activePage === 'reporting'
+            ? 'workspace workspace-reporting'
+            : 'workspace'
+        }
+      >
+        {
+          activePage === 'etl'
+            ? renderEtlPage()
+            : activePage === 'dq'
+              ? renderDqPage()
+              : activePage === 'reporting'
+                ? renderReportingPage()
+                : activePage === 'administration'
+                  ? <AdminPage />
+                  : (
+              <>
+        <header className="workspace-header">
+          <div>
+            <div className="breadcrumb">
+              DWH / Integration Control
+            </div>
+
+            <h1>
+              {
+                selectedIntegration?.source_object
+                ?? 'Integration Control'
+              }
+            </h1>
+
+            <p>
+              {
+                selectedIntegration?.description
+                ?? 'Select integration object'
+              }
+            </p>
+          </div>
+
+          {
+            selectedIntegration
+              ? (
+                <div className="header-meta">
+                  <span
+                    className={
+                      selectedIntegration.integration_active
+                        ? 'badge badge-success'
+                        : 'badge'
+                    }
+                  >
+                    {
+                      selectedIntegration.integration_active
+                        ? 'ACTIVE'
+                        : 'DISABLED'
+                    }
+                  </span>
+
+                  <span className="header-object-type">
+                    {
+                      selectedIntegration.object_type
+                    }
+                  </span>
+                </div>
+              )
+              : null
+          }
+        </header>
+
+
+        {
+          error
+            ? (
+              <div className="error">
+                <strong>
+                  API error
+                </strong>
+
+                <span>
+                  {error}
+                </span>
+              </div>
+            )
+            : null
+        }
+
+
+        <div className="tabs">
+          {
+            tabs.map(
+              tab => (
+                <button
+                  type="button"
+                  key={
+                    tab.key
+                  }
+                  className={
+                    activeTab === tab.key
+                      ? 'tab active'
+                      : 'tab'
+                  }
+                  onClick={
+                    () =>
+                      setActiveTab(
+                        tab.key,
+                      )
+                  }
+                >
+                  {
+                    tab.label
+                  }
+                </button>
+              ),
+            )
+          }
+        </div>
+
+
+        <section className="content-panel">
+          {
+            detailLoading
+              ? (
+                <div className="loading-panel">
+                  Loading integration data...
+                </div>
+              )
+              : renderActiveTab()
+          }
+        </section>
+              </>
+            )
+        }
+      </main>
+    </div>
+  )
+}
+
+export default App
