@@ -224,8 +224,9 @@ try {
     Write-Log '== 9 test 002 (rolled back)'
     $r = Invoke-Psql $Target @('-f', $Files['002_secret_store_hardening_test.sql'].Path)
     Assert-Ok $r 'test 002'
-    $passed = @($r.Lines | Where-Object { $_ -match 'NOTICE:\s+PASS' }).Count
-    $skipped = @($r.Lines | Where-Object { $_ -match 'NOTICE:\s+SKIP' }).Count
+    # Match the test labels, not the severity word: the server may localise NOTICE.
+    $passed = @($r.Lines | Where-Object { $_ -match ':\s+PASS [TN]\d{2}' }).Count
+    $skipped = @($r.Lines | Where-Object { $_ -match ':\s+SKIP [TN]\d{2}' }).Count
     Write-Log "  RESULT: PASS=$passed SKIP=$skipped"
     if (-not ($r.Lines -contains 'ALL_TESTS_PASS') -or ($passed + $skipped) -ne 39) { Stop-E1 'test 002 did not pass' }
     $rowsAfterTest = Get-RowCounts $Target
