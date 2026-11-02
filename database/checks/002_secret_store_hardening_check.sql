@@ -1,7 +1,7 @@
 -- I02-04 M-SS02 check: read-only catalog verification of secret_store after
 -- 001 + 002. Supersedes 001_secret_store_baseline_check.sql once 002 is applied
 -- (001's object counts no longer match). Plain SQL; SELECT only; reads
--- pg_catalog, never row contents. Expected: every result = PASS.
+-- pg_catalog, never row contents. Expected: 15 results, every one PASS.
 SELECT current_setting('transaction_read_only') AS transaction_read_only,
        current_database() AS database_name,
        current_user AS role_name,
@@ -27,31 +27,34 @@ checks AS (
       'ciphertext_digest_format', 'binding_state_timestamps', 'operation_code_by_phase',
       'operation_once_per_phase', 'event_for_create_operation',
       'binding_profile_code_format', 'binding_active_requires_profile')) = 7
-  UNION ALL SELECT 7, 'one ACTIVE per profile: unique partial index',
+  UNION ALL SELECT 7, 'ACTIVE requires profile: NOT VALID (legacy rows kept)',
+    EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = (SELECT oid FROM b)
+             AND conname = 'binding_active_requires_profile' AND contype = 'c' AND NOT convalidated)
+  UNION ALL SELECT 8, 'one ACTIVE per profile: unique partial index',
     EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid
              WHERE c.relname = 'binding_one_active_per_profile' AND i.indrelid = (SELECT oid FROM b)
                AND i.indisunique AND i.indisvalid AND i.indpred IS NOT NULL)
-  UNION ALL SELECT 8, 'baseline indexes present',
+  UNION ALL SELECT 9, 'baseline indexes present',
     (SELECT count(*) FROM pg_class WHERE relnamespace = (SELECT oid FROM s) AND relkind = 'i'
        AND relname IN ('binding_source_state_idx', 'operation_event_source_created_idx')) = 2
-  UNION ALL SELECT 9, '7 guard triggers enabled (incl. 2 TRUNCATE)',
+  UNION ALL SELECT 10, '7 guard triggers enabled (incl. 2 TRUNCATE)',
     (SELECT count(*) FROM pg_trigger WHERE tgrelid IN (SELECT oid FROM t) AND NOT tgisinternal AND tgenabled = 'O'
        AND tgname IN ('binding_guard', 'event_append_only', 'event_insert_guard', 'binding_insert_guard',
                       'binding_truncate_guard', 'event_truncate_guard', 'binding_profile_guard')) = 7
-  UNION ALL SELECT 10, 'TRUNCATE triggers fire before statement',
+  UNION ALL SELECT 11, 'TRUNCATE triggers fire before statement',
     (SELECT count(*) FROM pg_trigger WHERE tgrelid IN (SELECT oid FROM t) AND NOT tgisinternal
        AND tgname IN ('binding_truncate_guard', 'event_truncate_guard')
        AND (tgtype & 32) <> 0 AND (tgtype & 2) <> 0 AND (tgtype & 1) = 0) = 2
-  UNION ALL SELECT 11, '6 functions, none SECURITY DEFINER',
+  UNION ALL SELECT 12, '6 functions, none SECURITY DEFINER',
     (SELECT count(*) FROM f) = 6 AND NOT EXISTS (SELECT 1 FROM f WHERE prosecdef)
-  UNION ALL SELECT 12, 'schema: no grants beyond owner',
+  UNION ALL SELECT 13, 'schema: no grants beyond owner',
     (SELECT count(*) FROM s) = 1 AND NOT EXISTS (
       SELECT 1 FROM s, aclexplode(coalesce(s.nspacl, acldefault('n', s.nspowner))) a WHERE a.grantee <> s.nspowner)
-  UNION ALL SELECT 13, 'tables: no grants beyond owner',
+  UNION ALL SELECT 14, 'tables: no grants beyond owner',
     (SELECT count(*) FROM t) = 2 AND NOT EXISTS (
       SELECT 1 FROM t JOIN pg_class c ON c.oid = t.oid, aclexplode(coalesce(c.relacl, acldefault('r', c.relowner))) a
        WHERE a.grantee <> c.relowner)
-  UNION ALL SELECT 14, 'functions: no PUBLIC or other EXECUTE',
+  UNION ALL SELECT 15, 'functions: no PUBLIC or other EXECUTE',
     (SELECT count(*) FROM f) = 6 AND NOT EXISTS (
       SELECT 1 FROM f JOIN pg_proc p ON p.oid = f.oid, aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
        WHERE a.grantee <> p.proowner)

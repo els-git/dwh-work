@@ -1,6 +1,6 @@
 -- I02-04 M-SS02 test: secret_store guards after 001 + 002. Supersedes the 001
 -- test once 002 is applied: T01-T24 repeat the baseline checks with a profile,
--- N01-N13 cover TRUNCATE protection and one ACTIVE secret per profile.
+-- N01-N14 cover TRUNCATE protection and one ACTIVE secret per profile.
 -- Everything runs in one transaction and is ROLLED BACK; no row survives.
 -- For an isolated test DB only (E1), never the working dwh. Requires at least
 -- one meta.source_system row.
@@ -118,6 +118,15 @@ BEGIN
    WHERE source_system_id = src AND profile_code = 'ORDERS' AND state = 'ACTIVE';
   IF n <> 1 THEN RAISE EXCEPTION 'FAIL N13: % ACTIVE secrets for ORDERS', n; END IF;
   RAISE NOTICE 'PASS N13 exactly one ACTIVE secret per profile after REPLACE';
+
+  -- Bindings ACTIVE before 002 (no profile) stay valid and can be revoked.
+  SELECT secret_ref INTO o FROM secret_store.binding
+   WHERE state = 'ACTIVE' AND profile_code IS NULL ORDER BY created_at LIMIT 1;
+  IF o IS NULL THEN
+    RAISE NOTICE 'SKIP N14 revoke ACTIVE binding without profile: none present';
+  ELSE
+    PERFORM pg_temp.expect_ok('N14 revoke ACTIVE binding without profile', format(rev, o));
+  END IF;
 END
 $t$;
 
