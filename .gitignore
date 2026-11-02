@@ -41,3 +41,7 @@ frontend/dist/
 # Local source safety copies.
 *.bak-*
 *.corrupt-*
+
+# Ad-hoc pre-edit copies: history is kept in git.
+*.bak.*
+*.backup_*
