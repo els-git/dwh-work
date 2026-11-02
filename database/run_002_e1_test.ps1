@@ -150,10 +150,17 @@ try {
     }
     if (-not $script:Admin) { $script:Admin = Read-Host 'PostgreSQL admin user' }
     Write-Log "Admin user: $($script:Admin); server $DbHost`:$DbPort"
-    $secure = Read-Host "Password for $($script:Admin)" -AsSecureString
-    $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
-    try { $env:PGPASSWORD = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr) }
-    finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr) }
+    # Ctrl+V does not paste into this prompt in Windows PowerShell 5.1: type the
+    # password or paste with a right click. An empty value is rejected.
+    Remove-Item Env:PGPASSWORD -ErrorAction SilentlyContinue
+    for ($attempt = 1; $attempt -le 3 -and -not $env:PGPASSWORD; $attempt++) {
+        $secure = Read-Host "Password for $($script:Admin) (type or right-click paste)" -AsSecureString
+        if ($secure.Length -eq 0) { Write-Log "  empty password entered (attempt $attempt of 3)"; continue }
+        $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
+        try { $env:PGPASSWORD = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr) }
+        finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr) }
+    }
+    if (-not $env:PGPASSWORD) { Stop-E1 'no password entered' }
 
     # 2. Connection and target absence.
     Write-Log '== 2 connection'
