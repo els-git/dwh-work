@@ -21,8 +21,9 @@
 --   DEFINER wrappers for the API (role dwh_app) taking the session token hash, like
 --   app.integration_source_system_*: app.integration_admin_session_user() checks the
 --   session and sets the audit actor, audit.log_security_event() records each change.
---   Credential operations also require app.has_scoped_permission(...,
---   'INTEGRATION_SOURCE_SYSTEM', 'SOURCE_SYSTEM_<id>'); denials are journaled.
+--   Credential operations are open to the same SUPERADMIN/ADMIN accounts as the rest
+--   of integration administration (user decision 03.11.2026, option A): no per-source
+--   resource is required, so new sources need nothing extra.
 -- Grants (M-SS05): dwh_app may EXECUTE the 6 wrappers only.
 -- Requires secret_store 001-004. Run as the owner of schemas app, meta, secret_store:
 --   psql -1 -v ON_ERROR_STOP=1 -f 005_source_connection.sql
@@ -177,24 +178,6 @@ BEGIN
 END;
 $fn$;
 
--- Scoped permission for credential operations; a denial is journaled and audited.
-CREATE FUNCTION app.integration_source_secret_scope(
-  p_actor bigint, p_source_system_id bigint, p_operation text, p_target uuid)
-RETURNS boolean
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, app, audit, secret_store AS $fn$
-BEGIN
-  IF app.has_scoped_permission(p_actor, 'ADMIN_INTEGRATION_MANAGE', 'INTEGRATION_SOURCE_SYSTEM',
-                               'SOURCE_SYSTEM_' || p_source_system_id) IS TRUE THEN
-    RETURN true;
-  END IF;
-  PERFORM secret_store.record_denied_attempt(p_operation, p_source_system_id, 'DWH_USER',
-                                             p_actor::text, p_target, NULL);
-  PERFORM audit.log_security_event('INTEGRATION_SOURCE_SECRET_DENIED', 'SOURCE_SYSTEM',
-    p_source_system_id::text, p_operation, 'DENIED', jsonb_build_object('actor_user_id', p_actor));
-  RETURN false;
-END;
-$fn$;
-
 -- Locks the connection row and checks that the source may hold a credential.
 CREATE FUNCTION app.integration_source_secret_connection(p_source_system_id bigint)
 RETURNS meta.source_connection
@@ -210,9 +193,8 @@ $fn$;
 
 -- Step 1 of CREATE/REPLACE: ATTEMPT + PENDING. Returns the operation id and the
 -- server-generated secret_ref under which the API stores the encrypted file.
--- On denial the journal and audit rows are kept and the result has no secret_ref.
 CREATE FUNCTION app.integration_source_secret_begin(p_token_hash text, p_source_system_id bigint)
-RETURNS TABLE (operation_id uuid, secret_ref uuid, operation_type text, permitted boolean)
+RETURNS TABLE (operation_id uuid, secret_ref uuid, operation_type text)
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, app, meta, audit, secret_store AS $fn$
 DECLARE
   v_actor bigint := app.integration_admin_session_user(p_token_hash);
@@ -230,15 +212,11 @@ BEGIN
   SELECT b.create_operation_id INTO v_active FROM secret_store.binding b
    WHERE b.source_system_id = p_source_system_id AND b.profile_code = 'SOURCE' AND b.state = 'ACTIVE';
   v_type := CASE WHEN v_active IS NULL THEN 'CREATE' ELSE 'REPLACE' END;
-  IF NOT app.integration_source_secret_scope(v_actor, p_source_system_id, v_type, NULL) THEN
-    RETURN QUERY SELECT NULL::uuid, NULL::uuid, v_type, false;
-    RETURN;
-  END IF;
   v_op := secret_store.begin_operation(v_type, p_source_system_id, 'DWH_USER', v_actor::text, NULL, v_active);
   PERFORM secret_store.register_pending(v_op, v_ref, 'SOURCE');
   PERFORM audit.log_security_event('INTEGRATION_SOURCE_SECRET_STARTED', 'SOURCE_SYSTEM',
     p_source_system_id::text, v_type, 'SUCCESS', jsonb_build_object('operation_id', v_op, 'actor_user_id', v_actor));
-  RETURN QUERY SELECT v_op, v_ref, v_type, true;
+  RETURN QUERY SELECT v_op, v_ref, v_type;
 END;
 $fn$;
 
@@ -286,9 +264,6 @@ BEGIN
   SELECT b.create_operation_id INTO v_active FROM secret_store.binding b
    WHERE b.source_system_id = p_source_system_id AND b.profile_code = 'SOURCE' AND b.state = 'ACTIVE';
   IF v_active IS NULL THEN RAISE EXCEPTION 'Source has no active credential'; END IF;
-  IF NOT app.integration_source_secret_scope(v_actor, p_source_system_id, 'REVOKE', v_active) THEN
-    RETURN false;
-  END IF;
   v_op := secret_store.begin_operation('REVOKE', p_source_system_id, 'DWH_USER', v_actor::text, v_active, NULL);
   PERFORM secret_store.finish_operation(v_op, true);
   PERFORM audit.log_security_event('INTEGRATION_SOURCE_SECRET_REVOKED', 'SOURCE_SYSTEM',
@@ -304,12 +279,45 @@ REVOKE ALL ON FUNCTION
   app.integration_source_connection_get(text, bigint),
   app.integration_source_connection_save(text, bigint, text, jsonb, integer),
   app.integration_source_connection_set_status(text, bigint, integer, text),
-  app.integration_source_secret_scope(bigint, bigint, text, uuid),
   app.integration_source_secret_connection(bigint),
   app.integration_source_secret_begin(text, bigint),
   app.integration_source_secret_complete(text, bigint, uuid, boolean, text, text),
   app.integration_source_secret_revoke(text, bigint)
 FROM PUBLIC;
+
+-- Default privileges of schemas meta/app may grant access to every new object
+-- (found in E1 on 03.11.2026). Remove every grant on the new objects except the
+-- owner's, report each removal, then grant only what is intended below.
+DO $acl$
+DECLARE
+  r record;
+BEGIN
+  FOR r IN
+    SELECT 'TABLE meta.source_connection' AS obj, x.grantee
+      FROM pg_class c, aclexplode(c.relacl) x
+     WHERE c.oid = 'meta.source_connection'::regclass AND x.grantee <> c.relowner
+    UNION
+    SELECT 'FUNCTION ' || p.oid::regprocedure::text, x.grantee
+      FROM pg_proc p, aclexplode(p.proacl) x
+     WHERE p.oid IN ('meta.integration_config_has_secret_key(jsonb)'::regprocedure,
+                     'meta.source_connection_guard()'::regprocedure,
+                     'meta.source_connection_reject_truncate()'::regprocedure,
+                     'app.integration_source_connection_get(text, bigint)'::regprocedure,
+                     'app.integration_source_connection_save(text, bigint, text, jsonb, integer)'::regprocedure,
+                     'app.integration_source_connection_set_status(text, bigint, integer, text)'::regprocedure,
+                     'app.integration_source_secret_connection(bigint)'::regprocedure,
+                     'app.integration_source_secret_begin(text, bigint)'::regprocedure,
+                     'app.integration_source_secret_complete(text, bigint, uuid, boolean, text, text)'::regprocedure,
+                     'app.integration_source_secret_revoke(text, bigint)'::regprocedure)
+       AND x.grantee <> p.proowner
+  LOOP
+    EXECUTE format('REVOKE ALL ON %s FROM %s', r.obj,
+                   CASE WHEN r.grantee = 0 THEN 'PUBLIC' ELSE quote_ident(pg_get_userbyid(r.grantee)) END);
+    RAISE NOTICE 'DEFAULT_GRANT_REVOKED % FROM %', r.obj,
+                 CASE WHEN r.grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(r.grantee) END;
+  END LOOP;
+END
+$acl$;
 
 -- M-SS05: the API role may call the session-checked wrappers, nothing else.
 GRANT EXECUTE ON FUNCTION

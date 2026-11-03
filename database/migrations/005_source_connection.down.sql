@@ -15,7 +15,6 @@ DROP FUNCTION app.integration_source_secret_revoke(text, bigint);
 DROP FUNCTION app.integration_source_secret_complete(text, bigint, uuid, boolean, text, text);
 DROP FUNCTION app.integration_source_secret_begin(text, bigint);
 DROP FUNCTION app.integration_source_secret_connection(bigint);
-DROP FUNCTION app.integration_source_secret_scope(bigint, bigint, text, uuid);
 DROP FUNCTION app.integration_source_connection_set_status(text, bigint, integer, text);
 DROP FUNCTION app.integration_source_connection_save(text, bigint, text, jsonb, integer);
 DROP FUNCTION app.integration_source_connection_get(text, bigint);
