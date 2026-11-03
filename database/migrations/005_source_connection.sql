@@ -311,6 +311,41 @@ REVOKE ALL ON FUNCTION
   app.integration_source_secret_revoke(text, bigint)
 FROM PUBLIC;
 
+-- Default privileges of schemas meta/app may grant access to every new object
+-- (found in E1 on 03.11.2026). Remove every grant on the new objects except the
+-- owner's, report each removal, then grant only what is intended below.
+DO $acl$
+DECLARE
+  r record;
+BEGIN
+  FOR r IN
+    SELECT 'TABLE meta.source_connection' AS obj, x.grantee
+      FROM pg_class c, aclexplode(c.relacl) x
+     WHERE c.oid = 'meta.source_connection'::regclass AND x.grantee <> c.relowner
+    UNION
+    SELECT 'FUNCTION ' || p.oid::regprocedure::text, x.grantee
+      FROM pg_proc p, aclexplode(p.proacl) x
+     WHERE p.oid IN ('meta.integration_config_has_secret_key(jsonb)'::regprocedure,
+                     'meta.source_connection_guard()'::regprocedure,
+                     'meta.source_connection_reject_truncate()'::regprocedure,
+                     'app.integration_source_connection_get(text, bigint)'::regprocedure,
+                     'app.integration_source_connection_save(text, bigint, text, jsonb, integer)'::regprocedure,
+                     'app.integration_source_connection_set_status(text, bigint, integer, text)'::regprocedure,
+                     'app.integration_source_secret_scope(bigint, bigint, text, uuid)'::regprocedure,
+                     'app.integration_source_secret_connection(bigint)'::regprocedure,
+                     'app.integration_source_secret_begin(text, bigint)'::regprocedure,
+                     'app.integration_source_secret_complete(text, bigint, uuid, boolean, text, text)'::regprocedure,
+                     'app.integration_source_secret_revoke(text, bigint)'::regprocedure)
+       AND x.grantee <> p.proowner
+  LOOP
+    EXECUTE format('REVOKE ALL ON %s FROM %s', r.obj,
+                   CASE WHEN r.grantee = 0 THEN 'PUBLIC' ELSE quote_ident(pg_get_userbyid(r.grantee)) END);
+    RAISE NOTICE 'DEFAULT_GRANT_REVOKED % FROM %', r.obj,
+                 CASE WHEN r.grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(r.grantee) END;
+  END LOOP;
+END
+$acl$;
+
 -- M-SS05: the API role may call the session-checked wrappers, nothing else.
 GRANT EXECUTE ON FUNCTION
   app.integration_source_connection_get(text, bigint),
