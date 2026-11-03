@@ -14,7 +14,7 @@ api AS (SELECT p.oid, p.prosecdef, p.proconfig, p.proacl, p.proowner FROM pg_pro
                'integration_source_connection_set_status', 'integration_source_secret_begin',
                'integration_source_secret_complete', 'integration_source_secret_revoke')),
 internal AS (SELECT p.oid, p.proacl, p.proowner FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-              WHERE n.nspname = 'app' AND p.proname IN ('integration_source_secret_scope', 'integration_source_secret_connection')),
+              WHERE n.nspname = 'app' AND p.proname = 'integration_source_secret_connection'),
 mf AS (SELECT p.oid FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
         WHERE n.nspname = 'meta' AND p.proname IN ('integration_config_has_secret_key', 'source_connection_guard',
               'source_connection_reject_truncate')),
@@ -32,7 +32,7 @@ checks AS (
     (SELECT count(*) FROM pg_trigger WHERE tgrelid = (SELECT oid FROM t) AND NOT tgisinternal AND tgenabled = 'O'
        AND tgname IN ('source_connection_guard', 'source_connection_truncate_guard')) = 2
   UNION ALL SELECT 6, '3 meta helper functions present', (SELECT count(*) FROM mf) = 3
-  UNION ALL SELECT 7, '6 API functions + 2 internal functions present', (SELECT count(*) FROM api) = 6 AND (SELECT count(*) FROM internal) = 2
+  UNION ALL SELECT 7, '6 API functions + 1 internal function present', (SELECT count(*) FROM api) = 6 AND (SELECT count(*) FROM internal) = 1
   UNION ALL SELECT 8, 'API functions SECURITY DEFINER with fixed search_path',
     (SELECT count(*) FROM api WHERE prosecdef AND EXISTS (SELECT 1 FROM unnest(proconfig) c WHERE c LIKE 'search_path=%')) = 6
   UNION ALL SELECT 9, 'dwh_app may EXECUTE exactly the 6 API functions; no PUBLIC EXECUTE',

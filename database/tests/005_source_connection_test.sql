@@ -3,10 +3,9 @@
 -- For E0 (sandbox with fixtures) and E1 (restored copy), never the working dwh.
 -- Inside the transaction app.integration_admin_session_user() is replaced by a
 -- test version mapping two fake tokens to an existing active admin and to a
--- foreign user id; ROLLBACK restores the real function. Scoped permission,
--- audit and secret_store are the real objects. Needs an active SUPERADMIN/ADMIN
--- user and a source system with an active INTEGRATION_SOURCE_SYSTEM resource.
--- Test sources are created inside the transaction.
+-- foreign user id; ROLLBACK restores the real function. Audit and secret_store
+-- are the real objects. Needs an active SUPERADMIN/ADMIN user and a source system
+-- without a connection. Test sources are created inside the transaction.
 -- Run as the schema owner: psql -v ON_ERROR_STOP=1 -f 005_source_connection_test.sql
 -- Expected last line: ALL_TESTS_PASS (labels C01-C30 and C22a, C24a, C25a: 33 checks).
 BEGIN;
@@ -57,8 +56,6 @@ DECLARE
   tok text := repeat('a', 64);
   other text := repeat('b', 64);
   src bigint := (SELECT min(s.source_system_id) FROM meta.source_system s
-                  JOIN app.resource r ON r.resource_type = 'INTEGRATION_SOURCE_SYSTEM'
-                   AND r.resource_code = 'SOURCE_SYSTEM_' || s.source_system_id AND r.is_active
                  WHERE NOT EXISTS (SELECT 1 FROM meta.source_connection c WHERE c.source_system_id = s.source_system_id));
   nores bigint;
   fsrc bigint;
@@ -67,7 +64,7 @@ DECLARE
   b2 record;
   n bigint;
 BEGIN
-  IF src IS NULL THEN RAISE EXCEPTION 'FAIL setup: no source system with an active resource and without a connection'; END IF;
+  IF src IS NULL THEN RAISE EXCEPTION 'FAIL setup: no source system without a connection'; END IF;
   INSERT INTO meta.source_system(code, name, source_type, description, is_active, created_at, updated_at)
   VALUES ('I03_TEST_NO_RESOURCE', 'I03 test source', 'POSTGRESQL', NULL, true, now(), now())
   RETURNING source_system_id INTO nores;
@@ -101,8 +98,8 @@ BEGIN
   -- Credential CREATE.
   PERFORM pg_temp.expect_fail('C16 credential before connection settings', format('SELECT * FROM app.integration_source_secret_begin(%L, %s)', tok, nores));
   SELECT * INTO b FROM app.integration_source_secret_begin(tok, src);
-  PERFORM pg_temp.ok('C17 secret_begin: permitted CREATE with server-generated ids',
-    b.permitted AND b.operation_type = 'CREATE' AND b.operation_id IS NOT NULL AND b.secret_ref IS NOT NULL);
+  PERFORM pg_temp.ok('C17 secret_begin: CREATE with server-generated ids',
+    b.operation_type = 'CREATE' AND b.operation_id IS NOT NULL AND b.secret_ref IS NOT NULL);
   PERFORM pg_temp.ok('C18 get shows PENDING; no secret_ref in the API result',
     (SELECT secret_state = 'PENDING' FROM app.integration_source_connection_get(tok, src))
     AND NOT EXISTS (SELECT 1 FROM pg_proc pp, unnest(pp.proargnames) a
@@ -133,16 +130,14 @@ BEGIN
   PERFORM pg_temp.ok('C25 no active credential left', (SELECT secret_state = 'NONE' FROM app.integration_source_connection_get(tok, src)));
   PERFORM pg_temp.expect_fail('C26 revoke without an active credential', format('SELECT app.integration_source_secret_revoke(%L, %s)', tok, src));
 
-  -- Scoped permission: a source without an active resource.
+  -- Option A (03.11.2026): no per-source resource is needed; a new source without
+  -- an app.resource row gets a credential like any other.
   PERFORM app.integration_source_connection_save(tok, nores, 'DATABASE', '{"host": "x"}');
-  SELECT count(*) INTO n FROM secret_store.operation_event WHERE code = 'DENIED_ATTEMPT' AND source_system_id = nores;
   SELECT * INTO b FROM app.integration_source_secret_begin(tok, nores);
-  PERFORM pg_temp.ok('C27 no scoped permission: not permitted, no secret_ref, denial journaled and audited',
-    NOT b.permitted AND b.secret_ref IS NULL
-    AND (SELECT count(*) FROM secret_store.operation_event WHERE code = 'DENIED_ATTEMPT' AND source_system_id = nores) = n + 1
-    AND EXISTS (SELECT 1 FROM audit.security_event WHERE event_type = 'INTEGRATION_SOURCE_SECRET_DENIED'
-                 AND entity_key = nores::text AND outcome = 'DENIED')
-    AND NOT EXISTS (SELECT 1 FROM secret_store.binding WHERE source_system_id = nores));
+  PERFORM pg_temp.ok('C27 source without a resource row: credential operation starts',
+    b.operation_type = 'CREATE' AND b.secret_ref IS NOT NULL
+    AND NOT EXISTS (SELECT 1 FROM app.resource WHERE resource_code = 'SOURCE_SYSTEM_' || nores)
+    AND (SELECT state FROM secret_store.binding WHERE create_operation_id = b.operation_id) = 'PENDING');
 
   -- Disabled connection.
   PERFORM app.integration_source_connection_set_status(tok, fsrc, 1, 'DISABLED');
@@ -159,7 +154,8 @@ BEGIN
     (SELECT count(*) FROM pg_proc pp JOIN pg_namespace ns ON ns.oid = pp.pronamespace
       WHERE ns.nspname = 'app' AND (pp.proname LIKE 'integration\_source\_connection\_%' OR pp.proname LIKE 'integration\_source\_secret\_%')
         AND has_function_privilege('dwh_app', pp.oid, 'EXECUTE')) = 6
-    AND NOT has_function_privilege('dwh_app', 'app.integration_source_secret_scope(bigint, bigint, text, uuid)', 'EXECUTE')
+    AND NOT EXISTS (SELECT 1 FROM pg_proc pp JOIN pg_namespace ns ON ns.oid = pp.pronamespace
+                     WHERE ns.nspname = 'app' AND pp.proname = 'integration_source_secret_scope')
     AND NOT has_function_privilege('dwh_app', 'app.integration_source_secret_connection(bigint)', 'EXECUTE')
     AND NOT has_table_privilege('dwh_app', 'meta.source_connection', 'SELECT, INSERT, UPDATE, DELETE')
     AND NOT has_schema_privilege('dwh_app', 'secret_store', 'USAGE'));
