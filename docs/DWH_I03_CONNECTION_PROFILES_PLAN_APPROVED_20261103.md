@@ -27,7 +27,7 @@
 | № | Шаг | Где проверяется | Что нужно от пользователя |
 |---|---|---|---|
 | 1 | ~~Утвердить этот план (вопросы В1–В3)~~ — утверждён 03.11.2026; папка ПК связана с git | — | выполнено |
-| 2 | Read-only: получить определение одной существующей функции `app.integration_source_system_create` (как она проверяет сессию и право), чтобы новые функции повторяли тот же механизм. Запрос `database/diagnostics/i03_app_integration_function_defs.sql`, запускатель `database/tools/run_readonly_sql.ps1` | ПК, `dwh_app`, только чтение | запуск одной команды |
+| 2 | Read-only: как существующие функции проверяют сессию, право и пишут аудит. Часть 1 выполнена 03.11.2026 (`i03_app_integration_function_defs.sql`). Часть 2 — `i03_auth_audit_defs.sql`: определения `integration_admin_session_user`, `has_scoped_permission`, `audit.log_security_event` и ограничения `audit.security_event` | ПК, `dwh_app`, только чтение | запуск одной команды |
 | 3 | Пакет БД 005: `meta.integration_profile` + функции `app.integration_profile_*` + права `dwh_app` на обёртки (M-SS05) | E0 → E1 → E2 | 2 запуска скриптов |
 | 4 | Backend: API профилей и секретов + unit-тесты | песочница; затем на ПК | установка кода |
 | 5 | Контракт адаптера + тестовый адаптер + unit-тесты (I03-04) | песочница; затем на ПК | вместе с шагом 4 |
@@ -49,3 +49,14 @@
 - **В1 (утверждено 03.11.2026). Хранение настроек профиля.** По проекту I02-02 настройки подключения версионируются вместе с публикацией системы (`integration_schema_group`), а это I05–I06. Предлагаю в I03 хранить **текущие** несекретные настройки в самом профиле (`DRAFT`/`READY`/`DISABLED`). В I05 они станут источником для версий. Согласны?
 - **В2 (утверждено 03.11.2026). Мастер-ключ в I03.** Чтобы задать секрет, backend шифрует его мастер-ключом. Предлагаю в I03 брать ключ из переменной окружения сервера (существующий `secret_key_provider`) и работать **только с синтетическими секретами**. Эксплуатационное управление ключом — рубеж перед I04, как вы решили 30.10. Согласны?
 - **В3 (выполнено 03.11.2026: Git 2.55.0, папка связана с `origin/main`, `git status` — только неотслеживаемые локальные файлы). Доставка кода на ПК.** В I03 меняются backend и frontend — это десятки файлов, передавать их скриптами неудобно и рискованно. Предлагаю связать папку `C:\Users\elshad.asgarov\Desktop\DWH\dwh` с git (`els-git/dwh-work`). Тогда установка будет одной командой `git pull`, а откат — `git checkout`. Установлен ли на ПК Git for Windows (`git --version`)?
+
+## 6. Результаты шагов
+
+**Шаг 2, часть 1 (03.11.2026, вывод пользователя, `dwh_app`, `transaction_read_only = on`).** Эталон `app.integration_source_system_create(p_token_hash, p_code, p_name, p_source_type, p_description)`:
+- `SECURITY DEFINER`, владелец `dwh_admin`, `SET search_path TO 'pg_catalog', 'app', 'meta', 'audit'`;
+- первым действием вызывает `app.integration_admin_session_user(p_token_hash)`, которая возвращает `actor_user_id`; у `dwh_app` нет `EXECUTE` на неё, она вызывается только изнутри;
+- проверяет код по `^[A-Z][A-Z0-9_]*$`;
+- пишет аудит `audit.log_security_event(event_code, resource_type, resource_id, action, outcome, details_jsonb)`;
+- `dwh_app` имеет `EXECUTE` на `integration_source_system_*` и `has_scoped_permission(bigint, text, text, text)`.
+
+Отчёт: `runtime\temp\readonly_i03_app_integration_function_defs_20261103_122559.txt`.
