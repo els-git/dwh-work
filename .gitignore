@@ -45,3 +45,7 @@ frontend/dist/
 # Ad-hoc pre-edit copies: history is kept in git.
 *.bak.*
 *.backup_*
+
+# Local copies and libraries on the workstation (not part of the repository).
+*.bak
+backend/packages/
