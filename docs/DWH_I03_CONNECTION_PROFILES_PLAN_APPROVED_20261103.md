@@ -27,8 +27,8 @@
 | № | Шаг | Где проверяется | Что нужно от пользователя |
 |---|---|---|---|
 | 1 | ~~Утвердить этот план (вопросы В1–В3)~~ — утверждён 03.11.2026; папка ПК связана с git | — | выполнено |
-| 2 | Read-only: как существующие функции проверяют сессию, право и пишут аудит. Часть 1 выполнена 03.11.2026 (`i03_app_integration_function_defs.sql`). Часть 2 — `i03_auth_audit_defs.sql`: определения `integration_admin_session_user`, `has_scoped_permission`, `audit.log_security_event` и ограничения `audit.security_event` | ПК, `dwh_app`, только чтение | запуск одной команды |
-| 3 | Пакет БД 005: `meta.integration_profile` + функции `app.integration_profile_*` + права `dwh_app` на обёртки (M-SS05) | E0 → E1 → E2 | 2 запуска скриптов |
+| 2 | ~~Read-only: как существующие функции проверяют сессию, право и пишут аудит~~ — выполнено 03.11.2026 (части 1 и 2, раздел 6) | ПК, `dwh_app`, только чтение | выполнено |
+| 3 | Пакет БД 005: `meta.integration_profile` + функции `app.integration_profile_*` + права `dwh_app` на обёртки (M-SS05). **E0 PASS 03.11.2026** (раздел 7) | E0 → E1 → E2 | 2 запуска скриптов |
 | 4 | Backend: API профилей и секретов + unit-тесты | песочница; затем на ПК | установка кода |
 | 5 | Контракт адаптера + тестовый адаптер + unit-тесты (I03-04) | песочница; затем на ПК | вместе с шагом 4 |
 | 6 | Frontend: вкладка и формы | песочница: build + ESLint 0/0; затем на ПК | вместе с шагом 4 |
@@ -60,3 +60,41 @@
 - `dwh_app` имеет `EXECUTE` на `integration_source_system_*` и `has_scoped_permission(bigint, text, text, text)`.
 
 Отчёт: `runtime\temp\readonly_i03_app_integration_function_defs_20261103_122559.txt`.
+
+**Шаг 2, часть 2 (03.11.2026, вывод пользователя, `dwh_app`, `transaction_read_only = on`; отчёт `runtime\temp\readonly_i03_auth_audit_defs_20261103_140038.txt`):**
+- `app.integration_admin_session_user(token_hash)` пропускает только активных `SUPERADMIN`/`ADMIN` с активным правом `ADMIN_INTEGRATION_MANAGE` и записывает актора в `dwh.actor_user_id`/`dwh.actor_username`/`dwh.security_source` для аудита;
+- `app.has_scoped_permission(user, permission, resource_type, resource_code)`: для `SUPERADMIN`/`ADMIN` нужны активное право и **активный ресурс**; для остальных — роль с правом и доступом к ресурсу;
+- `audit.log_security_event(...)` пишет в `audit.security_event`, у которой есть только первичный ключ, без ограничений на коды событий;
+- `meta.source_system`: `code varchar(50)`, `name varchar(200)`, `source_type varchar(50)` и др.
+
+## 7. Пакет 005 (шаг 3)
+
+Файлы: `database/migrations/005_integration_profile.sql`, `.down.sql`, `database/checks/005_integration_profile_check.sql` (12 проверок), `database/tests/005_integration_profile_test.sql` (36 проверок), `database/run_005_e1_test.ps1`.
+
+**Что создаётся:**
+- `meta.integration_profile` — профиль: система, код, тип `DATABASE`/`API`/`FILE`, название, несекретные настройки (`jsonb`), статус `DRAFT`/`READY`/`DISABLED`, `row_version`. Код, система и тип не меняются после создания; удаление и `TRUNCATE` запрещены; в настройках запрещены ключи, похожие на секреты (`password`, `token`, `api-key`, `secret`, …, на любой глубине).
+- Функции API (`SECURITY DEFINER`, сначала `app.integration_admin_session_user`, в конце аудит):
+
+| Функция | Что делает |
+|---|---|
+| `integration_profile_list` | профили системы и состояние секрета (`NONE`/`PENDING`/`ACTIVE`, `key_id`); `secret_ref` не возвращается |
+| `integration_profile_create` / `_update` / `_set_status` | создание; изменение с контролем `row_version` (изменение возвращает `READY` в `DRAFT`); `DRAFT` ↔ `DISABLED`; `READY` — только после проверки подключения (I04) |
+| `integration_profile_secret_begin` | проверяет право по источнику (`has_scoped_permission`); при отказе пишет `DENIED` в журнал и аудит и возвращает «не разрешено»; иначе ATTEMPT + `PENDING`, возвращает `operation_id` и сгенерированный сервером `secret_ref` для зашифрованного файла |
+| `integration_profile_secret_complete` | только тот же пользователь: итог; при успехе — `ACTIVE` с `key_id` (замена отзывает прежний), при сбое — `PENDING` отзывается |
+| `integration_profile_secret_revoke` | аудируемый отзыв действующего секрета |
+
+- **Права (M-SS05):** `dwh_app` получает `EXECUTE` только на эти 7 функций. Доступа к таблице профилей и к схеме `secret_store` у него нет. Новые роли не создаются.
+
+**Результат E0 (03.11.2026, PostgreSQL 16.15; заглушки `app`/`audit` с реальными определениями функций из шага 2):**
+
+| Проверка | Результат |
+|---|---|
+| Применение 005 поверх 001–004 | OK |
+| Check 005 / check 004 | 12/12 / 23/23 PASS |
+| Test 005 | 36/36 PASS. Найдены и исправлены две ошибки: ключ `Api-Key` с дефисом не распознавался как секретный; в тесте проверка стояла в одном выражении с изменением |
+| Вызовы под `dwh_app` с настоящей проверкой сессии | создание профиля, начало операции, список — работают; пользователь `USER` получает отказ; к `meta` и `secret_store` напрямую доступа нет |
+| Откат | снимок каталога равен состоянию 004; повторное применение — состоянию 005; при существующих профилях откат отказывает |
+
+**Ограничение (вопрос В4):** секрет можно задать только для системы, у которой есть активный ресурс `INTEGRATION_SOURCE_SYSTEM`/`SOURCE_SYSTEM_<id>`. Сейчас такие ресурсы есть у `CRM_RETAIL` (1) и `OPERATION_COLLECTOR` (5). Создавать ресурсы текущее API не умеет: оно только назначает их ролям.
+
+- **В4.** Предлагаю в I03 не менять механизм ресурсов: секреты — только для систем с зарегистрированным ресурсом. Регистрацию ресурса для новой системы оформить отдельной задачей с новым ID, когда она понадобится — например, для тестового источника в I04. Согласны?
