@@ -27,6 +27,7 @@ import type {
 import {
   confirmAction,
 } from './confirmAction'
+import SourceConnectionPanel from './SourceConnectionPanel'
 
 import {
   formatDateTime,
@@ -90,6 +91,11 @@ function AdminIntegrationsPage() {
     mode,
     setMode,
   ] = useState<Mode>('systems')
+
+  const [
+    connectionSystemId,
+    setConnectionSystemId,
+  ] = useState<number | null>(null)
 
   const [
     systems,
@@ -960,6 +966,26 @@ function AdminIntegrationsPage() {
                 }
 
                 {
+                  (() => {
+                    const connectionSystem =
+                      systems.find(
+                        item =>
+                          item.source_system_id === connectionSystemId,
+                      )
+
+                    return connectionSystem
+                      ? (
+                          <SourceConnectionPanel
+                            key={connectionSystem.source_system_id}
+                            system={connectionSystem}
+                            onClose={() => setConnectionSystemId(null)}
+                          />
+                        )
+                      : null
+                  })()
+                }
+
+                {
                   loading && systems.length === 0
                     ? (
                         <div className="loading-panel">
@@ -1045,6 +1071,19 @@ function AdminIntegrationsPage() {
                                               }
                                             >
                                               <Trans i18nKey="batch.tr0218" />
+                                            </button>
+
+                                            <button
+                                              type="button"
+                                              className="admin-link-button"
+                                              onClick={
+                                                () =>
+                                                  setConnectionSystemId(
+                                                    item.source_system_id,
+                                                  )
+                                              }
+                                            >
+                                              <Trans i18nKey="sourceConnection.open" />
                                             </button>
 
                                             <button

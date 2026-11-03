@@ -979,3 +979,115 @@ export function getIntegrationHistoryDqIssues(
   )
 }
 
+
+
+// Source connection and credential (I03). The credential is write-only: the
+// API never returns it, only its state and the non-secret key id.
+
+export type SourceConnectionKind = 'DATABASE' | 'FILE'
+
+export type SourceConnectionStatus = 'DRAFT' | 'READY' | 'DISABLED'
+
+export type SourceCredentialState = 'NONE' | 'PENDING' | 'ACTIVE'
+
+export interface SourceConnection {
+  source_system_id: number
+  source_kind: SourceConnectionKind
+  connection_config: Record<string, unknown>
+  status: SourceConnectionStatus
+  row_version: number
+  created_at: string
+  updated_at: string
+  credential_state: SourceCredentialState
+  credential_key_id: string | null
+  credential_activated_at: string | null
+}
+
+
+export interface SourceCredentialResult {
+  credential_state: SourceCredentialState
+  credential_key_id: string | null
+}
+
+
+function sourceConnectionPath(
+  sourceSystemId: number,
+): string {
+  return '/api/admin/integrations/source-systems/'
+    + encodeURIComponent(String(sourceSystemId))
+    + '/connection'
+}
+
+
+export async function getSourceConnection(
+  sourceSystemId: number,
+): Promise<SourceConnection | null> {
+  const result =
+    await apiRequest<{ connection: SourceConnection | null }>(
+      sourceConnectionPath(sourceSystemId),
+    )
+
+  return result.connection
+}
+
+
+export function saveSourceConnection(
+  sourceSystemId: number,
+  payload: {
+    source_kind: SourceConnectionKind
+    connection_config: Record<string, unknown>
+    expected_row_version: number | null
+  },
+): Promise<{ row_version: number }> {
+  return apiRequest<{ row_version: number }>(
+    sourceConnectionPath(sourceSystemId),
+    {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    },
+  )
+}
+
+
+export function setSourceConnectionStatus(
+  sourceSystemId: number,
+  status: 'DRAFT' | 'DISABLED',
+  expectedRowVersion: number,
+): Promise<{ row_version: number }> {
+  return apiRequest<{ row_version: number }>(
+    sourceConnectionPath(sourceSystemId) + '/status',
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        status,
+        expected_row_version: expectedRowVersion,
+      }),
+    },
+  )
+}
+
+
+export function setSourceCredential(
+  sourceSystemId: number,
+  value: string,
+): Promise<SourceCredentialResult> {
+  return apiRequest<SourceCredentialResult>(
+    sourceConnectionPath(sourceSystemId) + '/credential',
+    {
+      method: 'PUT',
+      body: JSON.stringify({ value }),
+    },
+  )
+}
+
+
+export function revokeSourceCredential(
+  sourceSystemId: number,
+): Promise<SourceCredentialResult> {
+  return apiRequest<SourceCredentialResult>(
+    sourceConnectionPath(sourceSystemId) + '/credential',
+    {
+      method: 'DELETE',
+    },
+  )
+}
