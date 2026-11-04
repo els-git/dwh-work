@@ -363,6 +363,11 @@ function SourceConnectionPanel({
                       ? ` ${formatDateTime(connection.credential_activated_at)}`
                       : ''
                   }
+                  {
+                    credentialState === 'ACTIVE' && connection?.credential_key_id
+                      ? ` · ${connection.credential_key_id}`
+                      : ''
+                  }
                 </p>
 
                 <form

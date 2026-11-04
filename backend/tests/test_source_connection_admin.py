@@ -180,16 +180,34 @@ class CredentialInputTests(unittest.TestCase):
 
 
 class CredentialStorageConfigTests(unittest.TestCase):
+    """The active key comes from the DPAPI keyring; DPAPI itself is replaced."""
+
     def setUp(self):
-        self.context = tempfile.TemporaryDirectory(dir=os.environ.get("DWH_I02_TEST_TEMP") or None)
-        self.addCleanup(self.context.cleanup)
-        self.key = base64.b64encode(os.urandom(32)).decode()
+        base = os.environ.get("DWH_I02_TEST_TEMP") or None
+        self.store_dir = tempfile.TemporaryDirectory(dir=base)
+        self.keyring = tempfile.TemporaryDirectory(dir=base)
+        self.addCleanup(self.store_dir.cleanup)
+        self.addCleanup(self.keyring.cleanup)
+        (Path(self.keyring.name) / "K2026_03.dpapi").write_bytes(b"protected-blob-placeholder")
+        self.loaded = []
+
+        def fake_loader(path):
+            self.loaded.append(path.name)
+            if not path.is_file():
+                raise OSError("missing")
+            return SecretStore(os.urandom(32))
+
+        patcher = mock.patch("dwh_api.secret_keyring.load_crypto_from_dpapi_file", fake_loader)
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def env(self, **values):
         base = {
-            "DWH_CONNECTOR_MASTER_KEY_B64": self.key,
-            sca.SECRET_DIRECTORY_ENV: self.context.name,
-            sca.MASTER_KEY_ID_ENV: "K2026_01",
+            sca.SECRET_DIRECTORY_ENV: self.store_dir.name,
+            "DWH_SECRET_KEYRING_DIR": self.keyring.name,
+            "DWH_SECRET_ACTIVE_KEY_ID": "K2026_03",
+            # An old plain-text key in the environment is never used.
+            "DWH_CONNECTOR_MASTER_KEY_B64": base64.b64encode(os.urandom(32)).decode(),
         }
         base.update(values)
         return mock.patch.dict(os.environ, {k: v for k, v in base.items() if v is not None}, clear=True)
@@ -197,17 +215,19 @@ class CredentialStorageConfigTests(unittest.TestCase):
     def test_configured(self):
         with self.env():
             store, directory, key_id = sca.credential_storage()
-        self.assertEqual((directory, key_id), (Path(self.context.name), "K2026_01"))
+        self.assertEqual((directory, key_id), (Path(self.store_dir.name), "K2026_03"))
         self.assertIsInstance(store, EncryptedFileSecretStore)
+        self.assertEqual(self.loaded, ["K2026_03.dpapi"])
 
     def test_fails_closed(self):
         cases = {
-            "no key": {"DWH_CONNECTOR_MASTER_KEY_B64": None},
-            "bad key": {"DWH_CONNECTOR_MASTER_KEY_B64": "not-base64"},
-            "no directory": {sca.SECRET_DIRECTORY_ENV: None},
-            "missing directory": {sca.SECRET_DIRECTORY_ENV: os.path.join(self.context.name, "absent")},
-            "no key id": {sca.MASTER_KEY_ID_ENV: None},
-            "bad key id": {sca.MASTER_KEY_ID_ENV: "key with spaces"},
+            "no store directory": {sca.SECRET_DIRECTORY_ENV: None},
+            "missing store directory": {sca.SECRET_DIRECTORY_ENV: os.path.join(self.store_dir.name, "absent")},
+            "no keyring": {"DWH_SECRET_KEYRING_DIR": None},
+            "missing keyring": {"DWH_SECRET_KEYRING_DIR": os.path.join(self.keyring.name, "absent")},
+            "no active key": {"DWH_SECRET_ACTIVE_KEY_ID": None},
+            "bad key id": {"DWH_SECRET_ACTIVE_KEY_ID": "..\\K2026_03"},
+            "key file absent": {"DWH_SECRET_ACTIVE_KEY_ID": "K2026_99"},
         }
         for name, change in cases.items():
             with self.subTest(name), self.env(**change):
