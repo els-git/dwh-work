@@ -4,12 +4,17 @@
 # Refuses to run if any of these settings already exists in .env.
 # Operational master-key management (ACL, backup, rotation) is I02-03, not here.
 
+param(
+    [ValidatePattern('^[A-Za-z0-9_.-]{1,64}$')]
+    [string]$KeyId = "K2026_01"
+)
+
 $ErrorActionPreference = "Stop"
 
 $root = Split-Path -Parent $PSScriptRoot
 $envPath = Join-Path $root ".env"
 $storeDir = Join-Path $env:LOCALAPPDATA "DWH\secret_store"
-$keyId = "K2026_01"
+$keyId = $KeyId
 
 if (-not (Test-Path -LiteralPath $envPath -PathType Leaf)) {
     Write-Host "SETUP_RESULT: STOP (.env not found: $envPath)"
