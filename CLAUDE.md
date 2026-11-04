@@ -48,7 +48,7 @@ DWH — платформа хранилища данных с frontend, backend 
 Единый согласованный план: неизменяемые ID задач, итерации, зависимости, критерии приёмки, решения, журнал и статусы `PLANNED`, `IN_PROGRESS`, `BLOCKED`, `DONE`, `CANCELLED`, `DEFERRED`. **DONE — только после фактических проверок и подтверждения пользователя.** Историю не удалять, задачи не перенумеровывать, прежние требования не переписывать без согласования. Новые задачи — только с новыми ID и явной договорённостью.
 
 **Последний подтверждённый SHA256 (04.11.2026, в git):**
-`FA482187DCF6142A64184B3BFA6DA5BC1BB2B020C278D2A818665D1C656A5041`
+`B89EACDBFB0FB1536512FDE816E8ABF2B3A9651D738BC06103BBA5D75F3E2623`
 
 Документы на ПК обновляются через `git pull` после слияния PR. Скрипты `sync_docs_to_pc.ps1` удалены 03.11.2026: связь с git их заменила.
 
@@ -183,7 +183,9 @@ DWH — платформа хранилища данных с frontend, backend 
 
 **I04 `IN_PROGRESS`** (план утверждён 04.11.2026, Р1–Р6). Снимки структуры уже пишет `etl/src/capture_source_metadata.py` (CRM): `meta.metadata_capture` → `source_object_snapshot` → `source_column_snapshot`, привязка к `source_object_id`. CRM ETL берёт подключение из `.env` (`etl/src/dwh/config.py`, `get_crm_config`).
 
-**Следующий шаг:** шаг 2 плана I04 — read-only `database/diagnostics/i04_step2_snapshot_structure.sql`.
+**Шаг 2 I04 выполнен:** снимки подходят; `v_latest_source_structure` берёт последний снимок источника целиком → снимок из UI — все активные объекты источника сразу. **Шаг 3 — пакет 006** (`database/migrations/006_source_connection_test_read_snapshot.sql`): результат проверки и `READY`, `READ` учётных данных, снимок; E0 PASS (check 10/10, test 30/30). После 006 check 005 даёт 10/11 и test 005 C30 падает — ожидаемо (больше функций и ограничений). Скрипты E1/E2 006 берут файлы из репозитория со сверкой SHA256.
+
+**Следующий шаг:** E1 пакета 006 (`database/run_006_e1_test.ps1`) — с разрешения пользователя.
 
 PR #7 с профилями закрыт без слияния. Тест 005 в E0/E1 внутри своей транзакции подменяет `app.integration_admin_session_user` тестовыми токенами; `ROLLBACK` её восстанавливает. Read-only запросы — через `database/tools/run_readonly_sql.ps1`.
 
