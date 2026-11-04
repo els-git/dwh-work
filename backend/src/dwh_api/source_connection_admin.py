@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import hashlib
 import os
-import re
 from contextlib import closing
 from pathlib import Path
 from typing import Any, Literal
@@ -31,7 +30,7 @@ from dwh_api.integration_admin import (
     _set_request_context,
 )
 from dwh_api.secret_file_store import EncryptedFileSecretStore, SecretFileStoreError
-from dwh_api.secret_key_provider import SecretKeyProviderError, load_crypto_from_environment
+from dwh_api.secret_keyring import KeyringUnavailable, load_active_key
 
 
 router = APIRouter(
@@ -42,9 +41,7 @@ router = APIRouter(
 config = get_api_config()
 
 SECRET_DIRECTORY_ENV = "DWH_SECRET_STORE_DIR"
-MASTER_KEY_ID_ENV = "DWH_CONNECTOR_MASTER_KEY_ID"
 CREDENTIAL_MAX_LENGTH = 4096
-_KEY_ID_RE = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
 
 
 # ============================================================
@@ -128,19 +125,20 @@ def _raise_connection_error(exc: psycopg.Error) -> None:
 
 
 def credential_storage() -> tuple[EncryptedFileSecretStore, Path, str]:
-    """Encrypted file store, its directory and the non-secret master-key id.
+    """Encrypted file store, its directory and the id of the active key.
 
-    Fails closed before any database or file operation when the server has
-    no master key, no secret directory or no key id configured.
+    The active master key comes from the DPAPI keyring (I02-05), never from
+    .env. Fails closed before any database or file operation when the
+    secret directory, the keyring or the active key is unavailable (K04).
     """
     directory_value = os.environ.get(SECRET_DIRECTORY_ENV, "")
-    key_id = os.environ.get(MASTER_KEY_ID_ENV, "")
-    if not directory_value or not _KEY_ID_RE.fullmatch(key_id):
+    if not directory_value:
         raise CredentialStorageUnavailable()
     directory = Path(directory_value)
     try:
-        store = EncryptedFileSecretStore(crypto=load_crypto_from_environment(), directory=directory)
-    except (SecretKeyProviderError, SecretFileStoreError):
+        crypto, key_id = load_active_key()
+        store = EncryptedFileSecretStore(crypto=crypto, directory=directory)
+    except (KeyringUnavailable, SecretFileStoreError):
         raise CredentialStorageUnavailable() from None
     return store, directory, key_id
 

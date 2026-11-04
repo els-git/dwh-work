@@ -49,3 +49,7 @@ frontend/dist/
 # Local copies and libraries on the workstation (not part of the repository).
 *.bak
 backend/packages/
+
+# SecretStore master keys and key backups must never be committed (I02-05, K09).
+*.dpapi
+*.dwhkey
