@@ -76,7 +76,15 @@ def main() -> int:
         else:
             activate(keyring, args.key_id)
     except (kt.KeyToolError, OSError) as exc:
-        message = str(exc) if isinstance(exc, kt.KeyToolError) else "File operation failed"
+        if isinstance(exc, kt.KeyToolError):
+            message = str(exc)
+        else:
+            # File errors carry only the error kind and the file path, never contents.
+            message = f"File operation failed: {type(exc).__name__}"
+            if getattr(exc, "strerror", None):
+                message += f", {exc.strerror}"
+            if getattr(exc, "filename", None):
+                message += f", {exc.filename}"
         print(f"KEY_RESULT: FAIL ({message})")
         return 1
     print("KEY_RESULT: PASS")
