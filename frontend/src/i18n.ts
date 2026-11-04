@@ -35,6 +35,7 @@ const resources = {
           "file_mask": "File mask"
         },
         "saveSettings": "Save settings",
+        "sslDefault": "Driver default",
         "enable": "Enable",
         "disable": "Disable",
         "close": "Close",
@@ -491,6 +492,7 @@ const resources = {
           "file_mask": "Маска файлов"
         },
         "saveSettings": "Сохранить настройки",
+        "sslDefault": "По умолчанию драйвера",
         "enable": "Включить",
         "disable": "Отключить",
         "close": "Закрыть",
@@ -947,6 +949,7 @@ const resources = {
           "file_mask": "Fayl maskası"
         },
         "saveSettings": "Ayarları saxla",
+        "sslDefault": "Drayverin standart dəyəri",
         "enable": "Aktivləşdir",
         "disable": "Deaktiv et",
         "close": "Bağla",

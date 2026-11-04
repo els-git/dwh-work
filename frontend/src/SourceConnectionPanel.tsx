@@ -41,6 +41,10 @@ const fieldsByKind: Record<SourceConnectionKind, string[]> = {
 }
 
 
+// PostgreSQL sslmode values; empty means the driver default.
+const SSL_MODES = ['', 'disable', 'allow', 'prefer', 'require', 'verify-ca', 'verify-full']
+
+
 function textValue(
   value: unknown,
 ): string {
@@ -306,6 +310,17 @@ function SourceConnectionPanel({
   const credentialState =
     connection?.credential_state ?? 'NONE'
 
+  // Save is enabled only when the settings differ from the saved ones
+  // (new connection: when at least one field is filled).
+  const settingsChanged =
+    connection === null
+      ? fieldsByKind[kind].some(name => (fields[name] ?? '').trim() !== '')
+      : fieldsByKind[kind].some(
+          name =>
+            (fields[name] ?? '').trim()
+            !== textValue(connection.connection_config[name]),
+        )
+
   return (
     <section className="admin-integrations-editor">
       <h3>
@@ -376,19 +391,52 @@ function SourceConnectionPanel({
                       name => (
                         <label key={name}>
                           <span>{t(`sourceConnection.field.${name}`)}</span>
-                          <input
-                            value={fields[name] ?? ''}
-                            inputMode={name === 'port' ? 'numeric' : undefined}
-                            onChange={
-                              event =>
-                                setFields(
-                                  current => ({
-                                    ...current,
-                                    [name]: event.target.value,
-                                  }),
-                                )
-                            }
-                          />
+                          {
+                            name === 'sslmode'
+                              ? (
+                                <select
+                                  value={fields[name] ?? ''}
+                                  onChange={
+                                    event =>
+                                      setFields(
+                                        current => ({
+                                          ...current,
+                                          [name]: event.target.value,
+                                        }),
+                                      )
+                                  }
+                                >
+                                  {
+                                    (
+                                      SSL_MODES.includes(fields[name] ?? '')
+                                        ? SSL_MODES
+                                        : [fields[name] ?? '', ...SSL_MODES]
+                                    ).map(
+                                      value => (
+                                        <option key={value} value={value}>
+                                          {value === '' ? t('sourceConnection.sslDefault') : value}
+                                        </option>
+                                      ),
+                                    )
+                                  }
+                                </select>
+                              )
+                              : (
+                                <input
+                                  value={fields[name] ?? ''}
+                                  inputMode={name === 'port' ? 'numeric' : undefined}
+                                  onChange={
+                                    event =>
+                                      setFields(
+                                        current => ({
+                                          ...current,
+                                          [name]: event.target.value,
+                                        }),
+                                      )
+                                  }
+                                />
+                              )
+                          }
                         </label>
                       ),
                     )
@@ -398,7 +446,7 @@ function SourceConnectionPanel({
                     <button
                       type="submit"
                       className="admin-primary-button"
-                      disabled={busy}
+                      disabled={busy || !settingsChanged}
                     >
                       {t('sourceConnection.saveSettings')}
                     </button>

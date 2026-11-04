@@ -74,6 +74,11 @@ function errorMessage(
 }
 
 
+// Source types offered in the editor. The panel derives the connection kind:
+// API -> settings on objects, FILE -> files, anything else -> database.
+const SOURCE_TYPES = ['POSTGRESQL', 'ORACLE', 'FILE', 'API']
+
+
 function nullable(
   value: string,
 ): string | null {
@@ -667,6 +672,42 @@ function AdminIntegrationsPage() {
   }
 
 
+  // Save is enabled only when the form differs from the saved record
+  // (create: when the required fields are filled).
+  const systemChanged =
+    editorMode === 'create'
+      ? systemCode.trim() !== ''
+        && systemName.trim() !== ''
+        && sourceType.trim() !== ''
+      : editingSystem !== null
+        && (
+          systemName.trim() !== editingSystem.name
+          || sourceType.trim() !== editingSystem.source_type
+          || nullable(systemDescription)
+            !== (editingSystem.description ?? null)
+        )
+
+  const objectChanged =
+    editorMode === 'create'
+      ? objectSystemId !== null
+        && sourceSchema.trim() !== ''
+        && sourceObject.trim() !== ''
+      : editingObject !== null
+        && (
+          objectType !== editingObject.object_type
+          || loadStrategy !== editingObject.load_strategy
+          || nullable(watermarkColumn)
+            !== (editingObject.watermark_column ?? null)
+          || nullable(targetSchema)
+            !== (editingObject.target_schema ?? null)
+          || nullable(targetObject)
+            !== (editingObject.target_object ?? null)
+          || loadOrder.trim() !== String(editingObject.load_order)
+          || nullable(objectDescription)
+            !== (editingObject.description ?? null)
+        )
+
+
   const filteredObjects =
     selectedSystemId === null
       ? objects
@@ -911,7 +952,7 @@ function AdminIntegrationsPage() {
 
                             <label>
                               <span><Trans i18nKey="batch.tr0230" /></span>
-                              <input
+                              <select
                                 required
                                 value={sourceType}
                                 onChange={
@@ -920,7 +961,21 @@ function AdminIntegrationsPage() {
                                       event.target.value,
                                     )
                                 }
-                              />
+                              >
+                                {
+                                  (
+                                    SOURCE_TYPES.includes(sourceType)
+                                      ? SOURCE_TYPES
+                                      : [sourceType, ...SOURCE_TYPES]
+                                  ).map(
+                                    value => (
+                                      <option key={value} value={value}>
+                                        {value}
+                                      </option>
+                                    ),
+                                  )
+                                }
+                              </select>
                             </label>
 
                             <label className="wide">
@@ -950,7 +1005,7 @@ function AdminIntegrationsPage() {
                               <button
                                 type="submit"
                                 className="admin-primary-button"
-                                disabled={saving}
+                                disabled={saving || !systemChanged}
                               >
                                 {
                                   saving
@@ -1395,7 +1450,7 @@ function AdminIntegrationsPage() {
                               <button
                                 type="submit"
                                 className="admin-primary-button"
-                                disabled={saving}
+                                disabled={saving || !objectChanged}
                               >
                                 {
                                   saving
