@@ -40,3 +40,9 @@ DO $r$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'dwh_etl') THEN CREATE ROLE dwh_etl LOGIN; END IF;
 END $r$;
 GRANT USAGE ON SCHEMA etl TO dwh_etl;
+
+-- I05 package 008: legacy catalogs (only the columns 008 reads), as read from dwh on 04.11.2026.
+CREATE TABLE IF NOT EXISTS meta.column_contract (contract_id bigint PRIMARY KEY, source_system_code varchar(100) NOT NULL);
+CREATE TABLE IF NOT EXISTS meta.mapping_rule (mapping_id bigint PRIMARY KEY, source_system_code varchar(100) NOT NULL);
+CREATE SCHEMA IF NOT EXISTS stg;
+CREATE SCHEMA IF NOT EXISTS ods;
