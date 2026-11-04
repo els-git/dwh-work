@@ -25,7 +25,10 @@ $python = "C:\Python312\python.exe"
 $etlSrc = Join-Path $project "etl\src"
 $etlPackages = Join-Path $project "etl\packages"
 
-$env:PYTHONPATH = "$etlSrc;$etlPackages"
+# backend/src and backend/packages: SecretStore modules for the CRM credential (I04-05).
+$backendSrc = Join-Path $project "backend\src"
+$backendPackages = Join-Path $project "backend\packages"
+$env:PYTHONPATH = "$etlSrc;$etlPackages;$backendSrc;$backendPackages"
 
 Set-Location $project
 
