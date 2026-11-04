@@ -1125,6 +1125,7 @@ export interface SourceSnapshotResult {
   objects_captured: number
   columns_captured: number
   server_version: string
+  objects_with_drift: number | null
 }
 
 
@@ -1154,6 +1155,247 @@ export function captureSourceSnapshot(
 ): Promise<SourceSnapshotResult> {
   return apiRequest<SourceSnapshotResult>(
     sourceConnectionPath(sourceSystemId) + '/snapshot',
+    {
+      method: 'POST',
+    },
+  )
+}
+
+
+// ============================================================
+// I05: field mapping configuration of a source object
+// ============================================================
+
+
+export type ConversionKind = 'NONE' | 'SAFE' | 'CONFIRMED'
+
+export type WritePolicy = 'AUTHORITATIVE' | 'INSERT_ONLY' | 'NO_WRITE'
+
+export type Compatibility = 'SAME' | 'SAFE' | 'CONDITIONAL' | 'INCOMPATIBLE'
+
+
+export interface ObjectConfigField {
+  target_column: string
+  source_column: string | null
+  source_type: string
+  target_type: string
+  conversion: ConversionKind
+  write_policy: WritePolicy
+  allow_explicit_null: boolean
+}
+
+
+export interface ObjectConfigDefinition {
+  target_schema: 'stg' | 'ods' | null
+  target_table: string | null
+  fields: ObjectConfigField[]
+  key: string[]
+}
+
+
+export interface ObjectConfigIssue {
+  severity: 'ERROR' | 'WARNING'
+  code: string
+  column?: string
+  source_column?: string
+  [detail: string]: unknown
+}
+
+
+export interface ObjectConfigDriftChange {
+  change: 'ADDED' | 'REMOVED' | 'TYPE_CHANGED' | 'SNAPSHOT_MISSING'
+  source_column?: string
+  mapped?: boolean
+  before?: string
+  after?: string
+}
+
+
+export interface ObjectConfigProposal {
+  proposal_id: number
+  change_kind: 'CREATE_TABLE' | 'ADD_COLUMNS'
+  target_schema: string
+  target_table: string
+  status: 'PROPOSED' | 'APPLIED' | 'REJECTED'
+  created_at: string
+  ddl: string
+}
+
+
+export interface ObjectConfigState {
+  object: {
+    source_object_id: number
+    source_system_id: number
+    source_schema: string
+    source_object: string
+    object_type: string
+    is_active: boolean
+    legacy: boolean
+  }
+  current: {
+    version_id: number
+    version_no: number
+    status: 'READY' | 'DRIFT'
+    status_details: { changes?: ObjectConfigDriftChange[] }
+    published_at: string
+    definition_hash: string
+    definition: ObjectConfigDefinition
+  } | null
+  draft: {
+    version_id: number
+    version_no: number
+    draft_revision: number
+    definition_hash: string | null
+    updated_at: string
+    definition: ObjectConfigDefinition
+    last_validation: {
+      ok: boolean
+      issues: ObjectConfigIssue[]
+      draft_revision: number
+      definition_hash: string
+      created_at: string
+    } | null
+  } | null
+  proposals: ObjectConfigProposal[]
+}
+
+
+export interface SnapshotColumn {
+  name: string
+  position: number
+  formatted_type: string
+  type: string
+  nullable: boolean
+  primary_key: boolean
+}
+
+
+export interface TargetColumn {
+  name: string
+  formatted_type: string
+  type: string
+  not_null: boolean
+  has_default: boolean
+}
+
+
+export interface TargetTable {
+  schema: 'stg' | 'ods'
+  table: string
+  columns: TargetColumn[]
+}
+
+
+export interface ObjectConfigResponse {
+  config: ObjectConfigState
+  snapshot: {
+    metadata_capture_id: number
+    captured_at: string | null
+    columns: SnapshotColumn[]
+  } | null
+  targets: TargetTable[]
+  type_choices: string[]
+  compatibility: Record<string, Compatibility>
+}
+
+
+function objectConfigPath(
+  sourceObjectId: number,
+): string {
+  return '/api/admin/integrations/source-objects/'
+    + encodeURIComponent(String(sourceObjectId))
+    + '/config'
+}
+
+
+export function getObjectConfig(
+  sourceObjectId: number,
+): Promise<ObjectConfigResponse> {
+  return apiRequest<ObjectConfigResponse>(
+    objectConfigPath(sourceObjectId),
+  )
+}
+
+
+export function saveObjectConfigDraft(
+  sourceObjectId: number,
+  expectedRevision: number | null,
+  config: ObjectConfigDefinition,
+): Promise<{ draft_revision: number }> {
+  return apiRequest<{ draft_revision: number }>(
+    objectConfigPath(sourceObjectId) + '/draft',
+    {
+      method: 'PUT',
+      body: JSON.stringify({
+        expected_revision: expectedRevision,
+        config,
+      }),
+    },
+  )
+}
+
+
+export function validateObjectConfig(
+  sourceObjectId: number,
+  draftRevision: number,
+): Promise<{ ok: boolean, issues: ObjectConfigIssue[], draft_revision: number }> {
+  return apiRequest<{ ok: boolean, issues: ObjectConfigIssue[], draft_revision: number }>(
+    objectConfigPath(sourceObjectId) + '/validate',
+    {
+      method: 'POST',
+      body: JSON.stringify({ draft_revision: draftRevision }),
+    },
+  )
+}
+
+
+export function publishObjectConfig(
+  sourceObjectId: number,
+  draftRevision: number,
+): Promise<{ version_no: number, status: string }> {
+  return apiRequest<{ version_no: number, status: string }>(
+    objectConfigPath(sourceObjectId) + '/publish',
+    {
+      method: 'POST',
+      body: JSON.stringify({ draft_revision: draftRevision }),
+    },
+  )
+}
+
+
+export function checkObjectConfigDrift(
+  sourceObjectId: number,
+): Promise<{ status: string, changes: ObjectConfigDriftChange[] }> {
+  return apiRequest<{ status: string, changes: ObjectConfigDriftChange[] }>(
+    objectConfigPath(sourceObjectId) + '/drift-check',
+    {
+      method: 'POST',
+    },
+  )
+}
+
+
+export function createObjectConfigProposal(
+  sourceObjectId: number,
+  draftRevision: number,
+): Promise<{ proposal_id: number, change_kind: string, ddl: string }> {
+  return apiRequest<{ proposal_id: number, change_kind: string, ddl: string }>(
+    objectConfigPath(sourceObjectId) + '/proposal',
+    {
+      method: 'POST',
+      body: JSON.stringify({ draft_revision: draftRevision }),
+    },
+  )
+}
+
+
+export function rejectTargetProposal(
+  proposalId: number,
+): Promise<{ rejected: boolean }> {
+  return apiRequest<{ rejected: boolean }>(
+    '/api/admin/integrations/target-proposals/'
+      + encodeURIComponent(String(proposalId))
+      + '/reject',
     {
       method: 'POST',
     },

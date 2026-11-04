@@ -59,6 +59,7 @@ class Conn:
             "FROM meta.source_object": lambda p: [
                 {"source_object_id": 16, "source_schema": "public", "source_object": "asan_pension_requests"}],
             "metadata_capture": lambda p: [{"metadata_capture_id": 9, "objects_captured": 1, "columns_captured": 2}],
+            "integration_object_config_get": lambda p: [{"config": {"object": {}, "current": None, "draft": None}}],
         }
         self.handlers.update(overrides)
 
@@ -179,6 +180,7 @@ class I04FlowTests(unittest.TestCase):
         self.assertEqual(payload[0]["source_object_id"], 16)
         self.assertEqual(payload[0]["columns"][0]["column_name"], "id")
         self.assertEqual(params[2:4], ("crm", "PostgreSQL 16"))
+        self.assertEqual(result.objects_with_drift, 0)
         self.assert_no_secret(conn)
 
     def test_snapshot_missing_object(self):
