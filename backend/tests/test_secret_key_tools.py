@@ -168,9 +168,14 @@ class EnvUpdateTests(unittest.TestCase):
         self.assertEqual(removed2, [])
 
     def test_masked_copy(self):
-        masked = kt.mask_env_text("A=1\nDWH_CONNECTOR_MASTER_KEY_B64=SECRET\n")
-        self.assertNotIn("SECRET", masked)
-        self.assertIn("A=1\n", masked)
+        masked = kt.mask_env_text("A=1\r\nDWH_CONNECTOR_MASTER_KEY_B64=SECRET\r\nCRM_DB_PASSWORD=pw1\r\n"
+                                  "DWH_APP_PASSWORD=pw2\r\nAPI_TOKEN=tk\r\n# PASSWORD=comment\r\nDWH_DB_NAME=dwh\r\n")
+        for value in ("SECRET", "pw1", "pw2", "tk"):
+            self.assertNotIn(value, masked)
+        self.assertIn("A=1\r\n", masked)
+        self.assertIn("DWH_DB_NAME=dwh\r\n", masked)
+        self.assertIn("CRM_DB_PASSWORD=<removed>\r\n", masked)
+        self.assertIn("# PASSWORD=comment\r\n", masked)
 
 
 class DpapiOnlyOnWindows(unittest.TestCase):

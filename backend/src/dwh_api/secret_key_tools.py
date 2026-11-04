@@ -229,12 +229,18 @@ def update_env_text(text: str, settings: dict[str, str]) -> tuple[str, list[str]
     return newline.join(out) + newline, sorted(settings), removed
 
 
+_SECRET_NAME = ("PASSWORD", "PASSWD", "SECRET", "TOKEN", "KEY_B64", "PRIVATE_KEY", "API_KEY")
+
+
 def mask_env_text(text: str) -> str:
-    """Copy of .env for the local backup with obsolete key values removed."""
+    """Copy of .env for the local backup: obsolete key lines and every value whose
+    name looks secret (PASSWORD, SECRET, TOKEN, ...) are replaced by <removed>."""
     result = []
     for line in text.splitlines(keepends=True):
-        name = line.split("=", 1)[0].strip()
+        stripped = line.strip()
+        name = line.split("=", 1)[0].strip() if "=" in line and not stripped.startswith("#") else ""
+        secret = name in OBSOLETE_ENV or any(part in name.upper() for part in _SECRET_NAME)
         ending = "\r\n" if line.endswith("\r\n") else "\n"
-        result.append(f"{name}=<removed>{ending}" if name in OBSOLETE_ENV else line)
+        result.append(f"{name}=<removed>{ending}" if name and secret else line)
     return "".join(result)
 
