@@ -18,6 +18,7 @@ from dwh_api.config import get_api_config
 from dwh_api.db import connect_readonly
 from dwh_api.module_catalog import router as module_catalog_router
 from dwh_api.integration_admin import router as integration_admin_router
+from dwh_api.source_connection_admin import router as source_connection_admin_router
 from dwh_api.role_catalog import router as role_catalog_router
 from dwh_api.access_control import router as access_control_router
 from dwh_api.user_catalog import router as user_catalog_router
@@ -2421,6 +2422,7 @@ async def authorization_middleware(
 app.include_router(auth_router)
 app.include_router(module_catalog_router)
 app.include_router(integration_admin_router)
+app.include_router(source_connection_admin_router)
 app.include_router(role_catalog_router)
 app.include_router(access_control_router)
 app.include_router(user_catalog_router)
