@@ -33,3 +33,10 @@ CREATE TABLE meta.source_column_snapshot (
   CONSTRAINT uq_column_snapshot_name UNIQUE (object_snapshot_id, column_name),
   CONSTRAINT uq_column_snapshot_position UNIQUE (object_snapshot_id, ordinal_position));
 GRANT SELECT ON meta.metadata_capture, meta.source_object_snapshot, meta.source_column_snapshot TO dwh_app;
+
+-- I04 package 007: schema etl and the ETL role (cluster role created once in the sandbox).
+CREATE SCHEMA IF NOT EXISTS etl;
+DO $r$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'dwh_etl') THEN CREATE ROLE dwh_etl LOGIN; END IF;
+END $r$;
+GRANT USAGE ON SCHEMA etl TO dwh_etl;
