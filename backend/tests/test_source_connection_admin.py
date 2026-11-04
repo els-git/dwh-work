@@ -267,10 +267,14 @@ class RouteTests(unittest.TestCase):
             (base + "/status", ("POST",)),
             (base + "/credential", ("PUT",)),
             (base + "/credential", ("DELETE",)),
+            (base + "/test", ("POST",)),
+            (base + "/objects", ("GET",)),
+            (base + "/snapshot", ("POST",)),
         })
 
     def test_no_route_returns_a_secret(self):
-        for model in (sca.SourceConnection, sca.CredentialResponse, sca.RowVersionResponse):
+        for model in (sca.SourceConnection, sca.CredentialResponse, sca.RowVersionResponse,
+                      sca.ConnectionTestResponse, sca.SourceObjectsResponse, sca.SnapshotResponse):
             for name in model.model_fields:
                 self.assertNotRegex(name, r"secret_ref|ciphertext|password|value")
 

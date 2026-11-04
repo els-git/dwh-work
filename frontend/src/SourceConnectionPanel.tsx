@@ -14,16 +14,20 @@ import {
   formatDateTime,
 } from './dateTime'
 import {
+  captureSourceSnapshot,
   getSourceConnection,
+  listSourceObjects,
   revokeSourceCredential,
   saveSourceConnection,
   setSourceConnectionStatus,
   setSourceCredential,
+  testSourceConnection,
 } from './integrationAdminApi'
 import type {
   IntegrationSourceSystem,
   SourceConnection,
   SourceConnectionKind,
+  SourceObjectsResult,
 } from './integrationAdminApi'
 
 
@@ -62,6 +66,10 @@ function SourceConnectionPanel({
 
   const isApiSource =
     system.source_type.trim().toUpperCase() === 'API'
+
+  // Connection test, object list and snapshot exist for PostgreSQL only (I04).
+  const isPostgresSource =
+    system.source_type.trim().toUpperCase() === 'POSTGRESQL'
 
   const [
     connection,
@@ -105,6 +113,16 @@ function SourceConnectionPanel({
   const [
     credential,
     setCredential,
+  ] = useState('')
+
+  const [
+    sourceObjects,
+    setSourceObjects,
+  ] = useState<SourceObjectsResult | null>(null)
+
+  const [
+    objectFilter,
+    setObjectFilter,
   ] = useState('')
 
   // Responses for a previously selected system or an older refresh are ignored.
@@ -195,7 +213,16 @@ function SourceConnectionPanel({
 
     try {
       await action()
-      setNotice(success)
+      setNotice(success === '' ? null : success)
+    } catch (reason) {
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : String(reason),
+      )
+    }
+
+    try {
       await refresh()
     } catch (reason) {
       setError(
@@ -289,6 +316,54 @@ function SourceConnectionPanel({
     )
   }
 
+  async function checkConnection() {
+    await run(
+      async () => {
+        const result = await testSourceConnection(system.source_system_id)
+
+        if (!result.ok) {
+          throw new Error(
+            t(`sourceConnection.code.${result.code}`, { defaultValue: result.message }),
+          )
+        }
+      },
+      t('sourceConnection.testOk'),
+    )
+  }
+
+  async function showObjects() {
+    setSourceObjects(null)
+
+    await run(
+      async () => {
+        setSourceObjects(
+          await listSourceObjects(system.source_system_id),
+        )
+      },
+      t('sourceConnection.objectsLoaded'),
+    )
+  }
+
+  async function takeSnapshot() {
+    let summary = ''
+
+    await run(
+      async () => {
+        const result = await captureSourceSnapshot(system.source_system_id)
+
+        summary = t('sourceConnection.snapshotDone', {
+          objects: result.objects_captured,
+          columns: result.columns_captured,
+        })
+      },
+      '',
+    )
+
+    if (summary !== '') {
+      setNotice(summary)
+    }
+  }
+
   async function toggleStatus() {
     if (connection === null) {
       return
@@ -309,6 +384,16 @@ function SourceConnectionPanel({
 
   const credentialState =
     connection?.credential_state ?? 'NONE'
+
+  const visibleObjects =
+    sourceObjects === null
+      ? []
+      : sourceObjects.objects.filter(
+          item =>
+            objectFilter.trim() === ''
+            || `${item.schema_name}.${item.name}`.toLowerCase()
+              .includes(objectFilter.trim().toLowerCase()),
+        )
 
   // Save is enabled only when the settings differ from the saved ones
   // (new connection: when at least one field is filled).
@@ -369,6 +454,42 @@ function SourceConnectionPanel({
                       : ''
                   }
                 </p>
+
+                {
+                  connection !== null && isPostgresSource && (
+                    <p>
+                      {t('sourceConnection.lastTest')}
+                      {' '}
+                      {
+                        connection.last_test_at
+                          ? (
+                            <>
+                              <span
+                                className={
+                                  connection.last_test_ok
+                                    ? 'badge badge-success'
+                                    : 'badge'
+                                }
+                              >
+                                {
+                                  t(`sourceConnection.code.${connection.last_test_code ?? 'CONNECT_FAILED'}`, {
+                                    defaultValue: connection.last_test_code ?? '',
+                                  })
+                                }
+                              </span>
+                              {` ${formatDateTime(connection.last_test_at)}`}
+                              {
+                                connection.last_test_server_version
+                                  ? ` · ${connection.last_test_server_version}`
+                                  : ''
+                              }
+                            </>
+                          )
+                          : t('sourceConnection.neverTested')
+                      }
+                    </p>
+                  )
+                }
 
                 <form
                   className="admin-integrations-form"
@@ -533,6 +654,83 @@ function SourceConnectionPanel({
                         }
                       </div>
                     </form>
+                  )
+                }
+                {
+                  connection !== null && isPostgresSource && credentialState === 'ACTIVE' && (
+                    <div className="admin-integrations-form-actions wide">
+                      <button
+                        type="button"
+                        className="admin-primary-button"
+                        disabled={busy || settingsChanged || connection.status === 'DISABLED'}
+                        onClick={() => { void checkConnection() }}
+                      >
+                        {t('sourceConnection.testButton')}
+                      </button>
+                      <button
+                        type="button"
+                        className="admin-secondary-button"
+                        disabled={busy || connection.status === 'DISABLED'}
+                        onClick={() => { void showObjects() }}
+                      >
+                        {t('sourceConnection.objectsButton')}
+                      </button>
+                      <button
+                        type="button"
+                        className="admin-secondary-button"
+                        disabled={busy || connection.status !== 'READY'}
+                        title={connection.status !== 'READY' ? t('sourceConnection.snapshotNeedsReady') : undefined}
+                        onClick={() => { void takeSnapshot() }}
+                      >
+                        {t('sourceConnection.snapshotButton')}
+                      </button>
+                    </div>
+                  )
+                }
+
+                {
+                  sourceObjects !== null && (
+                    <div className="wide">
+                      <h4>
+                        {t('sourceConnection.objectsTitle', { count: sourceObjects.objects.length })}
+                      </h4>
+                      {
+                        sourceObjects.truncated && (
+                          <p>{t('sourceConnection.objectsTruncated')}</p>
+                        )
+                      }
+                      <label>
+                        <span>{t('sourceConnection.objectsFilter')}</span>
+                        <input
+                          value={objectFilter}
+                          onChange={event => setObjectFilter(event.target.value)}
+                        />
+                      </label>
+                      <div className="data-table-wrapper" style={{ maxHeight: '320px', overflowY: 'auto' }}>
+                        <table className="data-table">
+                          <thead>
+                            <tr>
+                              <th>{t('sourceConnection.objectSchema')}</th>
+                              <th>{t('sourceConnection.objectName')}</th>
+                              <th>{t('sourceConnection.objectType')}</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {
+                              visibleObjects.map(
+                                item => (
+                                  <tr key={`${item.schema_name}.${item.name}`}>
+                                    <td>{item.schema_name}</td>
+                                    <td>{item.name}</td>
+                                    <td>{item.object_type}</td>
+                                  </tr>
+                                ),
+                              )
+                            }
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
                   )
                 }
               </>

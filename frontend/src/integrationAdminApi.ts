@@ -1001,6 +1001,10 @@ export interface SourceConnection {
   credential_state: SourceCredentialState
   credential_key_id: string | null
   credential_activated_at: string | null
+  last_test_at?: string | null
+  last_test_ok?: boolean | null
+  last_test_code?: string | null
+  last_test_server_version?: string | null
 }
 
 
@@ -1088,6 +1092,70 @@ export function revokeSourceCredential(
     sourceConnectionPath(sourceSystemId) + '/credential',
     {
       method: 'DELETE',
+    },
+  )
+}
+
+
+export interface SourceConnectionTestResult {
+  ok: boolean
+  code: string
+  message: string
+  status: SourceConnectionStatus
+  row_version: number
+  server_version: string | null
+}
+
+
+export interface SourceObjectItem {
+  schema_name: string
+  name: string
+  object_type: string
+}
+
+
+export interface SourceObjectsResult {
+  objects: SourceObjectItem[]
+  truncated: boolean
+}
+
+
+export interface SourceSnapshotResult {
+  metadata_capture_id: number
+  objects_captured: number
+  columns_captured: number
+  server_version: string
+}
+
+
+export function testSourceConnection(
+  sourceSystemId: number,
+): Promise<SourceConnectionTestResult> {
+  return apiRequest<SourceConnectionTestResult>(
+    sourceConnectionPath(sourceSystemId) + '/test',
+    {
+      method: 'POST',
+    },
+  )
+}
+
+
+export function listSourceObjects(
+  sourceSystemId: number,
+): Promise<SourceObjectsResult> {
+  return apiRequest<SourceObjectsResult>(
+    sourceConnectionPath(sourceSystemId) + '/objects',
+  )
+}
+
+
+export function captureSourceSnapshot(
+  sourceSystemId: number,
+): Promise<SourceSnapshotResult> {
+  return apiRequest<SourceSnapshotResult>(
+    sourceConnectionPath(sourceSystemId) + '/snapshot',
+    {
+      method: 'POST',
     },
   )
 }

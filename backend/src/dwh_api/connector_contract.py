@@ -47,6 +47,9 @@ class SecretValue:
 class ConnectionTestResult:
     ok: bool
     message: str
+    # Short secret-free code (I04): OK, AUTH_FAILED, CONNECT_TIMEOUT, ...
+    code: str = "OK"
+    server_version: str | None = None
 
 
 @dataclass(frozen=True)
