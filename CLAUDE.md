@@ -48,7 +48,7 @@ DWH — платформа хранилища данных с frontend, backend 
 Единый согласованный план: неизменяемые ID задач, итерации, зависимости, критерии приёмки, решения, журнал и статусы `PLANNED`, `IN_PROGRESS`, `BLOCKED`, `DONE`, `CANCELLED`, `DEFERRED`. **DONE — только после фактических проверок и подтверждения пользователя.** Историю не удалять, задачи не перенумеровывать, прежние требования не переписывать без согласования. Новые задачи — только с новыми ID и явной договорённостью.
 
 **Последний подтверждённый SHA256 (04.11.2026, в git):**
-`2DC094194DD81411C8F53624D0E5D459C4CD00A48E76A02E4053668643CE1383`
+`8AACBF015D268063838F238E02FB21E18FC7C2BEC229AC2F0F15F0A9EE1F6BBE`
 
 Документы на ПК обновляются через `git pull` после слияния PR. Скрипты `sync_docs_to_pc.ps1` удалены 03.11.2026: связь с git их заменила.
 
@@ -212,7 +212,9 @@ DWH — платформа хранилища данных с frontend, backend 
 
 **Шаги 4–5 I05 сделаны в песочнице 04.11.2026** (план, раздел 9): `backend/src/dwh_api/field_types.py`, `object_config_admin.py` (маршруты `/api/admin/integrations/source-objects/{id}/config…`, `target-proposals/{id}/reject`; публикация записывает базовую структуру источника в `status_details`, drift сравнивает с ней и запускается после снимка), `frontend/src/ObjectConfigPanel.tsx` (кнопка «Маппинг» у объекта); тесты 385 OK, build OK, ESLint 0/0, сквозной сценарий под `dwh_app` PASS. Пакет 009 должен пометить свой проект `APPLIED`.
 
-**Следующий шаг:** шаг 6 плана I05 — на ПК для `asan_pension_requests` заявить новую таблицу `stg` и получить DDL-проект (после слияния PR и перезапуска backend/frontend).
+**Шаг 6 I05 выполнен на ПК 04.11.2026:** проект №1 `CREATE_TABLE stg.operation_collector_asan_pension_requests` (17 колонок, ключ `id`, SHA-256 текста `b964a1bc…50ae`). **Пакет 009** (`database/migrations/009_target_operation_collector_asan.sql`) выполняет сохранённый текст проекта после сверки SHA-256 и ставит `APPLIED`; E0 PASS (check 8/8, test 6/6).
+
+**Следующий шаг:** E1 пакета 009 (`database/run_009_e1_test.ps1`) — по разрешению пользователя; затем E2.
 
 PR #7 с профилями закрыт без слияния. Тест 005 в E0/E1 внутри своей транзакции подменяет `app.integration_admin_session_user` тестовыми токенами; `ROLLBACK` её восстанавливает. Read-only запросы — через `database/tools/run_readonly_sql.ps1`.
 
