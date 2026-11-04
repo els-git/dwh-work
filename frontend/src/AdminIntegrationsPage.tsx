@@ -28,6 +28,7 @@ import {
   confirmAction,
 } from './confirmAction'
 import SourceConnectionPanel from './SourceConnectionPanel'
+import ObjectConfigPanel from './ObjectConfigPanel'
 
 import {
   formatDateTime,
@@ -100,6 +101,11 @@ function AdminIntegrationsPage() {
   const [
     connectionSystemId,
     setConnectionSystemId,
+  ] = useState<number | null>(null)
+
+  const [
+    configObjectId,
+    setConfigObjectId,
   ] = useState<number | null>(null)
 
   const [
@@ -1466,6 +1472,26 @@ function AdminIntegrationsPage() {
                 }
 
                 {
+                  (() => {
+                    const configObject =
+                      objects.find(
+                        item =>
+                          item.source_object_id === configObjectId,
+                      )
+
+                    return configObject
+                      ? (
+                          <ObjectConfigPanel
+                            key={configObject.source_object_id}
+                            sourceObject={configObject}
+                            onClose={() => setConfigObjectId(null)}
+                          />
+                        )
+                      : null
+                  })()
+                }
+
+                {
                   loading && objects.length === 0
                     ? (
                         <div className="loading-panel">
@@ -1564,6 +1590,19 @@ function AdminIntegrationsPage() {
                                               }
                                             >
                                               <Trans i18nKey="batch.tr0218" />
+                                            </button>
+
+                                            <button
+                                              type="button"
+                                              className="admin-link-button"
+                                              onClick={
+                                                () =>
+                                                  setConfigObjectId(
+                                                    item.source_object_id,
+                                                  )
+                                              }
+                                            >
+                                              <Trans i18nKey="objectConfig.open" />
                                             </button>
 
                                             <button

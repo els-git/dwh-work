@@ -33,6 +33,7 @@ from dwh_api.secret_file_store import EncryptedFileSecretStore, SecretFileStoreE
 from dwh_api.connector_contract import ConnectorError, SecretValue
 from dwh_api.postgres_connector import ADAPTER as POSTGRES_ADAPTER, DISCOVER_LIMIT, PostgresConnectorError
 from dwh_api.secret_keyring import KeyringUnavailable, load_active_key, load_key
+from dwh_api.object_config_admin import drift_after_snapshot
 
 
 router = APIRouter(
@@ -117,6 +118,7 @@ class SnapshotResponse(BaseModel):
     objects_captured: int
     columns_captured: int
     server_version: str
+    objects_with_drift: int | None = None
 
 
 # ============================================================
@@ -499,8 +501,13 @@ def capture_source_snapshot(conn, token_hash: str, request_id: str, source_syste
     (row,) = _execute(conn, request_id,
                       "SELECT * FROM app.integration_source_metadata_capture(%s, %s, %s, %s, %s::jsonb)",
                       (token_hash, source_system_id, config_.get("database"), version, Jsonb(payload)))
+    try:
+        drifted: int | None = drift_after_snapshot(conn, token_hash, request_id, source_system_id)
+    except HTTPException:
+        drifted = None  # snapshot is committed; drift is re-checked from the object configuration panel
     return SnapshotResponse(metadata_capture_id=row["metadata_capture_id"], objects_captured=row["objects_captured"],
-                            columns_captured=row["columns_captured"], server_version=version)
+                            columns_captured=row["columns_captured"], server_version=version,
+                            objects_with_drift=drifted)
 
 
 @router.post(
