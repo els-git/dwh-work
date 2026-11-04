@@ -1,8 +1,11 @@
 -- I03 step 7: audit trail of the source connection acceptance (read-only).
 -- Privileges of dwh_app first, then today's I03 audit events of the sources
 -- (event, action, outcome, operation id, key id; no secrets are ever logged).
-SELECT 'privilege | audit.security_event SELECT=' || has_table_privilege('audit.security_event', 'SELECT')::text
-    || ' | secret_store.operation_event SELECT=' || has_table_privilege('secret_store.operation_event', 'SELECT')::text;
+SELECT 'privilege | schema audit USAGE=' || has_schema_privilege('audit', 'USAGE')::text
+    || ' | audit.security_event SELECT='
+    || CASE WHEN has_schema_privilege('audit', 'USAGE')
+            THEN has_table_privilege('audit.security_event', 'SELECT')::text ELSE 'false' END
+    || ' | schema secret_store USAGE=' || has_schema_privilege('secret_store', 'USAGE')::text;
 
 SELECT 'event | ' || to_char(occurred_at, 'YYYY-MM-DD HH24:MI:SS') || ' | source=' || entity_key
     || ' | ' || event_type || ' | ' || action || ' | ' || outcome
