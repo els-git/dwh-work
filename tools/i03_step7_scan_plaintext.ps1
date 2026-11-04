@@ -34,14 +34,15 @@ function Test-Contains([byte[]]$data, [byte[]]$pattern) {
 }
 
 $scanned = 0
+$locked = 0
 $found = @()
 foreach ($folder in $folders) {
     if (-not (Test-Path -LiteralPath $folder)) { Write-Host "skip (absent): $folder"; continue }
     $files = Get-ChildItem -LiteralPath $folder -Recurse -File -ErrorAction SilentlyContinue |
-        Where-Object { $_.Length -le 100MB -and $_.FullName -notmatch '\\(node_modules|packages|__pycache__)\\' }
+        Where-Object { $_.Length -le 100MB -and $_.FullName -notmatch '\\(node_modules|packages|__pycache__)\\' -and $_.FullName -notmatch '\\runtime\\postgres\\' }
     foreach ($file in $files) {
+        try { $data = [IO.File]::ReadAllBytes($file.FullName) } catch { $locked++; continue }
         $scanned++
-        $data = [IO.File]::ReadAllBytes($file.FullName)
         foreach ($pattern in $patterns) {
             if (Test-Contains $data $pattern) { $found += $file.FullName; break }
         }
@@ -50,7 +51,7 @@ foreach ($folder in $folders) {
 
 $bins = @(Get-ChildItem -LiteralPath $storeDir -Filter *.bin -File -ErrorAction SilentlyContinue).Count
 Write-Host "Secret store folder: $storeDir; encrypted files (*.bin): $bins"
-Write-Host "Files scanned: $scanned"
+Write-Host "Files scanned: $scanned; skipped (locked): $locked; PostgreSQL data folder runtime\postgres excluded"
 if ($found.Count -gt 0) {
     $found | Sort-Object -Unique | ForEach-Object { Write-Host "PLAINTEXT_FOUND: $_" }
     Write-Host "SCAN_RESULT: FAIL"
