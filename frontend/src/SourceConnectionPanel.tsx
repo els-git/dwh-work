@@ -596,7 +596,7 @@ function SourceConnectionPanel({
 
                     <button
                       type="button"
-                      className="admin-link-button"
+                      className="admin-secondary-button"
                       onClick={onClose}
                     >
                       {t('sourceConnection.close')}
@@ -742,7 +742,7 @@ function SourceConnectionPanel({
           <div className="admin-integrations-form-actions">
             <button
               type="button"
-              className="admin-link-button"
+              className="admin-secondary-button"
               onClick={onClose}
             >
               {t('sourceConnection.close')}

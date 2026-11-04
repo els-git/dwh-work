@@ -944,7 +944,7 @@ function ObjectConfigPanel({
                 }
                 <button
                   type="button"
-                  className="admin-link-button"
+                  className="admin-secondary-button"
                   onClick={onClose}
                 >
                   {t('objectConfig.close')}
@@ -1016,7 +1016,7 @@ function ObjectConfigPanel({
             <div className="admin-integrations-form-actions">
               <button
                 type="button"
-                className="admin-link-button"
+                className="admin-secondary-button"
                 onClick={onClose}
               >
                 {t('objectConfig.close')}
