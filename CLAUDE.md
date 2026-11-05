@@ -48,7 +48,7 @@ DWH — платформа хранилища данных с frontend, backend 
 Единый согласованный план: неизменяемые ID задач, итерации, зависимости, критерии приёмки, решения, журнал и статусы `PLANNED`, `IN_PROGRESS`, `BLOCKED`, `DONE`, `CANCELLED`, `DEFERRED`. **DONE — только после фактических проверок и подтверждения пользователя.** Историю не удалять, задачи не перенумеровывать, прежние требования не переписывать без согласования. Новые задачи — только с новыми ID и явной договорённостью.
 
 **Последний подтверждённый SHA256 (04.11.2026, в git):**
-`0869F8612F93ADF5A7EDBE13F7E5E5DB396CE5EB6737927DC0B5F58C1DB551B0`
+`D5D8693E242D6E029979AC437CFF9F79328D60F88AE369C88D6125F599BB3548`
 
 Документы на ПК обновляются через `git pull` после слияния PR. Скрипты `sync_docs_to_pc.ps1` удалены 03.11.2026: связь с git их заменила.
 
@@ -244,7 +244,9 @@ DWH — платформа хранилища данных с frontend, backend 
 
 **I07 `IN_PROGRESS`** (план утверждён 05.11.2026: `docs/DWH_I07_FULL_INCREMENTAL_PLAN_APPROVED_20261105.md`; Д7 — строки `asan_pension_requests` не меняются, INCREMENTAL по `created_at`). **Пакет 011** (`database/migrations/011_object_load_strategy.sql`): стратегия в версии, watermark в `etl.object_run`, `etl.object_run_record_increment`, история `DELETE`; E0 PASS (check 8/8, test 13/13).
 
-**Следующий шаг:** E1 пакета 011 (`database/run_011_e1_test.ps1`) — по разрешению пользователя.
+**E1 011 PASS 05.11.2026** (вывод пользователя).
+
+**Следующий шаг:** E2 пакета 011 (`database/run_011_e2_apply_dwh.ps1`) — по разрешению пользователя; затем шаг 3 (backend и UI стратегии).
 
 PR #7 с профилями закрыт без слияния. Тест 005 в E0/E1 внутри своей транзакции подменяет `app.integration_admin_session_user` тестовыми токенами; `ROLLBACK` её восстанавливает. Read-only запросы — через `database/tools/run_readonly_sql.ps1`.
 
