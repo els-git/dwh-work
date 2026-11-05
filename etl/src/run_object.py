@@ -225,20 +225,29 @@ def estimated_rows(conn, schema: str, table: str) -> int | None:
 
 
 def read_source(conn, schema: str, table: str, plan: Plan, row_limit: int):
-    """Rows of the mapped columns as text (NULL stays NULL), in published field order."""
+    """Rows of the mapped columns as text (NULL stays NULL), in published field order.
+
+    The cursor is declared and fetched with plain SQL statements (DECLARE / FETCH) on an
+    ordinary client cursor: a psycopg server-side cursor sends a separate portal Describe,
+    which hung behind the connection pooler of the user's source on 05.11.2026.
+    """
     select = sql.SQL("SELECT {} FROM {}.{}").format(
         sql.SQL(", ").join(sql.SQL("{}::text").format(sql.Identifier(f["source_column"])) for f in plan.written),
         sql.Identifier(schema), sql.Identifier(table))
     count = 0
     try:
-        with conn.cursor(name="dwh_object_run") as cur:
-            cur.itersize = FETCH_SIZE
-            cur.execute(select)
-            for row in cur:
-                count += 1
-                if count > row_limit:
-                    raise RunError("ROW_LIMIT", f"Source object has more than {row_limit} rows")
-                yield row
+        with conn.cursor() as cur:
+            cur.execute(sql.SQL("DECLARE dwh_object_run NO SCROLL CURSOR FOR {}").format(select))
+            while True:
+                cur.execute(sql.SQL("FETCH FORWARD {} FROM dwh_object_run").format(sql.Literal(FETCH_SIZE)))
+                batch = cur.fetchall()
+                if not batch:
+                    break
+                for row in batch:
+                    count += 1
+                    if count > row_limit:
+                        raise RunError("ROW_LIMIT", f"Source object has more than {row_limit} rows")
+                    yield row
     except psycopg.Error as exc:
         raise database_error(exc, "source") from None
     finally:
