@@ -69,6 +69,11 @@ class RunResult:
     rows_inserted: int = 0
     rows_updated: int = 0
     rows_unchanged: int = 0
+    rows_stale: int = 0
+    rows_deleted: int = 0
+    load_strategy: str = "FULL"
+    watermark_from: str | None = None
+    watermark_to: str | None = None
     error_code: str | None = None
     message: str | None = None
 
@@ -81,8 +86,13 @@ class Plan:
     target_table: str
     fields: list[dict]
     key: list[str]
+    strategy: dict | None = None
     columns: list[str] = field(init=False)
     authoritative: list[dict] = field(init=False)
+    load_strategy: str = field(init=False)
+    change_field: dict | None = field(init=False)
+    overlap_minutes: int = field(init=False)
+    delete_flag: str | None = field(init=False)
 
     def __post_init__(self) -> None:
         if not self.fields or not self.key:
@@ -96,6 +106,24 @@ class Plan:
             raise RunError("CONFIG_INVALID", "Key column is not written")
         self.authoritative = [f for f in self.fields if f["write_policy"] == "AUTHORITATIVE"
                               and f.get("source_column") and f["target_column"] not in self.key]
+        # I07 (package 011): load strategy of the published version.
+        strategy = self.strategy or {}
+        self.load_strategy = strategy.get("load_strategy") or "FULL"
+        change = strategy.get("change_column")
+        self.change_field = next((f for f in self.written if f["target_column"] == change), None) if change else None
+        if change and self.change_field is None:
+            raise RunError("CONFIG_INVALID", "Change column is not a written field")
+        if self.change_field is not None:
+            from dwh_api.field_types import parse
+
+            if parse(self.change_field["source_type"])[0] not in ("DATE", "TIMESTAMP", "TIMESTAMPTZ", "INTEGER", "BIGINT"):
+                raise RunError("CONFIG_INVALID", "Change column has an unsupported source type")
+        if self.load_strategy == "INCREMENTAL" and self.change_field is None:
+            raise RunError("CONFIG_INVALID", "Incremental strategy without a change column")
+        self.overlap_minutes = int(strategy.get("overlap_minutes") or 0)
+        self.delete_flag = strategy.get("delete_flag_column")
+        if self.delete_flag and self.delete_flag not in self.columns:
+            raise RunError("CONFIG_INVALID", "Delete flag is not a written field")
 
     @property
     def written(self) -> list[dict]:
@@ -224,7 +252,21 @@ def estimated_rows(conn, schema: str, table: str) -> int | None:
     return None if row is None or row[0] is None or row[0] < 0 else int(row[0])
 
 
-def read_source(conn, schema: str, table: str, plan: Plan, row_limit: int):
+def increment_filter(plan: Plan, watermark: str | None) -> sql.Composable | None:
+    """D3: rows with change value >= watermark - overlap (inclusive); None = read everything."""
+    from dwh_api.field_types import parse, postgres_type
+
+    if plan.load_strategy != "INCREMENTAL" or watermark is None:
+        return None
+    f = plan.change_field
+    column = sql.Identifier(f["source_column"])
+    if parse(f["source_type"])[0] in ("INTEGER", "BIGINT"):
+        return sql.SQL("{} >= CAST({} AS bigint)").format(column, sql.Literal(watermark))
+    return sql.SQL("{} >= CAST({} AS {}) - make_interval(mins => {})").format(
+        column, sql.Literal(watermark), sql.SQL(postgres_type(f["source_type"])), sql.Literal(plan.overlap_minutes))
+
+
+def read_source(conn, schema: str, table: str, plan: Plan, row_limit: int, where: sql.Composable | None = None):
     """Rows of the mapped columns as text (NULL stays NULL), in published field order.
 
     The cursor is declared and fetched with plain SQL statements (DECLARE / FETCH) on an
@@ -234,6 +276,8 @@ def read_source(conn, schema: str, table: str, plan: Plan, row_limit: int):
     select = sql.SQL("SELECT {} FROM {}.{}").format(
         sql.SQL(", ").join(sql.SQL("{}::text").format(sql.Identifier(f["source_column"])) for f in plan.written),
         sql.Identifier(schema), sql.Identifier(table))
+    if where is not None:
+        select = select + sql.SQL(" WHERE ") + where
     count = 0
     try:
         with conn.cursor() as cur:
@@ -326,14 +370,26 @@ def _changed(f: dict) -> sql.Composable:
     return sql.SQL("(s.{c} IS NOT NULL AND {d})").format(c=col, d=differs)
 
 
-def apply_rows(dwh, plan: Plan, run_id: int) -> tuple[int, int]:
-    """INSERT new keys, UPDATE changed AUTHORITATIVE fields, history rows; returns (inserted, updated)."""
+def apply_rows(dwh, plan: Plan, run_id: int) -> tuple[int, int, int, int]:
+    """INSERT new keys, UPDATE changed AUTHORITATIVE fields, history rows.
+
+    Returns (inserted, updated, stale, deleted). With a change column, a row whose change value
+    in the source is older than in the DWH is skipped as stale (D4). With a delete flag, an update
+    that sets the flag to true is recorded as DELETE (soft delete, D5)."""
     target = sql.SQL("{}.{}").format(_ident(plan.target_schema), _ident(plan.target_table))
     join = sql.SQL(" AND ").join(sql.SQL("t.{k} = s.{k}").format(k=_ident(k)) for k in plan.key)
     key_json = sql.SQL("jsonb_build_object({})").format(
         sql.SQL(", ").join(sql.SQL("{}, s.{}").format(sql.Literal(k), _ident(k)) for k in plan.key))
-    updated = 0
+    updated = stale = deleted = 0
+    fresh = sql.SQL("TRUE")
+    if plan.change_field is not None:
+        c = _ident(plan.change_field["target_column"])
+        fresh = sql.SQL("(t.{c} IS NULL OR s.{c} IS NULL OR s.{c} >= t.{c})").format(c=c)
     with dwh.cursor() as cur:
+        if plan.change_field is not None:
+            cur.execute(sql.SQL("SELECT count(*) FROM dwh_object_run_stage s JOIN {target} t ON {join} WHERE NOT {fresh}").format(
+                target=target, join=join, fresh=fresh))
+            stale = cur.fetchone()[0]
         if plan.authoritative:
             changes = sql.SQL(" || ").join(
                 sql.SQL("CASE WHEN {cond} THEN jsonb_build_object({name}, jsonb_build_object('before', to_jsonb(t.{c}), "
@@ -343,13 +399,23 @@ def apply_rows(dwh, plan: Plan, run_id: int) -> tuple[int, int]:
             cur.execute(sql.SQL(
                 "CREATE TEMP TABLE dwh_object_run_diff ON COMMIT DROP AS "
                 "SELECT {key_cols}, {key_json} AS record_key, {changes} AS changes "
-                "FROM dwh_object_run_stage s JOIN {target} t ON {join}").format(
+                "FROM dwh_object_run_stage s JOIN {target} t ON {join} WHERE {fresh}").format(
                 key_cols=sql.SQL(", ").join(sql.SQL("s.{}").format(_ident(k)) for k in plan.key),
-                key_json=key_json, changes=changes, target=target, join=join))
+                key_json=key_json, changes=changes, target=target, join=join, fresh=fresh))
             cur.execute("DELETE FROM dwh_object_run_diff WHERE changes = '{}'::jsonb")
-            cur.execute(
+            kind = sql.SQL("'UPDATE'")
+            if plan.delete_flag:
+                deleting = sql.SQL("(changes -> {f} ->> 'after')::boolean IS TRUE "
+                                   "AND (changes -> {f} ->> 'before')::boolean IS NOT TRUE").format(
+                    f=sql.Literal(plan.delete_flag))
+                kind = sql.SQL("CASE WHEN {d} THEN 'DELETE' ELSE 'UPDATE' END").format(d=deleting)
+                # The history table is append-only for the ETL role: count on the diff table.
+                cur.execute(sql.SQL("SELECT count(*) FROM dwh_object_run_diff WHERE {d}").format(d=deleting))
+                deleted = cur.fetchone()[0]
+            cur.execute(sql.SQL(
                 "INSERT INTO etl.object_record_change(run_id, change_kind, record_key, changes) "
-                "SELECT %s, 'UPDATE', record_key, changes FROM dwh_object_run_diff", (run_id,))
+                "SELECT {run}, {kind}, record_key, changes FROM dwh_object_run_diff").format(
+                run=sql.Literal(run_id), kind=kind))
             updated = cur.rowcount
             if updated:
                 cur.execute(sql.SQL("UPDATE {target} t SET {sets} FROM dwh_object_run_stage s "
@@ -359,6 +425,8 @@ def apply_rows(dwh, plan: Plan, run_id: int) -> tuple[int, int]:
                         c=_ident(f["target_column"]), cond=_changed(f)) for f in plan.authoritative),
                     djoin=sql.SQL(" AND ").join(sql.SQL("d.{k} = s.{k}").format(k=_ident(k)) for k in plan.key),
                     join=join))
+                if cur.rowcount != updated:
+                    raise RunError("APPLY_MISMATCH", "Updated rows differ from the history rows")
         new_rows = sql.SQL("FROM dwh_object_run_stage s WHERE NOT EXISTS (SELECT 1 FROM {target} t WHERE {join})").format(
             target=target, join=join)
         after = sql.SQL("jsonb_build_object({})").format(sql.SQL(", ").join(
@@ -375,7 +443,17 @@ def apply_rows(dwh, plan: Plan, run_id: int) -> tuple[int, int]:
                 new_rows=new_rows))
             if cur.rowcount != inserted:
                 raise RunError("APPLY_MISMATCH", "Inserted rows differ from the history rows")
-    return inserted, updated
+    return inserted, updated, stale, deleted
+
+
+def staged_watermark(dwh, plan: Plan) -> str | None:
+    """Highest change value of the staged rows (text), None without a change column or rows."""
+    if plan.change_field is None:
+        return None
+    with dwh.cursor() as cur:
+        cur.execute(sql.SQL("SELECT max({})::text FROM dwh_object_run_stage").format(
+            _ident(plan.change_field["target_column"])))
+        return cur.fetchone()[0]
 
 
 # ------------------------------------------------------------------ run
@@ -411,7 +489,14 @@ def run_object(source_object_id: int, *, dwh_connect: Callable[[], Any], read_cr
         source = begin["source"]
         definition = begin["definition"]
         try:
-            plan = Plan(definition["target_schema"], definition["target_table"], definition["fields"], definition["key"])
+            plan = Plan(definition["target_schema"], definition["target_table"], definition["fields"], definition["key"],
+                        definition.get("strategy"))
+            result.load_strategy = plan.load_strategy
+            result.watermark_from = begin.get("watermark") if plan.load_strategy == "INCREMENTAL" else None
+            where = increment_filter(plan, result.watermark_from)
+            log(f"STAGE: strategy {plan.load_strategy}" + (
+                f", watermark {result.watermark_from}, overlap {plan.overlap_minutes} min" if where is not None
+                else (", first run: full read" if plan.load_strategy == "INCREMENTAL" else "")))
             check_target(dwh, plan)
             try:
                 password = read_credential(source["code"])
@@ -424,11 +509,11 @@ def run_object(source_object_id: int, *, dwh_connect: Callable[[], Any], read_cr
                 check_structure(plan, source_columns(src, source["source_schema"], source["source_object"]))
                 estimate = estimated_rows(src, source["source_schema"], source["source_object"])
                 log(f"STAGE: source structure OK, estimated rows {estimate if estimate is not None else 'unknown'}")
-                if estimate is not None and estimate > row_limit:
+                if where is None and estimate is not None and estimate > row_limit:
                     raise RunError("ROW_LIMIT", f"Source object has about {estimate} rows, limit {row_limit}")
                 try:
                     result.rows_read = stage_rows(dwh, plan, read_source(
-                        src, source["source_schema"], source["source_object"], plan, row_limit), log)
+                        src, source["source_schema"], source["source_object"], plan, row_limit, where), log)
                 except psycopg.Error as exc:
                     raise database_error(exc, "stage") from None
             finally:
@@ -437,18 +522,25 @@ def run_object(source_object_id: int, *, dwh_connect: Callable[[], Any], read_cr
             validate_key(dwh, plan)
             log("STAGE: business key OK")
             try:
-                result.rows_inserted, result.rows_updated = apply_rows(dwh, plan, result.run_id)
+                result.rows_inserted, result.rows_updated, result.rows_stale, result.rows_deleted = apply_rows(
+                    dwh, plan, result.run_id)
+                staged = staged_watermark(dwh, plan)
+                result.watermark_to = staged if staged is not None else result.watermark_from
+                with dwh.cursor() as cur:
+                    cur.execute("SELECT etl.object_run_record_increment(%s, %s, %s, %s, %s)",
+                                (result.run_id, result.watermark_from, result.watermark_to,
+                                 result.rows_stale, result.rows_deleted))
             except psycopg.Error as exc:
                 raise database_error(exc, "apply") from None
             log("STAGE: applied, committing")
-            result.rows_unchanged = result.rows_read - result.rows_inserted - result.rows_updated
+            result.rows_unchanged = result.rows_read - result.rows_inserted - result.rows_updated - result.rows_stale
             result.status = _finish(dwh, result.run_id, True, result)
             dwh.commit()
             return result
         except (RunError, psycopg.Error) as caught:
             error = caught if isinstance(caught, RunError) else database_error(caught, "dwh")
             dwh.rollback()
-            result.rows_inserted = result.rows_updated = result.rows_unchanged = 0
+            result.rows_inserted = result.rows_updated = result.rows_unchanged = result.rows_stale = result.rows_deleted = 0
             result.status = _finish(dwh, result.run_id, False, result, error)
             dwh.commit()
             result.error_code, result.message = error.code, error.message
@@ -456,7 +548,7 @@ def run_object(source_object_id: int, *, dwh_connect: Callable[[], Any], read_cr
         except Exception as exc:  # unexpected: close the run, re-raise without data
             dwh.rollback()
             error = RunError("INTERNAL_ERROR", f"Unexpected {type(exc).__name__}")
-            result.rows_inserted = result.rows_updated = result.rows_unchanged = 0
+            result.rows_inserted = result.rows_updated = result.rows_unchanged = result.rows_stale = result.rows_deleted = 0
             result.status = _finish(dwh, result.run_id, False, result, error)
             dwh.commit()
             result.error_code, result.message = error.code, error.message
@@ -482,7 +574,9 @@ def main() -> None:
         sys.exit(1)
     print(f"RUN_ID: {result.run_id} | BATCH_RUN_ID: {result.batch_run_id}")
     print(f"ROWS: read={result.rows_read} inserted={result.rows_inserted} updated={result.rows_updated} "
-          f"unchanged={result.rows_unchanged}")
+          f"unchanged={result.rows_unchanged} stale={result.rows_stale} deleted={result.rows_deleted}")
+    print(f"STRATEGY: {result.load_strategy}" + (f" | watermark {result.watermark_from} -> {result.watermark_to}"
+                                                 if result.load_strategy == "INCREMENTAL" else ""))
     if result.status == "SUCCESS":
         print("RUN_RESULT: SUCCESS")
         return

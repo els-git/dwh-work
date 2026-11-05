@@ -178,6 +178,46 @@ class ValidationTest(unittest.TestCase):
             oca.FieldConfig(target_column="a", source_type="TEXT", target_type="TEXT", write_policy="DROP")
 
 
+class StrategyTest(unittest.TestCase):
+    def test_full_default_and_incremental(self):
+        self.assertEqual(oca.strategy_of(good_definition()),
+                         {"load_strategy": "FULL", "change_column": None, "overlap_minutes": 10,
+                          "delete_flag_column": None})
+        d = dict(good_definition(), load_strategy="INCREMENTAL", change_column="created", overlap_minutes=0)
+        self.assertEqual(codes(oca.validate_definition(d, SNAPSHOT, TARGET)), [])
+        nested = dict(good_definition(), strategy={"load_strategy": "INCREMENTAL", "change_column": "id"})
+        self.assertEqual(oca.strategy_of(nested)["change_column"], "id")
+        self.assertEqual(codes(oca.validate_strategy(nested, {f["target_column"]: f for f in nested["fields"]})), [])
+
+    def test_errors(self):
+        d = dict(good_definition(), load_strategy="INCREMENTAL")
+        self.assertIn("CHANGE_COLUMN_REQUIRED", codes(oca.validate_definition(d, SNAPSHOT, TARGET)))
+        d = dict(good_definition(), change_column="pin", delete_flag_column="id")
+        self.assertEqual(codes(oca.validate_strategy(d, {f["target_column"]: f for f in d["fields"]})),
+                         ["CHANGE_COLUMN_TYPE", "DELETE_FLAG_TYPE"])
+        d = dict(good_definition(), change_column="ghost", delete_flag_column="ghost")
+        self.assertEqual(codes(oca.validate_strategy(d, {f["target_column"]: f for f in d["fields"]})),
+                         ["CHANGE_COLUMN_NOT_MAPPED", "DELETE_FLAG_NOT_MAPPED"])
+        d = good_definition()
+        d["fields"][2]["write_policy"] = "NO_WRITE"
+        d["change_column"] = "created"
+        self.assertEqual(codes(oca.validate_strategy(d, {f["target_column"]: f for f in d["fields"]})),
+                         ["CHANGE_COLUMN_NOT_MAPPED"])
+        d = good_definition()
+        d["fields"][1].update(target_type="DATE")
+        d["change_column"] = "pin"  # source TEXT(20): not comparable with the watermark
+        self.assertEqual(codes(oca.validate_strategy(d, {f["target_column"]: f for f in d["fields"]})),
+                         ["CHANGE_COLUMN_TYPE"])
+
+    def test_request_model(self):
+        doc = oca.ObjectConfigDocument(target_schema="stg", target_table="t", load_strategy="INCREMENTAL",
+                                       change_column="created")
+        self.assertEqual(doc.model_dump()["overlap_minutes"], 10)
+        for bad in ({"load_strategy": "DELTA"}, {"overlap_minutes": -1}, {"change_column": "Bad Name"}):
+            with self.assertRaises(ValidationError):
+                oca.ObjectConfigDocument(target_schema="stg", target_table="t", **bad)
+
+
 class DriftTest(unittest.TestCase):
     def test_no_drift_against_baseline(self):
         baseline = oca.baseline_of(SNAPSHOT)
