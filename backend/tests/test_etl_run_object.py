@@ -209,10 +209,11 @@ class FlowTest(unittest.TestCase):
         class Source:
             def close(self):
                 pass
-        original = (ro.source_columns, ro.stage_rows, ro.validate_key, ro.apply_rows)
+        original = (ro.source_columns, ro.stage_rows, ro.validate_key, ro.apply_rows, ro.estimated_rows)
         try:
             ro.source_columns = lambda c, s, t: {"id": "BIGINT", "amount": "BIGINT", "note": "TEXT"}
-            ro.stage_rows = lambda d, p, rows: 3
+            ro.stage_rows = lambda d, p, rows, log=None: 3
+            ro.estimated_rows = lambda c, s, t: 3
             ro.validate_key = lambda d, p: None
 
             def apply(d, p, run):
@@ -221,7 +222,7 @@ class FlowTest(unittest.TestCase):
             result = ro.run_object(16, dwh_connect=lambda: conn, read_credential=lambda c: SECRET,
                                    source_connect_fn=lambda c, p: Source())
         finally:
-            ro.source_columns, ro.stage_rows, ro.validate_key, ro.apply_rows = original
+            ro.source_columns, ro.stage_rows, ro.validate_key, ro.apply_rows, ro.estimated_rows = original
         self.assertEqual((result.status, result.error_code), ("FAILED", "TARGET_CHECK"))
         self.assertGreaterEqual(conn.rollbacks, 1)
         self.assertNotIn("SECRET-VALUE", repr(conn.finished()))
@@ -232,21 +233,45 @@ class FlowTest(unittest.TestCase):
         class Source:
             def close(self):
                 pass
-        original = (ro.source_columns, ro.stage_rows, ro.validate_key, ro.apply_rows)
+        original = (ro.source_columns, ro.stage_rows, ro.validate_key, ro.apply_rows, ro.estimated_rows)
         try:
             ro.source_columns = lambda c, s, t: {"id": "BIGINT", "amount": "BIGINT", "note": "TEXT"}
-            ro.stage_rows = lambda d, p, rows: 10
+            ro.stage_rows = lambda d, p, rows, log=None: 10
+            ro.estimated_rows = lambda c, s, t: 10
             ro.validate_key = lambda d, p: None
             ro.apply_rows = lambda d, p, run: (4, 2)
             result = ro.run_object(16, dwh_connect=lambda: conn, read_credential=lambda c: SECRET,
                                    source_connect_fn=lambda c, p: Source())
         finally:
-            ro.source_columns, ro.stage_rows, ro.validate_key, ro.apply_rows = original
+            ro.source_columns, ro.stage_rows, ro.validate_key, ro.apply_rows, ro.estimated_rows = original
         self.assertEqual((result.status, result.rows_read, result.rows_inserted, result.rows_updated,
                           result.rows_unchanged), ("SUCCESS", 10, 4, 2, 4))
         (params,) = conn.finished()
         self.assertEqual(params[:6], (7, True, 10, 4, 2, 4))
         self.assertEqual(conn.commits, 2)  # begin, then data + finish together
+
+
+class EstimateTest(unittest.TestCase):
+    def test_estimate_over_limit_stops_before_read(self):
+        conn = dwh_conn()
+
+        class Source:
+            def close(self):
+                pass
+        original = (ro.source_columns, ro.estimated_rows, ro.read_source)
+        read = []
+        try:
+            ro.source_columns = lambda c, s, t: {"id": "BIGINT", "amount": "BIGINT", "note": "TEXT"}
+            ro.estimated_rows = lambda c, s, t: 2_000_000
+            ro.read_source = lambda *a: read.append(a) or iter(())
+            messages = []
+            result = ro.run_object(16, dwh_connect=lambda: conn, read_credential=lambda c: SECRET,
+                                   source_connect_fn=lambda c, p: Source(), log=messages.append)
+        finally:
+            ro.source_columns, ro.estimated_rows, ro.read_source = original
+        self.assertEqual((result.error_code, read), ("ROW_LIMIT", []))
+        self.assertTrue(any("estimated rows 2000000" in m for m in messages))
+        self.assertNotIn(SECRET, " ".join(messages))
 
 
 if __name__ == "__main__":
