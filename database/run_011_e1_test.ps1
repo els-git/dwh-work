@@ -21,7 +21,7 @@ $Report = Join-Path $Work 'E1_report.txt'
 
 # Files come from the repository (after git pull); SHA256 must match.
 $Files = [ordered]@{
-    '011_object_load_strategy_check.sql' = @{ Sha = '665016109541F4A3DBEBAB887B1B599550673383CCD912E5AFB64DAA4E8E8F03'; Path = (Join-Path $Root 'database\checks\011_object_load_strategy_check.sql') }
+    '010_object_run_check.sql' = @{ Sha = '665016109541F4A3DBEBAB887B1B599550673383CCD912E5AFB64DAA4E8E8F03'; Path = (Join-Path $Root 'database\checks\010_object_run_check.sql') }
     '011_object_load_strategy.sql' = @{ Sha = '4FC7E0F075B4CCBE04B62FA8E45E834A541092C633B229020E45B02AA206247B'; Path = (Join-Path $Root 'database\migrations\011_object_load_strategy.sql') }
     '011_object_load_strategy.down.sql' = @{ Sha = 'F4DA4A994C3A36DCBF349D77EE63BB0A3989A589AAD3F967FD8AAC2BFF1A6E12'; Path = (Join-Path $Root 'database\migrations\011_object_load_strategy.down.sql') }
     '011_object_load_strategy_check.sql' = @{ Sha = '01FE2C0FD33099F7030808D52CEDAC7859E29A7ADC7A771441857818062AC98B'; Path = (Join-Path $Root 'database\checks\011_object_load_strategy_check.sql') }
