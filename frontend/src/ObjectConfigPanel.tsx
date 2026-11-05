@@ -27,10 +27,12 @@ import {
 import type {
   Compatibility,
   IntegrationSourceObject,
+  LoadStrategy,
   ObjectConfigDefinition,
   ObjectConfigField,
   ObjectConfigIssue,
   ObjectConfigResponse,
+  ObjectLoadStrategy,
   TargetTable,
   WritePolicy,
 } from './integrationAdminApi'
@@ -63,6 +65,35 @@ const WRITE_POLICIES: WritePolicy[] = ['AUTHORITATIVE', 'INSERT_ONLY', 'NO_WRITE
 
 const NEW_COLUMN = '__new__'
 
+// Types allowed for the change field of an INCREMENTAL load (same as the database check).
+const CHANGE_COLUMN_TYPES = ['DATE', 'TIMESTAMP', 'TIMESTAMPTZ', 'INTEGER', 'BIGINT']
+
+const DEFAULT_OVERLAP_MINUTES = 10
+
+const MAX_OVERLAP_MINUTES = 10080
+
+
+function baseType(
+  type: string,
+): string {
+  return type.split('(')[0]
+}
+
+
+// Strategy of a definition: nested "strategy" of a saved version or the flat keys of a draft.
+function strategyOf(
+  definition: ObjectConfigDefinition,
+): ObjectLoadStrategy {
+  const raw = definition.strategy ?? definition
+
+  return {
+    load_strategy: raw.load_strategy ?? 'FULL',
+    change_column: raw.change_column ?? null,
+    overlap_minutes: raw.overlap_minutes ?? DEFAULT_OVERLAP_MINUTES,
+    delete_flag_column: raw.delete_flag_column ?? null,
+  }
+}
+
 
 function columnName(
   source: string,
@@ -92,6 +123,7 @@ function canonical(
       }),
     ),
     key: definition.key,
+    strategy: strategyOf(definition),
   })
 }
 
@@ -133,6 +165,15 @@ function ObjectConfigPanel({
   const [keyColumns, setKeyColumns] = useState<string[]>([])
 
   const [issues, setIssues] = useState<ObjectConfigIssue[] | null>(null)
+
+  const [loadStrategy, setLoadStrategy] = useState<LoadStrategy>('FULL')
+
+  // Change field and delete flag as source columns, like the key.
+  const [changeSource, setChangeSource] = useState('')
+
+  const [overlapText, setOverlapText] = useState(String(DEFAULT_OVERLAP_MINUTES))
+
+  const [deleteSource, setDeleteSource] = useState('')
 
   // Responses for an older load are ignored.
   const requestSequence = useRef(0)
@@ -207,6 +248,16 @@ function ObjectConfigPanel({
             .map(target => byTarget.get(target)?.source_column ?? null)
             .filter((source): source is string => source !== null),
       )
+      const strategy = saved === null ? null : strategyOf(saved)
+
+      const sourceOf = (column: string | null | undefined) => (
+        column ? byTarget.get(column)?.source_column ?? '' : ''
+      )
+
+      setLoadStrategy(strategy?.load_strategy ?? 'FULL')
+      setChangeSource(sourceOf(strategy?.change_column))
+      setOverlapText(String(strategy?.overlap_minutes ?? DEFAULT_OVERLAP_MINUTES))
+      setDeleteSource(sourceOf(strategy?.delete_flag_column))
       setIssues(value.config.draft?.last_validation?.issues ?? null)
     },
     [],
@@ -314,8 +365,16 @@ function ObjectConfigPanel({
     return targetColumns.get(row.target_column)?.type ?? row.target_type
   }
 
+  const overlapMinutes = /^\d{1,5}$/.test(overlapText) ? Number(overlapText) : Number.NaN
+
+  const overlapValid = overlapMinutes >= 0 && overlapMinutes <= MAX_OVERLAP_MINUTES
+
   function buildDefinition(): ObjectConfigDefinition {
     const included = rows.filter(row => row.included)
+
+    const targetOf = (source: string) => (
+      source === '' ? null : included.find(row => row.source_column === source)?.target_column ?? null
+    )
 
     return {
       target_schema: targetTable === '' ? null : targetSchema,
@@ -344,6 +403,10 @@ function ObjectConfigPanel({
       key: keyColumns
         .map(source => included.find(row => row.source_column === source)?.target_column ?? null)
         .filter((column): column is string => column !== null),
+      load_strategy: loadStrategy,
+      change_column: targetOf(changeSource),
+      overlap_minutes: overlapValid ? overlapMinutes : DEFAULT_OVERLAP_MINUTES,
+      delete_flag_column: targetOf(deleteSource),
     }
   }
 
@@ -359,6 +422,7 @@ function ObjectConfigPanel({
   const namesValid =
     (targetTable === '' || NAME_PATTERN.test(targetTable))
     && edited.fields.every(field => NAME_PATTERN.test(field.target_column))
+    && overlapValid
 
   const lastValidation = draft?.last_validation ?? null
 
@@ -381,6 +445,17 @@ function ObjectConfigPanel({
     && !dirty
     && draft.definition.target_table !== null
     && (target === null || missingColumns.length > 0)
+
+  const changeCandidates = rows.filter(
+    row => row.included
+      && row.write_policy !== 'NO_WRITE'
+      && CHANGE_COLUMN_TYPES.includes(baseType(effectiveTargetType(row)))
+      && CHANGE_COLUMN_TYPES.includes(baseType(row.source_type)),
+  )
+
+  const deleteCandidates = rows.filter(
+    row => row.included && row.write_policy !== 'NO_WRITE' && effectiveTargetType(row) === 'BOOLEAN',
+  )
 
   function updateRow(
     source: string,
@@ -662,6 +737,92 @@ function ObjectConfigPanel({
                               : t('objectConfig.targetExisting', { columns: target.columns.length })
                       }
                     </p>
+                  </div>
+                )
+              }
+
+              {
+                !legacy && rows.length > 0 && (
+                  <div className="admin-integrations-form">
+                    <h4 className="wide">{t('objectConfig.strategyTitle')}</h4>
+
+                    <label>
+                      <span>{t('objectConfig.strategy')}</span>
+                      <select
+                        value={loadStrategy}
+                        disabled={busy}
+                        onChange={event => setLoadStrategy(event.target.value as LoadStrategy)}
+                      >
+                        <option value="FULL">{t('objectConfig.strategyFull')}</option>
+                        <option value="INCREMENTAL">{t('objectConfig.strategyIncremental')}</option>
+                      </select>
+                    </label>
+
+                    <label>
+                      <span>{t('objectConfig.changeColumn')}</span>
+                      <select
+                        value={changeSource}
+                        disabled={busy}
+                        onChange={event => setChangeSource(event.target.value)}
+                      >
+                        <option value="">{t('objectConfig.changeColumnNone')}</option>
+                        {
+                          changeSource !== '' && !changeCandidates.some(row => row.source_column === changeSource) && (
+                            <option value={changeSource}>{changeSource}</option>
+                          )
+                        }
+                        {
+                          changeCandidates.map(
+                            row => (
+                              <option key={row.source_column} value={row.source_column}>
+                                {`${row.source_column} → ${row.target_column} (${effectiveTargetType(row)})`}
+                              </option>
+                            ),
+                          )
+                        }
+                      </select>
+                    </label>
+
+                    <label>
+                      <span>{t('objectConfig.overlapMinutes')}</span>
+                      <input
+                        type="number"
+                        min={0}
+                        max={MAX_OVERLAP_MINUTES}
+                        step={1}
+                        value={overlapText}
+                        disabled={busy}
+                        aria-invalid={!overlapValid}
+                        onChange={event => setOverlapText(event.target.value.trim())}
+                      />
+                    </label>
+
+                    <label>
+                      <span>{t('objectConfig.deleteFlag')}</span>
+                      <select
+                        value={deleteSource}
+                        disabled={busy}
+                        onChange={event => setDeleteSource(event.target.value)}
+                      >
+                        <option value="">{t('objectConfig.deleteFlagNone')}</option>
+                        {
+                          deleteSource !== '' && !deleteCandidates.some(row => row.source_column === deleteSource) && (
+                            <option value={deleteSource}>{deleteSource}</option>
+                          )
+                        }
+                        {
+                          deleteCandidates.map(
+                            row => (
+                              <option key={row.source_column} value={row.source_column}>
+                                {`${row.source_column} → ${row.target_column}`}
+                              </option>
+                            ),
+                          )
+                        }
+                      </select>
+                    </label>
+
+                    <p className="wide">{t('objectConfig.strategyHint')}</p>
                   </div>
                 )
               }

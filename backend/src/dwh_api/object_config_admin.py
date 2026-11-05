@@ -66,6 +66,11 @@ class ObjectConfigDocument(BaseModel):
     target_table: str | None = Field(default=None, pattern=NAME_PATTERN)
     fields: list[FieldConfig] = Field(default_factory=list, max_length=FIELD_LIMIT)
     key: list[str] = Field(default_factory=list, max_length=32)
+    # I07 (package 011): load strategy of the version.
+    load_strategy: Literal["FULL", "INCREMENTAL"] = "FULL"
+    change_column: str | None = Field(default=None, pattern=NAME_PATTERN)
+    overlap_minutes: int = Field(default=10, ge=0, le=10080)
+    delete_flag_column: str | None = Field(default=None, pattern=NAME_PATTERN)
 
 
 class DraftSaveRequest(BaseModel):
@@ -341,6 +346,50 @@ def validate_definition(definition: dict, snapshot: dict | None, target: dict | 
         for name in source_columns:
             if name not in used_sources:
                 issues.append(_issue("WARNING", "SOURCE_COLUMN_UNMAPPED", source_column=name))
+    issues.extend(validate_strategy(definition, by_target))
+    return issues
+
+
+CHANGE_COLUMN_TYPES = ("DATE", "TIMESTAMP", "TIMESTAMPTZ", "INTEGER", "BIGINT")
+
+
+def strategy_of(definition: dict) -> dict:
+    """Load strategy of a definition (nested "strategy" from the database or flat keys of a draft)."""
+    raw = definition.get("strategy") or definition
+    return {
+        "load_strategy": raw.get("load_strategy") or "FULL",
+        "change_column": raw.get("change_column"),
+        "overlap_minutes": 10 if raw.get("overlap_minutes") is None else int(raw.get("overlap_minutes")),
+        "delete_flag_column": raw.get("delete_flag_column"),
+    }
+
+
+def _written(f: dict | None) -> bool:
+    return bool(f and f.get("source_column") and f["write_policy"] != "NO_WRITE")
+
+
+def validate_strategy(definition: dict, by_target: dict) -> list[dict]:
+    """I07: the same rules as the database checks at publication (package 011)."""
+    issues: list[dict] = []
+    strategy = strategy_of(definition)
+    change = strategy["change_column"]
+    flag = strategy["delete_flag_column"]
+    if strategy["load_strategy"] == "INCREMENTAL" and not change:
+        issues.append(_issue("ERROR", "CHANGE_COLUMN_REQUIRED"))
+    if change:
+        f = by_target.get(change)
+        if not _written(f):
+            issues.append(_issue("ERROR", "CHANGE_COLUMN_NOT_MAPPED", change))
+        elif (field_types.parse(f["target_type"])[0] not in CHANGE_COLUMN_TYPES
+              or field_types.parse(f["source_type"])[0] not in CHANGE_COLUMN_TYPES):
+            # The engine compares the source column with the watermark in the source type.
+            issues.append(_issue("ERROR", "CHANGE_COLUMN_TYPE", change, target_type=f["target_type"]))
+    if flag:
+        f = by_target.get(flag)
+        if not _written(f):
+            issues.append(_issue("ERROR", "DELETE_FLAG_NOT_MAPPED", flag))
+        elif f["target_type"] != "BOOLEAN":
+            issues.append(_issue("ERROR", "DELETE_FLAG_TYPE", flag, target_type=f["target_type"]))
     return issues
 
 

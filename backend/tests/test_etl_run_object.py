@@ -239,16 +239,96 @@ class FlowTest(unittest.TestCase):
             ro.stage_rows = lambda d, p, rows, log=None: 10
             ro.estimated_rows = lambda c, s, t: 10
             ro.validate_key = lambda d, p: None
-            ro.apply_rows = lambda d, p, run: (4, 2)
+            ro.apply_rows = lambda d, p, run: (4, 2, 1, 0)
             result = ro.run_object(16, dwh_connect=lambda: conn, read_credential=lambda c: SECRET,
                                    source_connect_fn=lambda c, p: Source())
         finally:
             ro.source_columns, ro.stage_rows, ro.validate_key, ro.apply_rows, ro.estimated_rows = original
         self.assertEqual((result.status, result.rows_read, result.rows_inserted, result.rows_updated,
-                          result.rows_unchanged), ("SUCCESS", 10, 4, 2, 4))
+                          result.rows_unchanged, result.rows_stale), ("SUCCESS", 10, 4, 2, 3, 1))
         (params,) = conn.finished()
-        self.assertEqual(params[:6], (7, True, 10, 4, 2, 4))
+        self.assertEqual(params[:6], (7, True, 10, 4, 2, 3))
+        (inc,) = [p for t, p in conn.calls if "object_run_record_increment" in t]
+        self.assertEqual(inc, (7, None, None, 1, 0))
         self.assertEqual(conn.commits, 2)  # begin, then data + finish together
+
+
+def incremental(change="changed_at", change_type="TIMESTAMPTZ", flag=None, overlap=10):
+    d = definition(fields=[field("id"), field("amount"), field(change, change_type), field("is_deleted", "BOOLEAN")])
+    d["strategy"] = {"load_strategy": "INCREMENTAL", "change_column": change, "overlap_minutes": overlap,
+                     "delete_flag_column": flag}
+    return d
+
+
+class IncrementalTest(unittest.TestCase):
+    def render(self, composable):
+        return composable.as_string(None)
+
+    def test_plan_strategy(self):
+        plan = ro.Plan(**incremental(flag="is_deleted"))
+        self.assertEqual((plan.load_strategy, plan.change_field["target_column"], plan.overlap_minutes,
+                          plan.delete_flag), ("INCREMENTAL", "changed_at", 10, "is_deleted"))
+        full = ro.Plan(**definition())
+        self.assertEqual((full.load_strategy, full.change_field, full.delete_flag), ("FULL", None, None))
+        for bad in ({"load_strategy": "INCREMENTAL"}, {"change_column": "nope"}, {"delete_flag_column": "nope"}):
+            d = incremental()
+            d["strategy"] = bad
+            with self.assertRaises(ro.RunError) as ctx:
+                ro.Plan(**d)
+            self.assertEqual(ctx.exception.code, "CONFIG_INVALID")
+
+    def test_filter(self):
+        plan = ro.Plan(**incremental())
+        self.assertIsNone(ro.increment_filter(plan, None))  # first run reads everything
+        self.assertIsNone(ro.increment_filter(ro.Plan(**definition()), "2026-01-01"))
+        text = self.render(ro.increment_filter(plan, "2026-11-05 10:00:00+04"))
+        self.assertIn('"changed_at" >= CAST(\'2026-11-05 10:00:00+04\' AS timestamptz) - make_interval(mins => 10)', text)
+        text = self.render(ro.increment_filter(ro.Plan(**incremental("seq", "BIGINT")), "42"))
+        self.assertEqual(text, '"seq" >= CAST(\'42\' AS bigint)')
+
+    def run_with(self, begin, estimate):
+        conn = dwh_conn(begin=begin)
+        conn.handlers["pg_attribute"] = lambda p: [("id", "bigint"), ("amount", "bigint"),
+                                                   ("changed_at", "timestamp with time zone"), ("is_deleted", "boolean")]
+        conn.handlers["max("] = lambda p: ("2026-11-05 12:00:00+04",)
+
+        class Source:
+            def close(self):
+                pass
+        seen = {}
+        original = (ro.source_columns, ro.stage_rows, ro.validate_key, ro.apply_rows, ro.estimated_rows, ro.read_source)
+        try:
+            ro.source_columns = lambda c, s, t: {"id": "BIGINT", "amount": "BIGINT", "changed_at": "TIMESTAMPTZ",
+                                                 "is_deleted": "BOOLEAN"}
+            ro.stage_rows = lambda d, p, rows, log=None: 5
+            ro.estimated_rows = lambda c, s, t: estimate
+            ro.validate_key = lambda d, p: None
+            ro.apply_rows = lambda d, p, run: (1, 1, 1, 1)
+            ro.read_source = lambda c, s, t, p, limit, where=None: seen.update(where=where) or iter(())
+            result = ro.run_object(16, dwh_connect=lambda: conn, read_credential=lambda c: SECRET,
+                                   source_connect_fn=lambda c, p: Source())
+        finally:
+            (ro.source_columns, ro.stage_rows, ro.validate_key, ro.apply_rows, ro.estimated_rows,
+             ro.read_source) = original
+        return result, conn, seen
+
+    def test_incremental_run_records_watermark(self):
+        begin = dict(BEGIN, definition=incremental(flag="is_deleted"), watermark="2026-11-05 10:00:00+04")
+        result, conn, seen = self.run_with(begin, 2_000_000)  # limit applies only to full reads
+        self.assertEqual(result.status, "SUCCESS")
+        self.assertIsNotNone(seen["where"])
+        (inc,) = [p for t, p in conn.calls if "object_run_record_increment" in t]
+        self.assertEqual(inc, (7, "2026-11-05 10:00:00+04", "2026-11-05 12:00:00+04", 1, 1))
+        self.assertEqual((result.rows_unchanged, result.rows_deleted), (2, 1))
+
+    def test_first_incremental_run_is_full(self):
+        begin = dict(BEGIN, definition=incremental(), watermark=None)
+        result, conn, seen = self.run_with(begin, 2_000_000)
+        self.assertEqual((result.error_code, seen), ("ROW_LIMIT", {}))
+        result, conn, seen = self.run_with(begin, 5)
+        self.assertIsNone(seen["where"])
+        (inc,) = [p for t, p in conn.calls if "object_run_record_increment" in t]
+        self.assertEqual(inc[1:3], (None, "2026-11-05 12:00:00+04"))
 
 
 class EstimateTest(unittest.TestCase):

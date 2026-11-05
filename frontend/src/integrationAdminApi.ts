@@ -1185,11 +1185,25 @@ export interface ObjectConfigField {
 }
 
 
-export interface ObjectConfigDefinition {
+export type LoadStrategy = 'FULL' | 'INCREMENTAL'
+
+
+// I07: load strategy of a version. Saved definitions carry it nested in "strategy";
+// a draft is sent with the flat keys.
+export interface ObjectLoadStrategy {
+  load_strategy: LoadStrategy
+  change_column: string | null
+  overlap_minutes: number
+  delete_flag_column: string | null
+}
+
+
+export interface ObjectConfigDefinition extends Partial<ObjectLoadStrategy> {
   target_schema: 'stg' | 'ods' | null
   target_table: string | null
   fields: ObjectConfigField[]
   key: string[]
+  strategy?: Partial<ObjectLoadStrategy> | null
 }
 
 
