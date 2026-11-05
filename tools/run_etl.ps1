@@ -13,9 +13,13 @@ param(
         "refresh-marts",
         "run-dq",
         "audit-mappings",
-        "load-mapping-catalog"
+        "load-mapping-catalog",
+        "run-object"
     )]
-    [string]$Task
+    [string]$Task,
+
+    # run-object: id of the published source object (meta.source_object.source_object_id).
+    [long]$ObjectId = 0
 )
 
 $ErrorActionPreference = "Stop"
@@ -116,5 +120,19 @@ switch ($Task) {
 
     "load-mapping-catalog" {
         Run-EtlScript "load_mapping_catalog.py"
+    }
+
+    "run-object" {
+        # I06: load one published object by its configuration (plan I06, R3).
+        if ($ObjectId -le 0) {
+            Write-Host "STOP: -ObjectId <source object id> is required for run-object"
+            exit 2
+        }
+        $env:DWH_RUN_OBJECT_ID = [string]$ObjectId
+        try {
+            Run-EtlScript "run_object.py"
+        } finally {
+            Remove-Item Env:DWH_RUN_OBJECT_ID -ErrorAction SilentlyContinue
+        }
     }
 }
