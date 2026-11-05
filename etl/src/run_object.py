@@ -12,9 +12,10 @@ and closes the run. No code per source: everything comes from the version in for
   3. structure                       every mapped source column exists with the published
                                      type (else SCHEMA_DRIFT) and so does every target column
                                      (else TARGET_DRIFT); nothing is read before that.
-  4. read                            values as text into a temporary table with the target
-                                     types (PostgreSQL converts; a failure stops the run),
-                                     at most ROW_LIMIT rows (R6).
+  4. read                            planner estimate checked first; values as text, in batches,
+                                     into a temporary table with the target types (explicit CAST
+                                     by PostgreSQL; a failure stops the run), at most ROW_LIMIT
+                                     rows (R6); progress is printed.
   5. validation                      key without NULL and without duplicates.
   6. apply (one transaction)         new key -> INSERT (AUTHORITATIVE and INSERT_ONLY
                                      fields); existing key -> UPDATE of AUTHORITATIVE fields
@@ -213,6 +214,16 @@ def check_target(dwh, plan: Plan) -> None:
                            column=f["target_column"])
 
 
+def estimated_rows(conn, schema: str, table: str) -> int | None:
+    """Planner estimate (pg_class.reltuples, no data); None when the table was never analysed."""
+    with conn.cursor() as cur:
+        cur.execute("""SELECT c.reltuples::bigint FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+                        WHERE n.nspname = %s AND c.relname = %s""", (schema, table))
+        row = cur.fetchone()
+    conn.rollback()
+    return None if row is None or row[0] is None or row[0] < 0 else int(row[0])
+
+
 def read_source(conn, schema: str, table: str, plan: Plan, row_limit: int):
     """Rows of the mapped columns as text (NULL stays NULL), in published field order."""
     select = sql.SQL("SELECT {} FROM {}.{}").format(
@@ -241,20 +252,42 @@ def _ident(name: str) -> sql.Identifier:
     return sql.Identifier(name)
 
 
-def stage_rows(dwh, plan: Plan, rows) -> int:
-    """Temporary table with the target types; values are converted by PostgreSQL."""
+STAGE_BATCH = 1_000
+
+
+def stage_rows(dwh, plan: Plan, rows, log: Callable[[str], None] = lambda m: None) -> int:
+    """Temporary table with the target types; text values are converted by PostgreSQL (explicit CAST).
+
+    Plain multi-row INSERTs in batches (no COPY: a COPY to the DWH interleaved with the source
+    FETCHes hung on the user's Windows PC on 05.11.2026).
+    """
     from dwh_api.field_types import postgres_type
 
+    types = [postgres_type(f["target_type"]) for f in plan.written]
     with dwh.cursor() as cur:
         cur.execute(sql.SQL("CREATE TEMP TABLE dwh_object_run_stage ({}) ON COMMIT DROP").format(
-            sql.SQL(", ").join(sql.SQL("{} {}").format(_ident(f["target_column"]), sql.SQL(postgres_type(f["target_type"])))
-                               for f in plan.written)))
+            sql.SQL(", ").join(sql.SQL("{} {}").format(_ident(f["target_column"]), sql.SQL(t))
+                               for f, t in zip(plan.written, types))))
+        row_sql = sql.SQL("({})").format(sql.SQL(", ").join(
+            sql.SQL("CAST({} AS {})").format(sql.Placeholder(), sql.SQL(t)) for t in types))
+        head = sql.SQL("INSERT INTO dwh_object_run_stage ({}) VALUES ").format(
+            sql.SQL(", ").join(_ident(c) for c in plan.columns))
+        batch: list = []
         count = 0
-        with cur.copy(sql.SQL("COPY dwh_object_run_stage ({}) FROM STDIN").format(
-                sql.SQL(", ").join(_ident(c) for c in plan.columns))) as copy:
-            for row in rows:
-                copy.write_row(row)
-                count += 1
+
+        def flush():
+            if batch:
+                cur.execute(head + sql.SQL(", ").join([row_sql] * len(batch)), [v for r in batch for v in r])
+                batch.clear()
+
+        for row in rows:
+            batch.append(row)
+            count += 1
+            if len(batch) >= STAGE_BATCH:
+                flush()
+                if count % 50_000 == 0:
+                    log(f"STAGE: {count} rows staged")
+        flush()
     return count
 
 
@@ -351,7 +384,8 @@ def _finish(dwh, run_id: int, ok: bool, result: RunResult, error: RunError | Non
 
 
 def run_object(source_object_id: int, *, dwh_connect: Callable[[], Any], read_credential: Callable[[str], str],
-               source_connect_fn: Callable[[dict, str], Any] = source_connect, row_limit: int = ROW_LIMIT) -> RunResult:
+               source_connect_fn: Callable[[dict, str], Any] = source_connect, row_limit: int = ROW_LIMIT,
+               log: Callable[[str], None] = lambda message: None) -> RunResult:
     dwh = dwh_connect()
     try:
         try:
@@ -364,6 +398,7 @@ def run_object(source_object_id: int, *, dwh_connect: Callable[[], Any], read_cr
             message = (getattr(getattr(exc, "diag", None), "message_primary", None) or "refused").strip()
             raise RunError("RUN_REFUSED", message) from None
         result = RunResult(run_id=begin["run_id"], batch_run_id=begin["batch_run_id"], status="RUNNING")
+        log(f"STAGE: run {result.run_id} started (batch_run {result.batch_run_id}, version {begin['version_no']})")
         source = begin["source"]
         definition = begin["definition"]
         try:
@@ -375,20 +410,28 @@ def run_object(source_object_id: int, *, dwh_connect: Callable[[], Any], read_cr
                 raise RunError("CREDENTIAL_UNAVAILABLE", "Source credential could not be read from SecretStore") from None
             src = source_connect_fn(source["connection_config"], password)
             del password
+            log("STAGE: source connected (read-only)")
             try:
                 check_structure(plan, source_columns(src, source["source_schema"], source["source_object"]))
+                estimate = estimated_rows(src, source["source_schema"], source["source_object"])
+                log(f"STAGE: source structure OK, estimated rows {estimate if estimate is not None else 'unknown'}")
+                if estimate is not None and estimate > row_limit:
+                    raise RunError("ROW_LIMIT", f"Source object has about {estimate} rows, limit {row_limit}")
                 try:
                     result.rows_read = stage_rows(dwh, plan, read_source(
-                        src, source["source_schema"], source["source_object"], plan, row_limit))
+                        src, source["source_schema"], source["source_object"], plan, row_limit), log)
                 except psycopg.Error as exc:
                     raise database_error(exc, "stage") from None
             finally:
                 src.close()
+            log(f"STAGE: {result.rows_read} rows read and converted")
             validate_key(dwh, plan)
+            log("STAGE: business key OK")
             try:
                 result.rows_inserted, result.rows_updated = apply_rows(dwh, plan, result.run_id)
             except psycopg.Error as exc:
                 raise database_error(exc, "apply") from None
+            log("STAGE: applied, committing")
             result.rows_unchanged = result.rows_read - result.rows_inserted - result.rows_updated
             result.status = _finish(dwh, result.run_id, True, result)
             dwh.commit()
@@ -424,7 +467,7 @@ def main() -> None:
 
     try:
         result = run_object(int(value), dwh_connect=lambda: connect(get_dwh_config()),
-                            read_credential=read_source_credential)
+                            read_credential=read_source_credential, log=lambda m: print(m, flush=True))
     except RunError as error:
         print(f"RUN_RESULT: REFUSED | code={error.code} | {error.message}")
         sys.exit(1)
