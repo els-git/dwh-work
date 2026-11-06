@@ -32,6 +32,9 @@ class FakeCursor:
     def fetchall(self):
         return self.rows
 
+    def close(self):
+        pass
+
 
 class FakeConn:
     def __init__(self, readonly="on", objects=None, tables=None):
@@ -56,8 +59,11 @@ class FakeConn:
             return next(t["columns"] for t in self.tables.values() if t["oid"] == params[0])
         raise AssertionError(sql)
 
-    def cursor(self):
+    def cursor(self, **kw):
         return FakeCursor(self)
+
+    def commit(self):
+        pass
 
     def rollback(self):
         self.rolled_back = True
@@ -92,9 +98,12 @@ def adapter_with(conn=None, error=None):
 
 class SettingsTests(unittest.TestCase):
     def test_read_only_session_and_timeouts(self):
+        adapter, calls = adapter_with(FakeConn())
+        adapter.test_connection(CONFIG, cc.SecretValue(SYNTHETIC))
+        self.assertIn("default_transaction_read_only=on", calls[0]["options"])
+        self.assertIn(f"statement_timeout={pc.STATEMENT_TIMEOUT_MS}", calls[0]["options"])
         kwargs = pc.connection_kwargs(CONFIG, cc.SecretValue(SYNTHETIC))
-        self.assertIn("default_transaction_read_only=on", kwargs["options"])
-        self.assertIn("statement_timeout=", kwargs["options"])
+        self.assertEqual(kwargs["statement_timeout_ms"], pc.STATEMENT_TIMEOUT_MS)
         self.assertEqual(kwargs["connect_timeout"], pc.CONNECT_TIMEOUT_SECONDS)
         self.assertEqual(kwargs["sslmode"], "prefer")
 

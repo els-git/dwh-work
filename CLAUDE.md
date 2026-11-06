@@ -48,7 +48,7 @@ DWH — платформа хранилища данных с frontend, backend 
 Единый согласованный план: неизменяемые ID задач, итерации, зависимости, критерии приёмки, решения, журнал и статусы `PLANNED`, `IN_PROGRESS`, `BLOCKED`, `DONE`, `CANCELLED`, `DEFERRED`. **DONE — только после фактических проверок и подтверждения пользователя.** Историю не удалять, задачи не перенумеровывать, прежние требования не переписывать без согласования. Новые задачи — только с новыми ID и явной договорённостью.
 
 **Последний подтверждённый SHA256 (05.11.2026, в git):**
-`2CE6DAE43EA1B6DA2CE9662BE0B3AB1F0A7B72F4B1AE658B4741D9BED669B661`
+`B2274FAB235670BE6D0AA2E517AC036683222C81C034DD93A59D037C9CB7D489`
 
 Документы на ПК обновляются через `git pull` после слияния PR. Скрипты `sync_docs_to_pc.ps1` удалены 03.11.2026: связь с git их заменила.
 
@@ -257,7 +257,9 @@ DWH — платформа хранилища данных с frontend, backend 
 
 **План утверждён 05.11.2026** (`docs/DWH_I06_05_STG_ODS_PLAN_APPROVED_20261106.md`, все решения по рекомендациям); I06-05 и I13-07 `IN_PROGRESS`.
 
-**Следующий шаг:** шаг 2 — I13-07 в песочнице: шлюз `source_gateway`, перевод трёх путей к источникам (backend `postgres_connector.py`, `run_object.source_connect`, CRM `dwh/db.connect_readonly`), тест-«сторож» (нужно разрешение на изменение backend и ETL).
+**Шаг 2 (I13-07) сделан в песочнице 06.11.2026** (план I06-05, раздел 8): `backend/src/dwh_api/source_gateway.py` — режим чтения сервера источника с проверкой до первого запроса и фильтр команд (`SOURCE_WRITE_BLOCKED`, `SOURCE_NOT_READ_ONLY`); на шлюз переведены `postgres_connector.py`, `run_object.source_connect` (`statement_timeout` — параметром подключения), `dwh.db.connect_readonly` (CRM); тест-«сторож» `backend/tests/test_source_gateway.py` (список разрешённых прямых подключений). Тесты 412 OK, сквозной сценарий PASS. **Правило:** новый код обращается к источникам только через `source_gateway`; HTTP-шлюз (только `GET`) — вместе с I11.
+
+**Следующий шаг:** шаг 3 — приёмка I13-07 на ПК: проверка/объекты/снимок `OPERATION_COLLECTOR` в UI, `run-object -ObjectId 16`, `check-crm`, `plan-snapshot`.
 
 PR #7 с профилями закрыт без слияния. Тест 005 в E0/E1 внутри своей транзакции подменяет `app.integration_admin_session_user` тестовыми токенами; `ROLLBACK` её восстанавливает. Read-only запросы — через `database/tools/run_readonly_sql.ps1`.
 
