@@ -43,6 +43,8 @@ import psycopg
 from psycopg import sql
 from psycopg.types.json import Jsonb
 
+from dwh_api.source_gateway import SourceGatewayError  # backend/src is on PYTHONPATH (tools/run_etl.ps1)
+
 ROW_LIMIT = 1_000_000
 FETCH_SIZE = 5_000
 SOURCE_CONNECT_TIMEOUT = 15
@@ -171,23 +173,24 @@ def database_error(exc: psycopg.Error, stage: str) -> RunError:
 # ------------------------------------------------------------------ source
 
 
-def source_connect(connection_config: dict, password: str) -> psycopg.Connection:
-    """Read-only session on the source; settings only from the published connection."""
+def source_connect(connection_config: dict, password: str):
+    """Read-only session on the source through the source gateway (I13-07); settings only from the
+    published connection."""
+    from dwh_api import source_gateway
+
     try:
-        conn = psycopg.connect(
+        return source_gateway.connect(
             host=connection_config.get("host"), port=int(connection_config.get("port") or 5432),
             dbname=connection_config.get("database"), user=connection_config.get("username"),
             password=password, sslmode=connection_config.get("sslmode") or "prefer",
             connect_timeout=SOURCE_CONNECT_TIMEOUT, application_name="dwh_object_run",
+            statement_timeout_ms=SOURCE_STATEMENT_TIMEOUT_MS,
         )
+    except source_gateway.SourceGatewayError as exc:
+        raise RunError(exc.code, exc.message) from None
     except psycopg.Error as exc:
         raise RunError("SOURCE_CONNECT_FAILED", "Source connection failed (SQLSTATE "
                        + (getattr(getattr(exc, "diag", None), "sqlstate", None) or "unknown") + ")") from None
-    conn.read_only = True
-    with conn.cursor() as cur:
-        cur.execute("SELECT set_config('statement_timeout', %s, false)", (str(SOURCE_STATEMENT_TIMEOUT_MS),))
-    conn.commit()
-    return conn
 
 
 def source_columns(conn, schema: str, table: str) -> dict[str, str]:
@@ -537,8 +540,10 @@ def run_object(source_object_id: int, *, dwh_connect: Callable[[], Any], read_cr
             result.status = _finish(dwh, result.run_id, True, result)
             dwh.commit()
             return result
-        except (RunError, psycopg.Error) as caught:
-            error = caught if isinstance(caught, RunError) else database_error(caught, "dwh")
+        except (RunError, psycopg.Error, SourceGatewayError) as caught:
+            error = (caught if isinstance(caught, RunError)
+                     else RunError(caught.code, caught.message) if isinstance(caught, SourceGatewayError)
+                     else database_error(caught, "dwh"))
             dwh.rollback()
             result.rows_inserted = result.rows_updated = result.rows_unchanged = result.rows_stale = result.rows_deleted = 0
             result.status = _finish(dwh, result.run_id, False, result, error)

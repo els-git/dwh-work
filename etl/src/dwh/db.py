@@ -17,10 +17,19 @@ def connect(config: DatabaseConfig) -> psycopg.Connection:
     )
 
 
-def connect_readonly(config: DatabaseConfig) -> psycopg.Connection:
-    conn = connect(config)
+def connect_readonly(config: DatabaseConfig):
+    """Read-only session on a SOURCE database (CRM) through the source gateway (I13-07):
+    the server is in read-only mode, checked before the first query, and only reading
+    statements are sent. Not for the DWH database: use connect()."""
+    from dwh_api.source_gateway import connect as gateway_connect
 
-    # Must be set before the first transaction starts.
-    conn.read_only = True
-
-    return conn
+    return gateway_connect(
+        host=config.host,
+        port=config.port,
+        dbname=config.database,
+        user=config.user,
+        password=config.password,
+        sslmode=config.sslmode,
+        connect_timeout=10,
+        application_name="dwh_crm_etl",
+    )

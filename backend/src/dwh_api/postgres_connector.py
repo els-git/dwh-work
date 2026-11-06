@@ -1,7 +1,8 @@
 """PostgreSQL connector adapter (I04-01), contract of I03-04.
 
-Every session is read-only (default_transaction_read_only, checked after
-connecting) with connect and statement timeouts. Only the catalog is read in
+Every session is opened through the source gateway (I13-07, source_gateway.py):
+read-only on the server, checked before the first query, and only reading
+statements are sent; connect and statement timeouts. Only the catalog is read in
 I04: no table rows. Errors are reported as short codes with fixed messages;
 server error texts, connection strings and credentials are never returned.
 """
@@ -14,6 +15,7 @@ from typing import Any
 import psycopg
 from psycopg.rows import dict_row
 
+from dwh_api import source_gateway
 from dwh_api.connector_contract import (
     ConnectionTestResult,
     ConnectorError,
@@ -40,6 +42,7 @@ MESSAGES = {
     "SSL_ERROR": "SSL negotiation failed: check the SSL mode",
     "ACCESS_DENIED": "The user has no access to this database",
     "NOT_READ_ONLY": "The session could not be made read-only",
+    "WRITE_BLOCKED": "Statement refused: only reading is allowed on a source",
     "QUERY_TIMEOUT": "The catalog query timed out",
     "CONNECT_FAILED": "Connection failed",
 }
@@ -114,7 +117,7 @@ def connection_kwargs(config: Mapping[str, Any], credential: SecretValue | None)
         "password": credential.reveal(), "sslmode": sslmode,
         "connect_timeout": CONNECT_TIMEOUT_SECONDS,
         "application_name": "dwh_connector",
-        "options": f"-c default_transaction_read_only=on -c statement_timeout={STATEMENT_TIMEOUT_MS}",
+        "statement_timeout_ms": STATEMENT_TIMEOUT_MS,
     }
 
 
@@ -158,6 +161,10 @@ SELECT a.attnum AS ordinal_position, a.attname AS column_name,
 """
 
 
+def _gateway_code(exc: source_gateway.SourceGatewayError) -> str:
+    return "NOT_READ_ONLY" if exc.code == source_gateway.SOURCE_NOT_READ_ONLY else "WRITE_BLOCKED"
+
+
 class PostgresAdapter:
     adapter_code = "POSTGRESQL"
     source_kind = "DATABASE"
@@ -168,30 +175,21 @@ class PostgresAdapter:
     def _open(self, config: Mapping[str, Any], credential: SecretValue | None):
         kwargs = connection_kwargs(config, credential)
         try:
-            conn = self._connect(row_factory=dict_row, autocommit=False, **kwargs)
+            return source_gateway.connect(row_factory=dict_row, connect_fn=self._connect, **kwargs)
+        except source_gateway.SourceGatewayError as exc:
+            raise PostgresConnectorError(_gateway_code(exc)) from None
         except psycopg.Error as exc:
             raise PostgresConnectorError(classify_error(exc)) from None
         finally:
             kwargs.pop("password", None)
-        try:
-            with conn.cursor() as cur:
-                cur.execute("SHOW transaction_read_only")
-                row = cur.fetchone()
-            if not row or list(row.values())[0] != "on":
-                raise PostgresConnectorError("NOT_READ_ONLY")
-        except PostgresConnectorError:
-            conn.close()
-            raise
-        except psycopg.Error as exc:
-            conn.close()
-            raise PostgresConnectorError(classify_error(exc)) from None
-        return conn
 
     def _run(self, conn, sql: str, params: Sequence[Any] = ()) -> list[dict[str, Any]]:
         try:
             with conn.cursor() as cur:
                 cur.execute(sql, params)
                 return list(cur.fetchall())
+        except source_gateway.SourceGatewayError as exc:
+            raise PostgresConnectorError(_gateway_code(exc)) from None
         except psycopg.Error as exc:
             raise PostgresConnectorError(classify_error(exc)) from None
 
