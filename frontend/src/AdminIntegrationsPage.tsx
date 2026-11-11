@@ -40,10 +40,6 @@ import AdminIntegrationMappings
   from './AdminIntegrationMappings'
 import AdminIntegrationDqRules
   from './AdminIntegrationDqRules'
-import AdminIntegrationRunControl
-  from './AdminIntegrationRunControl'
-import AdminIntegrationHistory
-  from './AdminIntegrationHistory'
 
 import './AdminIntegrationsPage.css'
 
@@ -54,8 +50,6 @@ type Mode =
   | 'contracts'
   | 'mappings'
   | 'dq'
-  | 'run-control'
-  | 'history'
 
 
 type EditorMode =
@@ -836,40 +830,6 @@ function AdminIntegrationsPage() {
           }
         >
           <Trans i18nKey="batch.tr0229" />
-        </button>
-
-        <button
-          type="button"
-          className={
-            mode === 'run-control'
-              ? 'admin-integrations-tab active'
-              : 'admin-integrations-tab'
-          }
-          onClick={
-            () => {
-              setMode('run-control')
-              closeEditor()
-            }
-          }
-        >
-          <Trans i18nKey="batch.tr0207" />
-        </button>
-
-        <button
-          type="button"
-          className={
-            mode === 'history'
-              ? 'admin-integrations-tab active'
-              : 'admin-integrations-tab'
-          }
-          onClick={
-            () => {
-              setMode('history')
-              closeEditor()
-            }
-          }
-        >
-          <Trans i18nKey="batch.tr0197" />
         </button>
       </nav>
 
@@ -1664,22 +1624,6 @@ function AdminIntegrationsPage() {
         mode === 'dq'
           ? (
               <AdminIntegrationDqRules />
-            )
-          : null
-      }
-
-      {
-        mode === 'run-control'
-          ? (
-              <AdminIntegrationRunControl />
-            )
-          : null
-      }
-
-      {
-        mode === 'history'
-          ? (
-              <AdminIntegrationHistory />
             )
           : null
       }

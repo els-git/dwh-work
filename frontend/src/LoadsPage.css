@@ -1,0 +1,67 @@
+/* I08: section "Data loads" (tab "Objects"). */
+
+.loads-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.loads-toolbar p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.loads-refresh,
+.loads-actions button {
+  padding: 6px 12px;
+  font-size: 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-main);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.loads-refresh:hover,
+.loads-actions button:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.loads-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.loads-actions button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.loads-notice {
+  margin-bottom: 12px;
+  font-size: 13px;
+  padding: 10px 14px;
+  border: 1px solid rgba(84, 214, 140, 0.4);
+  border-radius: 6px;
+  background: rgba(84, 214, 140, 0.08);
+}
+
+.loads-muted {
+  color: var(--text-muted);
+}
+
+.loads-link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}

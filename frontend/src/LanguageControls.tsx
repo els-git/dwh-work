@@ -4,6 +4,7 @@ type SidebarTextKey =
   | 'navigation.integrations'
   | 'navigation.etl'
   | 'navigation.dq'
+  | 'navigation.loads'
   | 'navigation.reporting'
   | 'navigation.administration'
   | 'sidebar.integrations'

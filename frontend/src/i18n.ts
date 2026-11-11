@@ -11,6 +11,51 @@ const defaultLanguage: AppLanguage = 'en'
 const resources = {
   "en": {
     "translation": {
+      "loads": {
+        "sectionHint": "Operation of data loads: objects, runs, errors, data quality and CRM run requests. Settings stay in Administration.",
+        "tab": {
+          "objects": "Objects",
+          "runs": "Runs",
+          "errors": "Errors and history",
+          "quality": "Data quality",
+          "crm": "CRM run control"
+        },
+        "objectsHint": "State of every source object. Requests are executed by the dispatcher (run_local_dwh.ps1 -Mode Run).",
+        "refresh": "Refresh",
+        "loading": "Loading objects...",
+        "never": "no runs yet",
+        "rows": "read {{read}}, inserted {{inserted}}, updated {{updated}}",
+        "legacy": "CRM (own ETL)",
+        "legacyConfig": "CRM ETL settings",
+        "noConfig": "no published mapping",
+        "showFull": "Show the whole message",
+        "waitingDispatcher": "waiting for the dispatcher",
+        "continueHint": "Available after a failed ODS step that follows a successful STG run",
+        "cancelRequest": "Cancel request",
+        "requestCreated": "Request #{{id}} for {{object}} created; the dispatcher will run it.",
+        "requestCancelled": "Request #{{id}} cancelled.",
+        "confirmRun": "Create request",
+        "cancel": "Cancel",
+        "kind": {
+          "RUN": "Run",
+          "CONTINUE_ODS": "Continue (ODS)",
+          "FULL_RERUN": "Full rerun"
+        },
+        "confirm": {
+          "RUN": "Run {{object}}: STG by the strategy of the version in force, then ODS?",
+          "CONTINUE_ODS": "Run only the ODS step of {{object}} from its STG table?",
+          "FULL_RERUN": "Read {{object}} completely once (ignoring the increment), then ODS?"
+        },
+        "col": {
+          "object": "Object",
+          "config": "Configuration",
+          "stg": "Last STG run",
+          "ods": "Last ODS run",
+          "error": "Last error",
+          "request": "Last request",
+          "actions": "Actions"
+        }
+      },
       "odsConfig": {
         "tabStg": "Source → STG",
         "tabOds": "STG → ODS",
@@ -264,6 +309,7 @@ const resources = {
         "WARNING": "Warning"
       },
       "navigation": {
+        "loads": "Data Loads",
         "integrations": "Integration Control",
         "etl": "ETL Runs",
         "dq": "Data Quality",
@@ -473,7 +519,7 @@ const resources = {
         "tr0402": "Cancelling...",
         "tr0194": "DWH / Administration / Integrations",
         "tr0429": "Integrations",
-        "tr0209": "Source system and source object configuration. Operational monitoring remains in Integration Control.",
+        "tr0209": "Source system and source object configuration. Runs, errors and data quality are in Data Loads.",
         "tr0211": "Source systems",
         "tr0208": "Source objects",
         "tr0073": "Contracts",
@@ -660,6 +706,51 @@ const resources = {
   },
   "ru": {
     "translation": {
+      "loads": {
+        "sectionHint": "Работа загрузок: объекты, запуски, ошибки, качество данных и заявки CRM. Настройки — в «Администрировании».",
+        "tab": {
+          "objects": "Объекты",
+          "runs": "Запуски",
+          "errors": "Ошибки и история",
+          "quality": "Качество данных",
+          "crm": "Управление запусками CRM"
+        },
+        "objectsHint": "Состояние каждого объекта источника. Заявки выполняет диспетчер (run_local_dwh.ps1 -Mode Run).",
+        "refresh": "Обновить",
+        "loading": "Загрузка объектов...",
+        "never": "запусков не было",
+        "rows": "прочитано {{read}}, вставлено {{inserted}}, обновлено {{updated}}",
+        "legacy": "CRM (свой ETL)",
+        "legacyConfig": "настройки CRM ETL",
+        "noConfig": "нет опубликованного маппинга",
+        "showFull": "Показать сообщение полностью",
+        "waitingDispatcher": "ждёт диспетчер",
+        "continueHint": "Доступно после неудачного шага ODS, который следует за успешным STG",
+        "cancelRequest": "Отменить заявку",
+        "requestCreated": "Заявка №{{id}} для {{object}} создана; её выполнит диспетчер.",
+        "requestCancelled": "Заявка №{{id}} отменена.",
+        "confirmRun": "Создать заявку",
+        "cancel": "Отмена",
+        "kind": {
+          "RUN": "Запустить",
+          "CONTINUE_ODS": "Продолжить (ODS)",
+          "FULL_RERUN": "Заново полностью"
+        },
+        "confirm": {
+          "RUN": "Запустить {{object}}: STG по стратегии версии в силе, затем ODS?",
+          "CONTINUE_ODS": "Выполнить только шаг ODS для {{object}} из его таблицы STG?",
+          "FULL_RERUN": "Прочитать {{object}} целиком один раз (без учёта инкремента), затем ODS?"
+        },
+        "col": {
+          "object": "Объект",
+          "config": "Настройка",
+          "stg": "Последний запуск STG",
+          "ods": "Последний запуск ODS",
+          "error": "Последняя ошибка",
+          "request": "Последняя заявка",
+          "actions": "Действия"
+        }
+      },
       "odsConfig": {
         "tabStg": "Источник → STG",
         "tabOds": "STG → ODS",
@@ -913,6 +1004,7 @@ const resources = {
         "WARNING": "Предупреждение"
       },
       "navigation": {
+        "loads": "Загрузки",
         "integrations": "Управление интеграциями",
         "etl": "Запуски ETL",
         "dq": "Качество данных",
@@ -1122,7 +1214,7 @@ const resources = {
         "tr0402": "Отмена...",
         "tr0194": "DWH / Администрирование / Интеграции",
         "tr0429": "Интеграции",
-        "tr0209": "Настройка исходных систем и объектов. Операционный мониторинг остаётся в разделе «Управление интеграциями».",
+        "tr0209": "Настройка исходных систем и объектов. Запуски, ошибки и качество данных — в разделе «Загрузки».",
         "tr0211": "Исходные системы",
         "tr0208": "Объекты источника",
         "tr0073": "Контракты",
@@ -1309,6 +1401,51 @@ const resources = {
   },
   "az": {
     "translation": {
+      "loads": {
+        "sectionHint": "Yükləmələrin işi: obyektlər, icralar, xətalar, məlumat keyfiyyəti və CRM sorğuları. Ayarlar — «İdarəetmə» bölməsində.",
+        "tab": {
+          "objects": "Obyektlər",
+          "runs": "İcralar",
+          "errors": "Xətalar və tarixçə",
+          "quality": "Məlumat keyfiyyəti",
+          "crm": "CRM icralarının idarəsi"
+        },
+        "objectsHint": "Hər mənbə obyektinin vəziyyəti. Sorğuları dispetçer icra edir (run_local_dwh.ps1 -Mode Run).",
+        "refresh": "Yenilə",
+        "loading": "Obyektlər yüklənir...",
+        "never": "icra olmayıb",
+        "rows": "oxunub {{read}}, əlavə edilib {{inserted}}, yenilənib {{updated}}",
+        "legacy": "CRM (öz ETL)",
+        "legacyConfig": "CRM ETL ayarları",
+        "noConfig": "dərc edilmiş maplama yoxdur",
+        "showFull": "Mesajı tam göstər",
+        "waitingDispatcher": "dispetçeri gözləyir",
+        "continueHint": "Uğurlu STG-dən sonra uğursuz ODS addımından sonra mümkündür",
+        "cancelRequest": "Sorğunu ləğv et",
+        "requestCreated": "{{object}} üçün №{{id}} sorğu yaradıldı; onu dispetçer icra edəcək.",
+        "requestCancelled": "№{{id}} sorğu ləğv edildi.",
+        "confirmRun": "Sorğu yarat",
+        "cancel": "Ləğv et",
+        "kind": {
+          "RUN": "İşə sal",
+          "CONTINUE_ODS": "Davam et (ODS)",
+          "FULL_RERUN": "Tam yenidən"
+        },
+        "confirm": {
+          "RUN": "{{object}} işə salınsın: qüvvədə olan versiyanın strategiyası ilə STG, sonra ODS?",
+          "CONTINUE_ODS": "{{object}} üçün yalnız ODS addımı STG cədvəlindən icra edilsin?",
+          "FULL_RERUN": "{{object}} bir dəfə tam oxunsun (inkrementsiz), sonra ODS?"
+        },
+        "col": {
+          "object": "Obyekt",
+          "config": "Ayar",
+          "stg": "Son STG icrası",
+          "ods": "Son ODS icrası",
+          "error": "Son xəta",
+          "request": "Son sorğu",
+          "actions": "Əməliyyatlar"
+        }
+      },
       "odsConfig": {
         "tabStg": "Mənbə → STG",
         "tabOds": "STG → ODS",
@@ -1562,6 +1699,7 @@ const resources = {
         "WARNING": "Xəbərdarlıq"
       },
       "navigation": {
+        "loads": "Yükləmələr",
         "integrations": "İnteqrasiyaların idarə edilməsi",
         "etl": "ETL icraları",
         "dq": "Məlumat keyfiyyəti",
@@ -1771,7 +1909,7 @@ const resources = {
         "tr0402": "Ləğv edilir...",
         "tr0194": "DWH / İdarəetmə / İnteqrasiyalar",
         "tr0429": "İnteqrasiyalar",
-        "tr0209": "Mənbə sistemləri və obyektlərinin tənzimlənməsi. Əməliyyat monitorinqi «İnteqrasiyaların idarə edilməsi» bölməsində qalır.",
+        "tr0209": "Mənbə sistemləri və obyektlərinin tənzimlənməsi. İcralar, xətalar və məlumat keyfiyyəti — «Yükləmələr» bölməsində.",
         "tr0211": "Mənbə sistemləri",
         "tr0208": "Mənbə obyektləri",
         "tr0073": "Müqavilələr",
