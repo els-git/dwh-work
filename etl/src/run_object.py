@@ -28,7 +28,14 @@ and closes the run. No code per source: everything comes from the version in for
 Messages never contain credentials or source values; the business key of a failing
 row may be recorded (etl.error_log.record_key), as in the CRM ETL.
 
-Usage: set DWH_RUN_OBJECT_ID and run (tools\\run_etl.ps1 -Task run-object -ObjectId <id>).
+ODS step (I06-05, package 012): after a successful STG run, an object with a published ODS
+version is transformed from its STG table into its ODS table inside the DWH (no source access):
+etl.object_ods_run_begin -> staging with the white list transformations of the version (SQL built
+here from quoted names and literals only) -> key validation -> the same apply by key as above with
+the ODS history -> etl.object_ods_run_finish, one transaction. The ODS step is a run of its own: an
+ODS failure never changes the committed STG result. DWH_RUN_OBJECT_STAGE=ODS runs the ODS step alone.
+
+Usage: set DWH_RUN_OBJECT_ID and run (tools\\run_etl.ps1 -Task run-object -ObjectId <id> [-Stage ODS]).
 """
 
 from __future__ import annotations
@@ -373,7 +380,8 @@ def _changed(f: dict) -> sql.Composable:
     return sql.SQL("(s.{c} IS NOT NULL AND {d})").format(c=col, d=differs)
 
 
-def apply_rows(dwh, plan: Plan, run_id: int) -> tuple[int, int, int, int]:
+def apply_rows(dwh, plan: Plan, run_id: int,
+               history: tuple[str, str] = ("object_record_change", "run_id")) -> tuple[int, int, int, int]:
     """INSERT new keys, UPDATE changed AUTHORITATIVE fields, history rows.
 
     Returns (inserted, updated, stale, deleted). With a change column, a row whose change value
@@ -384,6 +392,8 @@ def apply_rows(dwh, plan: Plan, run_id: int) -> tuple[int, int, int, int]:
     key_json = sql.SQL("jsonb_build_object({})").format(
         sql.SQL(", ").join(sql.SQL("{}, s.{}").format(sql.Literal(k), _ident(k)) for k in plan.key))
     updated = stale = deleted = 0
+    history_insert = sql.SQL("INSERT INTO etl.{}({}, change_kind, record_key, changes) ").format(
+        _ident(history[0]), _ident(history[1]))
     fresh = sql.SQL("TRUE")
     if plan.change_field is not None:
         c = _ident(plan.change_field["target_column"])
@@ -415,8 +425,7 @@ def apply_rows(dwh, plan: Plan, run_id: int) -> tuple[int, int, int, int]:
                 # The history table is append-only for the ETL role: count on the diff table.
                 cur.execute(sql.SQL("SELECT count(*) FROM dwh_object_run_diff WHERE {d}").format(d=deleting))
                 deleted = cur.fetchone()[0]
-            cur.execute(sql.SQL(
-                "INSERT INTO etl.object_record_change(run_id, change_kind, record_key, changes) "
+            cur.execute(history_insert + sql.SQL(
                 "SELECT {run}, {kind}, record_key, changes FROM dwh_object_run_diff").format(
                 run=sql.Literal(run_id), kind=kind))
             updated = cur.rowcount
@@ -435,8 +444,7 @@ def apply_rows(dwh, plan: Plan, run_id: int) -> tuple[int, int, int, int]:
         after = sql.SQL("jsonb_build_object({})").format(sql.SQL(", ").join(
             sql.SQL("{}, jsonb_build_object('after', to_jsonb(s.{}))").format(sql.Literal(c), _ident(c))
             for c in plan.columns))
-        cur.execute(sql.SQL("INSERT INTO etl.object_record_change(run_id, change_kind, record_key, changes) "
-                            "SELECT {run}, 'INSERT', {key_json}, {after} {new_rows}").format(
+        cur.execute(history_insert + sql.SQL("SELECT {run}, 'INSERT', {key_json}, {after} {new_rows}").format(
             run=sql.Literal(run_id), key_json=key_json, after=after, new_rows=new_rows))
         inserted = cur.rowcount
         if inserted:
@@ -562,6 +570,168 @@ def run_object(source_object_id: int, *, dwh_connect: Callable[[], Any], read_cr
         dwh.close()
 
 
+# ------------------------------------------------------------------ ODS step (I06-05)
+
+
+@dataclass
+class OdsResult:
+    ods_run_id: int
+    batch_run_id: int
+    status: str
+    rows_read: int = 0
+    rows_inserted: int = 0
+    rows_updated: int = 0
+    rows_unchanged: int = 0
+    error_code: str | None = None
+    message: str | None = None
+
+
+ODS_NOT_CONFIGURED = "has no published ODS configuration"
+_OPERAND = {"TRIM": "btrim", "UPPER": "upper", "LOWER": "lower"}
+
+
+def ods_plan(definition: dict) -> Plan:
+    """The ODS version as a Plan of the apply step: every field is written (constants and technical
+    fields have no STG column, they are marked as written by their transformation)."""
+    fields = [{"target_column": f["target_column"], "source_column": f.get("stg_column") or f["transform"],
+               "source_type": f.get("stg_type") or f["target_type"], "target_type": f["target_type"],
+               "write_policy": f["write_policy"], "allow_explicit_null": f.get("allow_explicit_null", False)}
+              for f in definition.get("fields") or []]
+    return Plan("ods", definition["target_table"], fields, definition.get("key") or [])
+
+
+def ods_expression(f: dict, ods_run_id: int) -> sql.Composable:
+    """SQL of one ODS field from the STG row "s" (white list only; names quoted, values as literals)."""
+    from dwh_api.field_types import postgres_type
+
+    target = sql.SQL(postgres_type(f["target_type"]))
+    transform = f["transform"]
+    column = sql.SQL("s.{}").format(_ident(f["stg_column"])) if f.get("stg_column") else None
+    if transform in ("COPY", "CAST"):
+        value = column
+    elif transform in _OPERAND:
+        value = sql.SQL("{}(CAST({} AS text))").format(sql.SQL(_OPERAND[transform]), column)
+    elif transform == "EMPTY_TO_NULL":
+        value = sql.SQL("nullif(btrim(CAST({} AS text)), '')").format(column)
+    elif transform == "DEFAULT":
+        return sql.SQL("coalesce(CAST({} AS {t}), CAST({} AS {t}))").format(column, sql.Literal(f["param"]), t=target)
+    elif transform == "CONSTANT":
+        value = sql.Literal(f["param"])
+    elif transform == "DATE_FROM_TEXT":
+        value = sql.SQL("to_date(nullif(btrim(CAST({} AS text)), ''), {})").format(column, sql.Literal(f["param"]))
+    elif transform == "LOAD_RUN_ID":
+        value = sql.Literal(ods_run_id)
+    elif transform == "LOADED_AT":
+        value = sql.SQL("now()")
+    else:
+        raise RunError("CONFIG_INVALID", "Transformation is not in the white list")
+    return sql.SQL("CAST({} AS {})").format(value, target)
+
+
+def stage_ods(dwh, plan: Plan, definition: dict, stg_table: str, ods_run_id: int, row_limit: int) -> int:
+    """STG rows -> temporary table with the ODS types (inside the DWH, one statement)."""
+    from dwh_api.field_types import postgres_type
+
+    fields = definition["fields"]
+    source = sql.SQL("stg.{}").format(_ident(stg_table))
+    with dwh.cursor() as cur:
+        cur.execute(sql.SQL("SELECT count(*) FROM {}").format(source))
+        count = cur.fetchone()[0]
+        if count > row_limit:
+            raise RunError("ROW_LIMIT", f"STG table has {count} rows, limit {row_limit}")
+        cur.execute(sql.SQL("CREATE TEMP TABLE dwh_object_run_stage ({}) ON COMMIT DROP").format(
+            sql.SQL(", ").join(sql.SQL("{} {}").format(_ident(f["target_column"]), sql.SQL(postgres_type(f["target_type"])))
+                               for f in fields)))
+        cur.execute(sql.SQL("INSERT INTO dwh_object_run_stage ({}) SELECT {} FROM {} s").format(
+            sql.SQL(", ").join(_ident(f["target_column"]) for f in fields),
+            sql.SQL(", ").join(ods_expression(f, ods_run_id) for f in fields), source))
+    return count
+
+
+def _ods_finish(dwh, result: OdsResult, ok: bool, error: RunError | None = None) -> str:
+    with dwh.cursor() as cur:
+        cur.execute(
+            "SELECT etl.object_ods_run_finish(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+            (result.ods_run_id, ok, result.rows_read, result.rows_inserted, result.rows_updated, result.rows_unchanged,
+             None if ok else error.code, None if ok else error.message[:2000],
+             Jsonb(error.record_key) if (error and error.record_key) else None,
+             error.column if error else None))
+        return cur.fetchone()[0]
+
+
+def run_ods(source_object_id: int, stg_run_id: int | None, *, dwh_connect: Callable[[], Any],
+            row_limit: int = ROW_LIMIT, log: Callable[[str], None] = lambda message: None) -> OdsResult | None:
+    """ODS step of the object; None when the object has no published ODS version."""
+    dwh = dwh_connect()
+    try:
+        try:
+            with dwh.cursor() as cur:
+                cur.execute("SELECT etl.object_ods_run_begin(%s, %s)", (source_object_id, stg_run_id))
+                begin = cur.fetchone()[0]
+            dwh.commit()
+        except psycopg.Error as exc:
+            dwh.rollback()
+            message = (getattr(getattr(exc, "diag", None), "message_primary", None) or "refused").strip()
+            if ODS_NOT_CONFIGURED in message:
+                return None
+            raise RunError("ODS_REFUSED", message) from None
+        result = OdsResult(ods_run_id=begin["ods_run_id"], batch_run_id=begin["batch_run_id"], status="RUNNING")
+        definition = begin["definition"]
+        stg_table = begin["stg"]["table"]
+        log(f"STAGE: ODS run {result.ods_run_id} started (batch_run {result.batch_run_id}, ODS version "
+            f"{begin['version_no']}, stg.{stg_table} -> ods.{definition['target_table']})")
+        try:
+            plan = ods_plan(definition)
+            check_target(dwh, plan)  # every ODS column exists with the published type
+            try:
+                result.rows_read = stage_ods(dwh, plan, definition, stg_table, result.ods_run_id, row_limit)
+            except psycopg.Error as exc:
+                raise database_error(exc, "ods") from None
+            log(f"STAGE: ODS {result.rows_read} STG rows transformed")
+            validate_key(dwh, plan)
+            try:
+                result.rows_inserted, result.rows_updated, _, _ = apply_rows(
+                    dwh, plan, result.ods_run_id, history=("object_ods_record_change", "ods_run_id"))
+            except psycopg.Error as exc:
+                raise database_error(exc, "apply") from None
+            result.rows_unchanged = result.rows_read - result.rows_inserted - result.rows_updated
+            result.status = _ods_finish(dwh, result, True)
+            dwh.commit()
+            return result
+        except (RunError, psycopg.Error) as caught:
+            error = caught if isinstance(caught, RunError) else database_error(caught, "dwh")
+            dwh.rollback()
+            result.rows_inserted = result.rows_updated = result.rows_unchanged = 0
+            result.status = _ods_finish(dwh, result, False, error)
+            dwh.commit()
+            result.error_code, result.message = error.code, error.message
+            return result
+        except Exception as exc:  # unexpected: close the run, without data
+            dwh.rollback()
+            error = RunError("INTERNAL_ERROR", f"Unexpected {type(exc).__name__}")
+            result.rows_inserted = result.rows_updated = result.rows_unchanged = 0
+            result.status = _ods_finish(dwh, result, False, error)
+            dwh.commit()
+            result.error_code, result.message = error.code, error.message
+            return result
+    finally:
+        dwh.close()
+
+
+def _print_ods(ods: OdsResult | None) -> bool:
+    if ods is None:
+        print("ODS_RESULT: NOT_CONFIGURED (no published ODS version)")
+        return True
+    print(f"ODS_RUN_ID: {ods.ods_run_id} | BATCH_RUN_ID: {ods.batch_run_id}")
+    print(f"ODS_ROWS: read={ods.rows_read} inserted={ods.rows_inserted} updated={ods.rows_updated} "
+          f"unchanged={ods.rows_unchanged}")
+    if ods.status == "SUCCESS":
+        print("ODS_RESULT: SUCCESS")
+        return True
+    print(f"ODS_RESULT: FAILED | code={ods.error_code} | {ods.message}")
+    return False
+
+
 def main() -> None:
     value = os.environ.get("DWH_RUN_OBJECT_ID", "").strip()
     if not value.isdigit():
@@ -571,9 +741,21 @@ def main() -> None:
     from dwh.db import connect
     from dwh.source_secret import read_source_credential
 
+    stage = os.environ.get("DWH_RUN_OBJECT_STAGE", "").strip().upper() or "ALL"
+    if stage not in ("ALL", "ODS"):
+        print("STOP: DWH_RUN_OBJECT_STAGE must be ALL or ODS")
+        sys.exit(2)
+    log = lambda m: print(m, flush=True)  # noqa: E731
+    if stage == "ODS":
+        try:
+            ods = run_ods(int(value), None, dwh_connect=lambda: connect(get_dwh_config()), log=log)
+        except RunError as error:
+            print(f"ODS_RESULT: REFUSED | code={error.code} | {error.message}")
+            sys.exit(1)
+        sys.exit(0 if _print_ods(ods) and ods is not None else 1)
     try:
         result = run_object(int(value), dwh_connect=lambda: connect(get_dwh_config()),
-                            read_credential=read_source_credential, log=lambda m: print(m, flush=True))
+                            read_credential=read_source_credential, log=log)
     except RunError as error:
         print(f"RUN_RESULT: REFUSED | code={error.code} | {error.message}")
         sys.exit(1)
@@ -582,11 +764,17 @@ def main() -> None:
           f"unchanged={result.rows_unchanged} stale={result.rows_stale} deleted={result.rows_deleted}")
     print(f"STRATEGY: {result.load_strategy}" + (f" | watermark {result.watermark_from} -> {result.watermark_to}"
                                                  if result.load_strategy == "INCREMENTAL" else ""))
-    if result.status == "SUCCESS":
-        print("RUN_RESULT: SUCCESS")
-        return
-    print(f"RUN_RESULT: FAILED | code={result.error_code} | {result.message}")
-    sys.exit(1)
+    if result.status != "SUCCESS":
+        print(f"RUN_RESULT: FAILED | code={result.error_code} | {result.message}")
+        sys.exit(1)
+    print("RUN_RESULT: SUCCESS")
+    try:
+        ods = run_ods(int(value), result.run_id, dwh_connect=lambda: connect(get_dwh_config()), log=log)
+    except RunError as error:
+        print(f"ODS_RESULT: REFUSED | code={error.code} | {error.message}")
+        sys.exit(1)
+    if not _print_ods(ods):
+        sys.exit(1)
 
 
 if __name__ == "__main__":

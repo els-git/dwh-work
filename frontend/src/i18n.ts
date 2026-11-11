@@ -11,6 +11,49 @@ const defaultLanguage: AppLanguage = 'en'
 const resources = {
   "en": {
     "translation": {
+      "odsConfig": {
+        "tabStg": "Source → STG",
+        "tabOds": "STG → ODS",
+        "targetTable": "ODS table (schema ods)",
+        "noStg": "Publish the STG mapping of this object first: the ODS step reads its STG table.",
+        "stgSource": "Source of the ODS step: {{table}} (STG mapping v{{version}})",
+        "legacyNote": "Legacy CRM source: its ODS transformation stays in the CRM ETL.",
+        "hint": "Each ODS field takes one transformation from a fixed list; values are data only, never SQL. Technical fields (load run, load time) are written only when a row is inserted.",
+        "colStg": "STG field",
+        "colTransform": "Transformation",
+        "colValue": "Value / format",
+        "newColumn": "new column (change proposal)",
+        "addField": "Add constant or technical field",
+        "invalid": "Check the names (unique, latin lower case) and fill the values of DEFAULT, CONSTANT and date fields",
+        "publishTitle": "Publish ODS configuration",
+        "publishMessage": "Publish ODS configuration v{{version}} of {{object}}? The next run transforms its STG table into ODS by this version.",
+        "proposalCreated": "Change proposal #{{id}} created: apply it as a database package.",
+        "transform": {
+          "COPY": "Copy",
+          "CAST": "Convert type",
+          "TRIM": "Trim spaces",
+          "UPPER": "Upper case",
+          "LOWER": "Lower case",
+          "EMPTY_TO_NULL": "Empty → NULL",
+          "DEFAULT": "Default if empty",
+          "CONSTANT": "Constant",
+          "DATE_FROM_TEXT": "Date from text",
+          "LOAD_RUN_ID": "Load run number",
+          "LOADED_AT": "Load time"
+        },
+        "issue": {
+          "STG_NOT_PUBLISHED": "the object has no published STG mapping",
+          "STG_COLUMN_MISSING": "STG field does not exist",
+          "STG_TYPE_CHANGED": "STG type changed: {{expected}} → {{actual}}",
+          "STG_COLUMN_UNMAPPED": "STG field is not used",
+          "TRANSFORM_NEEDS_CAST": "types differ ({{source_type}} → {{target_type}}): choose \"Convert type\"",
+          "TRANSFORM_NEEDS_TEXT": "this transformation needs text in STG and in ODS",
+          "DATE_FROM_TEXT_TYPES": "date from text needs a text STG field and a DATE ODS field",
+          "VALUE_INVALID": "value does not fit the type {{target_type}}",
+          "TECHNICAL_TYPE": "technical field cannot have the type {{target_type}}",
+          "KEY_NOT_FROM_STG": "key field must come from STG without replacing empty values"
+        }
+      },
       "objectConfig": {
         "open": "Mapping",
         "title": "Field mapping: {{object}}",
@@ -617,6 +660,49 @@ const resources = {
   },
   "ru": {
     "translation": {
+      "odsConfig": {
+        "tabStg": "Источник → STG",
+        "tabOds": "STG → ODS",
+        "targetTable": "Таблица ODS (схема ods)",
+        "noStg": "Сначала опубликуйте маппинг STG этого объекта: шаг ODS читает его таблицу STG.",
+        "stgSource": "Источник шага ODS: {{table}} (маппинг STG v{{version}})",
+        "legacyNote": "Источник старого CRM-контура: его преобразование в ODS остаётся в CRM ETL.",
+        "hint": "Каждое поле ODS получает одно преобразование из закрытого списка; значения — только данные, не SQL. Технические поля (номер и время загрузки) записываются только при вставке строки.",
+        "colStg": "Поле STG",
+        "colTransform": "Преобразование",
+        "colValue": "Значение / формат",
+        "newColumn": "новая колонка (проект изменения)",
+        "addField": "Добавить константу или техническое поле",
+        "invalid": "Проверьте имена (уникальные, строчная латиница) и заполните значения для DEFAULT, CONSTANT и дат",
+        "publishTitle": "Публикация настройки ODS",
+        "publishMessage": "Опубликовать настройку ODS v{{version}} объекта {{object}}? Следующий запуск перенесёт его таблицу STG в ODS по этой версии.",
+        "proposalCreated": "Проект изменения №{{id}} создан: применяется пакетом БД.",
+        "transform": {
+          "COPY": "Копировать",
+          "CAST": "Привести тип",
+          "TRIM": "Убрать пробелы",
+          "UPPER": "Верхний регистр",
+          "LOWER": "Нижний регистр",
+          "EMPTY_TO_NULL": "Пустое → NULL",
+          "DEFAULT": "Значение, если пусто",
+          "CONSTANT": "Константа",
+          "DATE_FROM_TEXT": "Дата из текста",
+          "LOAD_RUN_ID": "Номер запуска",
+          "LOADED_AT": "Время загрузки"
+        },
+        "issue": {
+          "STG_NOT_PUBLISHED": "у объекта нет опубликованного маппинга STG",
+          "STG_COLUMN_MISSING": "поля STG не существует",
+          "STG_TYPE_CHANGED": "тип в STG изменился: {{expected}} → {{actual}}",
+          "STG_COLUMN_UNMAPPED": "поле STG не используется",
+          "TRANSFORM_NEEDS_CAST": "типы различаются ({{source_type}} → {{target_type}}): выберите «Привести тип»",
+          "TRANSFORM_NEEDS_TEXT": "это преобразование требует текст в STG и в ODS",
+          "DATE_FROM_TEXT_TYPES": "дата из текста требует текстовое поле STG и поле ODS типа DATE",
+          "VALUE_INVALID": "значение не подходит к типу {{target_type}}",
+          "TECHNICAL_TYPE": "техническое поле не может иметь тип {{target_type}}",
+          "KEY_NOT_FROM_STG": "поле ключа должно браться из STG без замены пустых значений"
+        }
+      },
       "objectConfig": {
         "open": "Маппинг",
         "title": "Маппинг полей: {{object}}",
@@ -1223,6 +1309,49 @@ const resources = {
   },
   "az": {
     "translation": {
+      "odsConfig": {
+        "tabStg": "Mənbə → STG",
+        "tabOds": "STG → ODS",
+        "targetTable": "ODS cədvəli (ods sxemi)",
+        "noStg": "Əvvəlcə bu obyektin STG xəritəsini dərc edin: ODS addımı onun STG cədvəlini oxuyur.",
+        "stgSource": "ODS addımının mənbəyi: {{table}} (STG xəritəsi v{{version}})",
+        "legacyNote": "Köhnə CRM mənbəyi: onun ODS çevrilməsi CRM ETL-də qalır.",
+        "hint": "Hər ODS sahəsi qapalı siyahıdan bir çevirmə alır; dəyərlər yalnız məlumatdır, SQL deyil. Texniki sahələr (yükləmə nömrəsi və vaxtı) yalnız sətir əlavə edilərkən yazılır.",
+        "colStg": "STG sahəsi",
+        "colTransform": "Çevirmə",
+        "colValue": "Dəyər / format",
+        "newColumn": "yeni sütun (dəyişiklik layihəsi)",
+        "addField": "Sabit və ya texniki sahə əlavə et",
+        "invalid": "Adları yoxlayın (unikal, kiçik latın hərfləri) və DEFAULT, CONSTANT və tarix dəyərlərini doldurun",
+        "publishTitle": "ODS konfiqurasiyasının dərci",
+        "publishMessage": "{{object}} obyektinin ODS konfiqurasiyası v{{version}} dərc edilsin? Növbəti işə salma STG cədvəlini bu versiya ilə ODS-ə köçürəcək.",
+        "proposalCreated": "Dəyişiklik layihəsi №{{id}} yaradıldı: verilənlər bazası paketi ilə tətbiq edilir.",
+        "transform": {
+          "COPY": "Kopyala",
+          "CAST": "Tipi çevir",
+          "TRIM": "Boşluqları sil",
+          "UPPER": "Böyük hərf",
+          "LOWER": "Kiçik hərf",
+          "EMPTY_TO_NULL": "Boş → NULL",
+          "DEFAULT": "Boşdursa dəyər",
+          "CONSTANT": "Sabit",
+          "DATE_FROM_TEXT": "Mətndən tarix",
+          "LOAD_RUN_ID": "Yükləmə nömrəsi",
+          "LOADED_AT": "Yükləmə vaxtı"
+        },
+        "issue": {
+          "STG_NOT_PUBLISHED": "obyektin dərc edilmiş STG xəritəsi yoxdur",
+          "STG_COLUMN_MISSING": "STG sahəsi mövcud deyil",
+          "STG_TYPE_CHANGED": "STG tipi dəyişib: {{expected}} → {{actual}}",
+          "STG_COLUMN_UNMAPPED": "STG sahəsi istifadə olunmur",
+          "TRANSFORM_NEEDS_CAST": "tiplər fərqlidir ({{source_type}} → {{target_type}}): «Tipi çevir» seçin",
+          "TRANSFORM_NEEDS_TEXT": "bu çevirmə STG və ODS-də mətn tələb edir",
+          "DATE_FROM_TEXT_TYPES": "mətndən tarix mətn STG sahəsi və DATE tipli ODS sahəsi tələb edir",
+          "VALUE_INVALID": "dəyər {{target_type}} tipinə uyğun deyil",
+          "TECHNICAL_TYPE": "texniki sahə {{target_type}} tipində ola bilməz",
+          "KEY_NOT_FROM_STG": "açar sahəsi boş dəyərləri əvəz etmədən STG-dən götürülməlidir"
+        }
+      },
       "objectConfig": {
         "open": "Uyğunlaşdırma",
         "title": "Sahələrin uyğunlaşdırılması: {{object}}",
