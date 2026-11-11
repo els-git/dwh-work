@@ -304,7 +304,7 @@ class IncrementalTest(unittest.TestCase):
             ro.estimated_rows = lambda c, s, t: estimate
             ro.validate_key = lambda d, p: None
             ro.apply_rows = lambda d, p, run: (1, 1, 1, 1)
-            ro.read_source = lambda c, s, t, p, limit, where=None: seen.update(where=where) or iter(())
+            ro.read_source = lambda c, s, t, p, limit, where=None, log=None: seen.update(where=where) or iter(())
             result = ro.run_object(16, dwh_connect=lambda: conn, read_credential=lambda c: SECRET,
                                    source_connect_fn=lambda c, p: Source())
         finally:
@@ -329,6 +329,83 @@ class IncrementalTest(unittest.TestCase):
         self.assertIsNone(seen["where"])
         (inc,) = [p for t, p in conn.calls if "object_run_record_increment" in t]
         self.assertEqual(inc[1:3], (None, "2026-11-05 12:00:00+04"))
+
+
+class SlowSourceCursor:
+    """Source cursor whose statements block until the watchdog cancels them (or answer at once)."""
+
+    def __init__(self, conn):
+        self.conn = conn
+        self.rows = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def execute(self, query):
+        text = repr(query)
+        if self.conn.lock and "DECLARE" in text:
+            raise db_error("55P03")
+        if ("FETCH" if self.conn.hang == "FETCH" else "DECLARE") in text and self.conn.hang:
+            if not self.conn.cancelled.wait(5):
+                raise AssertionError("watchdog did not cancel")
+            raise db_error("57014")
+        self.rows = [("1", "a")] if "FETCH" in text and not self.conn.fetched else []
+        if "FETCH" in text:
+            self.conn.fetched = True
+
+    def fetchall(self):
+        return self.rows
+
+
+class SlowSource:
+    def __init__(self, hang=None, lock=False):
+        import threading
+        self.hang, self.lock, self.fetched = hang, lock, False
+        self.cancelled = threading.Event()
+
+    def cursor(self):
+        return SlowSourceCursor(self)
+
+    def cancel(self):
+        self.cancelled.set()
+
+    def rollback(self):
+        pass
+
+
+class SourceWaitTest(unittest.TestCase):
+    class Plan:
+        written = [{"source_column": "id"}, {"source_column": "name"}]
+
+    def read(self, conn):
+        return list(ro.read_source(conn, "public", "t", self.Plan, 10, reply_timeout=1))
+
+    def test_answer_in_time(self):
+        logs = []
+        self.assertEqual(list(ro.read_source(SlowSource(), "public", "t", self.Plan, 10, log=logs.append,
+                                             reply_timeout=1)), [("1", "a")])
+        self.assertEqual(logs, ["STAGE: source answered, first batch 1 rows"])
+
+    def test_lock_and_no_answer(self):
+        with self.assertRaises(ro.RunError) as ctx:
+            self.read(SlowSource(lock=True))
+        self.assertEqual(ctx.exception.code, "LOCK_TIMEOUT")
+        self.assertIn("locked by another session", ctx.exception.message)
+        for where in ("DECLARE", "FETCH"):
+            conn = SlowSource(hang=where)
+            with self.assertRaises(ro.RunError) as ctx:
+                self.read(conn)
+            self.assertEqual(ctx.exception.code, "SOURCE_NO_RESPONSE")
+            self.assertIn(f"no answer to {where}", ctx.exception.message)
+            self.assertTrue(conn.cancelled.is_set())
+
+    def test_cancel_without_watchdog_stays_timeout(self):
+        conn = SlowSource()
+        watchdog = ro.ReplyWatchdog(conn, 1)
+        self.assertIsNone(ro.source_wait_error(db_error("57014"), watchdog, "public", "t"))
 
 
 class EstimateTest(unittest.TestCase):

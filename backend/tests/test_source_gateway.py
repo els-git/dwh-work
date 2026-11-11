@@ -158,6 +158,8 @@ class ConnectTest(unittest.TestCase):
         conn = gateway(raw, seen)
         self.assertIn("default_transaction_read_only=on", seen["options"])
         self.assertIn("statement_timeout=1000", seen["options"])
+        self.assertNotIn("lock_timeout", seen["options"])
+        self.assertNotIn("keepalives", seen)
         self.assertTrue(raw.read_only)
         self.assertEqual(raw.sent, ["SHOW transaction_read_only"])
         with conn.cursor() as cur:
@@ -165,6 +167,19 @@ class ConnectTest(unittest.TestCase):
             self.assertEqual(cur.fetchone(), (1,))
         conn.close()
         self.assertTrue(raw.closed)
+
+    def test_lock_timeout_keepalives_and_cancel(self):
+        raw = RawConn()
+        seen = {}
+        conn = sg.connect(host="db", port=5432, dbname="src", user="reader", password=SECRET, lock_timeout_ms=60000,
+                          keepalives=True, connect_fn=lambda **kw: (seen.update(kw), raw)[1])
+        self.assertIn("lock_timeout=60000", seen["options"])
+        self.assertEqual((seen["keepalives"], seen["keepalives_idle"]), (1, 60))
+        cancelled = []
+        raw.cancel_safe = lambda timeout: cancelled.append(timeout)
+        conn.cancel()
+        self.assertEqual(cancelled, [10.0])
+        self.assertEqual(raw.sent, ["SHOW transaction_read_only"])
 
     def test_not_read_only_fails_closed_before_any_query(self):
         raw = RawConn(read_only_answer="off")
