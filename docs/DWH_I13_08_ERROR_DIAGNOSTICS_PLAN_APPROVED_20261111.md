@@ -119,3 +119,7 @@ ODS_RESULT: FAILED | code=TYPE_CONVERSION | birth_date (Date from text, DD.MM.YY
 ## 7. Шаг 3 — E1 (11.11.2026, ПК)
 
 `database/run_014_e1_test.ps1` — **E1_RESULT: PASS** (вывод пользователя). Копия `dwh_i02_04_test` оставлена с применённым 014.
+
+## 8. Шаг 4 — E2 (11.11.2026, ПК)
+
+`database/run_014_e2_apply_dwh.ps1` — **E2_RESULT: PASS** (вывод пользователя): пакет 014 в `dwh`. Реестр 1.32.0, раздел 12.35.
