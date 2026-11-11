@@ -48,7 +48,7 @@ DWH — платформа хранилища данных с frontend, backend 
 Единый согласованный план: неизменяемые ID задач, итерации, зависимости, критерии приёмки, решения, журнал и статусы `PLANNED`, `IN_PROGRESS`, `BLOCKED`, `DONE`, `CANCELLED`, `DEFERRED`. **DONE — только после фактических проверок и подтверждения пользователя.** Историю не удалять, задачи не перенумеровывать, прежние требования не переписывать без согласования. Новые задачи — только с новыми ID и явной договорённостью.
 
 **Последний подтверждённый SHA256 (11.11.2026, в git):**
-`E477D5F9606232C797BA4EDB68D8B5624A79882FE80A323008B9759666AF7CAD`
+`4B36E14D540A56FDEC7B99C4BBEF60AA429C164ACB1B82A3F7D65006F5FB6372`
 
 Документы на ПК обновляются через `git pull` после слияния PR. Скрипты `sync_docs_to_pc.ps1` удалены 03.11.2026: связь с git их заменила.
 
@@ -319,7 +319,9 @@ DWH — платформа хранилища данных с frontend, backend 
 
 **Шаг 7 I08 сделан в песочнице 11.11.2026** (план, раздел 12): меню «Загрузки» / «Отчётность» / «Администрирование»; `frontend/src/LoadsObjectsPanel.tsx` (+ `LoadsPage.css`), Integration Control удалён из `App.tsx`, «Run Control» и «History / Errors» — вкладки «Загрузок»; «Validations» = контракты CRM, есть в «Contracts»; build OK, ESLint 0/0; проверка UI — `scratchpad/ui_server_i08.py` + `scratchpad/ui_i08/ui.cjs`.
 
-**Следующий шаг:** шаг 8 — приёмка на ПК.
+**Шаг 8 I08, попытка 1 (11.11.2026):** «Запустить» `SUCCESS`; «Заново полностью» завис в процессе API на чтении источника (блокировок в DWH нет). Исправлено: заявка — дочерний процесс `run_object.py` (`DWH_OBJECT_RUN_TIMEOUT_SECONDS`, по умолчанию 3600 → `TIMEOUT`; стеки через `DWH_RUN_OBJECT_STACK_DUMP_SECONDS`, 600), `DWH_RUN_OBJECT_FULL=1`; `run_readonly_sql.ps1` читает `utf-8-sig` (PowerShell 5.1 `Set-Content -Encoding UTF8` пишет BOM — для временных SQL использовать `-Encoding ASCII`).
+
+**Следующий шаг:** шаг 8, попытка 2 — приёмка на ПК после перезапуска backend.
 
 PR #7 с профилями закрыт без слияния. Тест 005 в E0/E1 внутри своей транзакции подменяет `app.integration_admin_session_user` тестовыми токенами; `ROLLBACK` её восстанавливает. Read-only запросы — через `database/tools/run_readonly_sql.ps1`.
 
