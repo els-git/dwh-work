@@ -47,6 +47,7 @@ from __future__ import annotations
 import os
 import re
 import sys
+import threading
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
@@ -60,6 +61,11 @@ ROW_LIMIT = 1_000_000
 FETCH_SIZE = 5_000
 SOURCE_CONNECT_TIMEOUT = 15
 SOURCE_STATEMENT_TIMEOUT_MS = 30 * 60 * 1000
+# I08 step 8 (11.11.2026): a FULL read waited on the source for an hour in DECLARE. A lock held by another
+# session of the source now fails the run after SOURCE_LOCK_TIMEOUT_MS (LOCK_TIMEOUT); a statement the source
+# does not answer at all is cancelled by a watchdog after DWH_SOURCE_REPLY_TIMEOUT_SECONDS (SOURCE_NO_RESPONSE).
+SOURCE_LOCK_TIMEOUT_MS = 60 * 1000
+SOURCE_REPLY_TIMEOUT_SECONDS = 300
 
 
 class RunError(Exception):
@@ -257,7 +263,8 @@ def source_connect(connection_config: dict, password: str):
             dbname=connection_config.get("database"), user=connection_config.get("username"),
             password=password, sslmode=connection_config.get("sslmode") or "prefer",
             connect_timeout=SOURCE_CONNECT_TIMEOUT, application_name="dwh_object_run",
-            statement_timeout_ms=SOURCE_STATEMENT_TIMEOUT_MS,
+            statement_timeout_ms=SOURCE_STATEMENT_TIMEOUT_MS, lock_timeout_ms=SOURCE_LOCK_TIMEOUT_MS,
+            keepalives=True,
         )
     except source_gateway.SourceGatewayError as exc:
         raise RunError(exc.code, exc.message) from None
@@ -342,7 +349,52 @@ def increment_filter(plan: Plan, watermark: str | None) -> sql.Composable | None
         column, sql.Literal(watermark), sql.SQL(postgres_type(f["source_type"])), sql.Literal(plan.overlap_minutes))
 
 
-def read_source(conn, schema: str, table: str, plan: Plan, row_limit: int, where: sql.Composable | None = None):
+def reply_timeout_seconds() -> int:
+    value = os.environ.get("DWH_SOURCE_REPLY_TIMEOUT_SECONDS", "").strip()
+    return int(value) if value.isdigit() and int(value) > 0 else SOURCE_REPLY_TIMEOUT_SECONDS
+
+
+class ReplyWatchdog:
+    """Cancels a source statement that gets no answer within `seconds` (a PostgreSQL cancel request)."""
+
+    def __init__(self, conn, seconds: int) -> None:
+        self.conn = conn
+        self.seconds = seconds
+        self.fired: str | None = None
+
+    def run(self, cur, statement: sql.Composable, what: str):
+        timer = threading.Timer(self.seconds, self._fire, args=(what,))
+        timer.daemon = True
+        timer.start()
+        try:
+            cur.execute(statement)
+            return cur.fetchall() if what == "FETCH" else None
+        finally:
+            timer.cancel()
+
+    def _fire(self, what: str) -> None:
+        self.fired = what
+        try:
+            self.conn.cancel()
+        except Exception:  # noqa: BLE001 - the cancel request is best effort; the run limit stays
+            pass
+
+
+def source_wait_error(exc: psycopg.Error, watchdog: ReplyWatchdog, schema: str, table: str) -> RunError | None:
+    state = getattr(getattr(exc, "diag", None), "sqlstate", None) or ""
+    if state == "55P03":
+        return RunError("LOCK_TIMEOUT", f"source: table {schema}.{table} is locked by another session of the source "
+                        f"for more than {SOURCE_LOCK_TIMEOUT_MS // 1000} s (SQLSTATE 55P03); end that session "
+                        "or its open transaction and run again")
+    if watchdog.fired is not None and state == "57014":
+        return RunError("SOURCE_NO_RESPONSE", f"source: no answer to {watchdog.fired} on {schema}.{table} within "
+                        f"{watchdog.seconds} s, statement cancelled (SQLSTATE 57014); the source server or its "
+                        "connection pooler did not respond")
+    return None
+
+
+def read_source(conn, schema: str, table: str, plan: Plan, row_limit: int, where: sql.Composable | None = None,
+                log: Callable[[str], None] = lambda message: None, reply_timeout: int | None = None):
     """Rows of the mapped columns as text (NULL stays NULL), in published field order.
 
     The cursor is declared and fetched with plain SQL statements (DECLARE / FETCH) on an
@@ -355,12 +407,17 @@ def read_source(conn, schema: str, table: str, plan: Plan, row_limit: int, where
     if where is not None:
         select = select + sql.SQL(" WHERE ") + where
     count = 0
+    watchdog = ReplyWatchdog(conn, reply_timeout or reply_timeout_seconds())
     try:
         with conn.cursor() as cur:
-            cur.execute(sql.SQL("DECLARE dwh_object_run NO SCROLL CURSOR FOR {}").format(select))
+            watchdog.run(cur, sql.SQL("DECLARE dwh_object_run NO SCROLL CURSOR FOR {}").format(select), "DECLARE")
+            fetch = sql.SQL("FETCH FORWARD {} FROM dwh_object_run").format(sql.Literal(FETCH_SIZE))
+            first = True
             while True:
-                cur.execute(sql.SQL("FETCH FORWARD {} FROM dwh_object_run").format(sql.Literal(FETCH_SIZE)))
-                batch = cur.fetchall()
+                batch = watchdog.run(cur, fetch, "FETCH")
+                if first:
+                    log(f"STAGE: source answered, first batch {len(batch)} rows")
+                    first = False
                 if not batch:
                     break
                 for row in batch:
@@ -369,7 +426,7 @@ def read_source(conn, schema: str, table: str, plan: Plan, row_limit: int, where
                         raise RunError("ROW_LIMIT", f"Source object has more than {row_limit} rows")
                     yield row
     except psycopg.Error as exc:
-        raise database_error(exc, "source") from None
+        raise (source_wait_error(exc, watchdog, schema, table) or database_error(exc, "source")) from None
     finally:
         conn.rollback()
 
@@ -638,7 +695,7 @@ def run_object(source_object_id: int, *, dwh_connect: Callable[[], Any], read_cr
                     raise RunError("ROW_LIMIT", f"Source object has about {estimate} rows, limit {row_limit}")
                 try:
                     result.rows_read = stage_rows(dwh, plan, read_source(
-                        src, source["source_schema"], source["source_object"], plan, row_limit, where), log)
+                        src, source["source_schema"], source["source_object"], plan, row_limit, where, log), log)
                 except psycopg.Error as exc:
                     raise database_error(exc, "stage") from None
             finally:

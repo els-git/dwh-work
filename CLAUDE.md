@@ -48,7 +48,7 @@ DWH — платформа хранилища данных с frontend, backend 
 Единый согласованный план: неизменяемые ID задач, итерации, зависимости, критерии приёмки, решения, журнал и статусы `PLANNED`, `IN_PROGRESS`, `BLOCKED`, `DONE`, `CANCELLED`, `DEFERRED`. **DONE — только после фактических проверок и подтверждения пользователя.** Историю не удалять, задачи не перенумеровывать, прежние требования не переписывать без согласования. Новые задачи — только с новыми ID и явной договорённостью.
 
 **Последний подтверждённый SHA256 (11.11.2026, в git):**
-`4B36E14D540A56FDEC7B99C4BBEF60AA429C164ACB1B82A3F7D65006F5FB6372`
+`5245EE90B88F5F3BE70CA7DC6E72677B8ABCE1BA8A92E338C1287658BE4EBB57`
 
 Документы на ПК обновляются через `git pull` после слияния PR. Скрипты `sync_docs_to_pc.ps1` удалены 03.11.2026: связь с git их заменила.
 
@@ -321,7 +321,9 @@ DWH — платформа хранилища данных с frontend, backend 
 
 **Шаг 8 I08, попытка 1 (11.11.2026):** «Запустить» `SUCCESS`; «Заново полностью» завис в процессе API на чтении источника (блокировок в DWH нет). Исправлено: заявка — дочерний процесс `run_object.py` (`DWH_OBJECT_RUN_TIMEOUT_SECONDS`, по умолчанию 3600 → `TIMEOUT`; стеки через `DWH_RUN_OBJECT_STACK_DUMP_SECONDS`, 600), `DWH_RUN_OBJECT_FULL=1`; `run_readonly_sql.ps1` читает `utf-8-sig` (PowerShell 5.1 `Set-Content -Encoding UTF8` пишет BOM — для временных SQL использовать `-Encoding ASCII`).
 
-**Следующий шаг:** шаг 8, попытка 2 — приёмка на ПК после перезапуска backend.
+**Шаг 8 I08, попытка 2 (11.11.2026):** `check-crm` PASS, заявка №2 закрыта `DISPATCHER_LOST`; «Заново полностью» (заявка №3) снова ждал — уже в дочернем процессе. Стек: ожидание ответа сервера источника на `DECLARE`/`FETCH` (`read_source`), в DWH ожиданий нет. Исправление (план, раздел 14): `source_gateway.connect(lock_timeout_ms, keepalives)` и `GatewayConnection.cancel()`; в `run_object.py` — `lock_timeout` 60 с, сторож `DWH_SOURCE_REPLY_TIMEOUT_SECONDS` (300 с) → `LOCK_TIMEOUT` / `SOURCE_NO_RESPONSE`; тесты 445 OK.
+
+**Следующий шаг:** шаг 8, попытка 3 — приёмка на ПК после `git pull` и перезапуска backend.
 
 PR #7 с профилями закрыт без слияния. Тест 005 в E0/E1 внутри своей транзакции подменяет `app.integration_admin_session_user` тестовыми токенами; `ROLLBACK` её восстанавливает. Read-only запросы — через `database/tools/run_readonly_sql.ps1`.
 

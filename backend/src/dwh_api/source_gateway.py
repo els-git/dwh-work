@@ -179,6 +179,15 @@ class GatewayConnection:
     def close(self) -> None:
         self._raw.close()
 
+    def cancel(self) -> None:
+        """Ask the source server to stop the statement in progress (a PostgreSQL cancel request: it sends
+        no statement and changes nothing). Called from a watchdog thread when the source does not answer."""
+        cancel_safe = getattr(self._raw, "cancel_safe", None)
+        if cancel_safe is not None:
+            cancel_safe(timeout=10.0)
+        else:
+            self._raw.cancel()
+
     @property
     def closed(self) -> bool:
         return bool(self._raw.closed)
@@ -186,16 +195,21 @@ class GatewayConnection:
 
 def connect(*, host: str, port: int, dbname: str, user: str, password: str | None, sslmode: str = "prefer",
             connect_timeout: int = 10, application_name: str = "dwh_source", statement_timeout_ms: int | None = None,
-            row_factory=None, connect_fn: Callable[..., Any] = psycopg.connect) -> GatewayConnection:
+            lock_timeout_ms: int | None = None, keepalives: bool = False, row_factory=None, connect_fn: Callable[..., Any] = psycopg.connect) -> GatewayConnection:
     """Open a read-only source session; psycopg errors of connecting pass through unchanged."""
     options = "-c default_transaction_read_only=on"
     if statement_timeout_ms is not None:
         options += f" -c statement_timeout={int(statement_timeout_ms)}"
+    if lock_timeout_ms is not None:
+        options += f" -c lock_timeout={int(lock_timeout_ms)}"
     kwargs: dict[str, Any] = {
         "host": host, "port": port, "dbname": dbname, "user": user, "password": password, "sslmode": sslmode,
         "connect_timeout": connect_timeout, "application_name": application_name, "options": options,
         "autocommit": False,
     }
+    if keepalives:
+        # A dead network path (or a stalled pooler connection) is noticed by TCP in about two minutes.
+        kwargs.update(keepalives=1, keepalives_idle=60, keepalives_interval=10, keepalives_count=6)
     if row_factory is not None:
         kwargs["row_factory"] = row_factory
     raw = connect_fn(**kwargs)
