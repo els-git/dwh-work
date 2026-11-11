@@ -1564,3 +1564,100 @@ export function createOdsConfigProposal(
 ): Promise<{ proposal_id: number, change_kind: string, ddl: string }> {
   return odsDraftAction(sourceObjectId, 'proposal', draftRevision)
 }
+
+
+// ============================================================
+// I08: data loads — state of objects and run requests (package 015)
+// ============================================================
+
+
+export type ObjectRunKind =
+  | 'RUN'
+  | 'CONTINUE_ODS'
+  | 'FULL_RERUN'
+
+
+export interface ObjectLoadStatus {
+  source_object_id: number
+  source_system_code: string
+  source_schema: string
+  source_object: string
+  is_active: boolean
+  is_legacy: boolean
+  load_version_no: number | null
+  load_status: string | null
+  load_strategy: string | null
+  stg_schema: string | null
+  stg_table: string | null
+  ods_version_no: number | null
+  ods_status: string | null
+  ods_table: string | null
+  stg_run_id: number | null
+  stg_batch_run_id: number | null
+  stg_run_status: string | null
+  stg_started_at: string | null
+  stg_finished_at: string | null
+  stg_rows_read: number | null
+  stg_rows_inserted: number | null
+  stg_rows_updated: number | null
+  stg_error_code: string | null
+  stg_error_message: string | null
+  ods_run_id: number | null
+  ods_batch_run_id: number | null
+  ods_run_status: string | null
+  ods_from_stg_run_id: number | null
+  ods_started_at: string | null
+  ods_finished_at: string | null
+  ods_rows_read: number | null
+  ods_rows_inserted: number | null
+  ods_rows_updated: number | null
+  ods_error_code: string | null
+  ods_error_message: string | null
+  can_continue_ods: boolean
+  last_request_id: number | null
+  last_request_kind: ObjectRunKind | null
+  last_request_status: string | null
+  last_request_by: string | null
+  last_request_at: string | null
+  last_request_finished_at: string | null
+  last_request_result: string | null
+  last_request_message: string | null
+  has_active_request: boolean
+}
+
+
+export function getObjectLoadStatus():
+Promise<ObjectLoadStatus[]> {
+  return apiRequest<ObjectLoadStatus[]>(
+    '/api/integrations/loads/objects',
+  )
+}
+
+
+export function createObjectRunRequest(
+  sourceObjectId: number,
+  runKind: ObjectRunKind,
+): Promise<{ request_id: number }> {
+  return apiRequest<{ request_id: number }>(
+    '/api/admin/integrations/object-run-requests',
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        source_object_id: sourceObjectId,
+        run_kind: runKind,
+      }),
+    },
+  )
+}
+
+
+export function cancelObjectRunRequest(
+  requestId: number,
+): Promise<{ cancelled: boolean }> {
+  return apiRequest<{ cancelled: boolean }>(
+    `/api/admin/integrations/object-run-requests/${requestId}/cancel`,
+    {
+      method: 'POST',
+    },
+  )
+}

@@ -3,7 +3,6 @@ import {
   Fragment,
   useEffect,
   useEffectEvent,
-  useMemo,
   useState,
 } from 'react'
 
@@ -14,15 +13,6 @@ import {
   getEtlRunJobs,
   getEtlRuns,
   getHealth,
-  getIntegrationDqRules,
-  getIntegrationErrors,
-  getIntegrationIssues,
-  getIntegrationMappings,
-  getIntegrationOverview,
-  getIntegrationRuns,
-  getIntegrationStructure,
-  getIntegrationValidations,
-  getIntegrations,
   getRetailReportingOverview,
   downloadRetailReport,
 } from './api'
@@ -31,17 +21,10 @@ import type {
   DqIssue,
   DqResult,
   DqRun,
-  EtlError,
   EtlJobRun,
   EtlRun,
   HealthResponse,
-  IntegrationDqRule,
-  IntegrationMapping,
-  IntegrationObject,
-  IntegrationOverview,
   RetailReportingOverview,
-  SourceColumn,
-  ValidationContract,
 } from './types'
 
 import { formatDateTime } from './dateTime'
@@ -52,14 +35,24 @@ import { LanguageSwitcher, LocalizedText } from './LanguageControls'
 import './App.css'
 import { useAuth } from './authContext'
 import AdminPage from './AdminPage'
+import AdminIntegrationHistory from './AdminIntegrationHistory'
+import AdminIntegrationRunControl from './AdminIntegrationRunControl'
+import LoadsObjectsPanel from './LoadsObjectsPanel'
 
 
 type PageKey =
-  | 'integrations'
-  | 'etl'
-  | 'dq'
+  | 'loads'
   | 'reporting'
   | 'administration'
+
+// I08: tabs of the section "Data loads" (decision R4: one section instead of Integration Control,
+// ETL Runs, Data Quality, Run Control and History / Errors).
+type LoadsTab =
+  | 'objects'
+  | 'runs'
+  | 'errors'
+  | 'quality'
+  | 'crm'
 
 
 type ReportKey =
@@ -67,59 +60,6 @@ type ReportKey =
   | 'stage'
   | 'channel'
   | 'product'
-
-type TabKey =
-  | 'overview'
-  | 'structure'
-  | 'mapping'
-  | 'validations'
-  | 'dq'
-  | 'runs'
-  | 'errors'
-  | 'issues'
-
-
-interface TabDefinition {
-  key: TabKey
-  labelKey: string
-}
-
-
-const tabs: TabDefinition[] = [
-  {
-    key: 'overview',
-    labelKey: 'integrationTabs.overview',
-  },
-  {
-    key: 'structure',
-    labelKey: 'integrationTabs.structure',
-  },
-  {
-    key: 'mapping',
-    labelKey: 'integrationTabs.mapping',
-  },
-  {
-    key: 'validations',
-    labelKey: 'integrationTabs.validations',
-  },
-  {
-    key: 'dq',
-    labelKey: 'integrationTabs.dq',
-  },
-  {
-    key: 'runs',
-    labelKey: 'integrationTabs.runs',
-  },
-  {
-    key: 'errors',
-    labelKey: 'integrationTabs.errors',
-  },
-  {
-    key: 'issues',
-    labelKey: 'integrationTabs.issues',
-  },
-]
-
 
 function formatDate(
   value: string | null | undefined,
@@ -135,13 +75,6 @@ function formatDate(
   }
 
   return formatDateTime(value)
-}
-
-
-function yesNo(
-  value: boolean,
-): string {
-  return value ? 'YES' : 'NO'
 }
 
 
@@ -262,10 +195,33 @@ function App() {
     || canDq
     || canReporting
     || canAdministration
+  // I08: Run Control and History / Errors moved here from Administration -> Integrations.
+  const canIntegrationAdmin =
+    isAdministrator
+    && hasPermission(
+      'ADMIN_INTEGRATION_MANAGE',
+    )
+
+  const loadsTabs: LoadsTab[] = [
+    ...(canIntegration ? ['objects' as const] : []),
+    ...(canEtl ? ['runs' as const] : []),
+    ...(canIntegrationAdmin ? ['errors' as const] : []),
+    ...(canDq ? ['quality' as const] : []),
+    ...(canIntegrationAdmin ? ['crm' as const] : []),
+  ]
+
+  const defaultLoadsTab: LoadsTab | null =
+    loadsTabs[0] ?? null
+
   const [
     activePage,
     setActivePage,
-  ] = useState<PageKey>('integrations')
+  ] = useState<PageKey>('loads')
+
+  const [
+    loadsTab,
+    setLoadsTab,
+  ] = useState<LoadsTab>('objects')
 
   const [
     reportingOverview,
@@ -316,61 +272,6 @@ function App() {
     health,
     setHealth,
   ] = useState<HealthResponse | null>(null)
-
-  const [
-    integrations,
-    setIntegrations,
-  ] = useState<IntegrationObject[]>([])
-
-  const [
-    selectedId,
-    setSelectedId,
-  ] = useState<number | null>(null)
-
-  const [
-    activeTab,
-    setActiveTab,
-  ] = useState<TabKey>('overview')
-
-  const [
-    overview,
-    setOverview,
-  ] = useState<IntegrationOverview | null>(null)
-
-  const [
-    structure,
-    setStructure,
-  ] = useState<SourceColumn[]>([])
-
-  const [
-    mappings,
-    setMappings,
-  ] = useState<IntegrationMapping[]>([])
-
-  const [
-    validations,
-    setValidations,
-  ] = useState<ValidationContract[]>([])
-
-  const [
-    dqRules,
-    setDqRules,
-  ] = useState<IntegrationDqRule[]>([])
-
-  const [
-    runs,
-    setRuns,
-  ] = useState<EtlJobRun[]>([])
-
-  const [
-    errors,
-    setErrors,
-  ] = useState<EtlError[]>([])
-
-  const [
-    issues,
-    setIssues,
-  ] = useState<DqIssue[]>([])
 
   const [
     etlRuns,
@@ -436,11 +337,6 @@ function App() {
   ] = useState(true)
 
   const [
-    detailLoading,
-    setDetailLoading,
-  ] = useState(false)
-
-  const [
     error,
     setError,
   ] = useState<string | null>(null)
@@ -465,51 +361,22 @@ function App() {
         )
 
 
-        if (canIntegration) {
-          const integrationsResult =
-            await getIntegrations()
-
-          if (cancelled) {
-            return
-          }
-
-          setIntegrations(
-            integrationsResult,
+        if (defaultLoadsTab !== null) {
+          setLoadsTab(
+            defaultLoadsTab,
           )
 
-          if (
-            integrationsResult.length > 0
-          ) {
-            setSelectedId(
-              integrationsResult[0]
-                .source_object_id,
-            )
-          }
-
           setActivePage(
-            'integrations',
+            'loads',
           )
 
           return
         }
 
 
-        setIntegrations([])
-        setSelectedId(null)
-
-
-        if (canEtl) {
+        if (!canReporting && canAdministration) {
           setActivePage(
-            'etl',
-          )
-
-          return
-        }
-
-
-        if (canDq) {
-          setActivePage(
-            'dq',
+            'administration',
           )
 
           return
@@ -575,107 +442,16 @@ function App() {
       cancelled = true
     }
   }, [
-    canDq,
-    canEtl,
-    canIntegration,
+    canAdministration,
     canReporting,
+    defaultLoadsTab,
   ])
 
 
-  useEffect(() => {
-    if (selectedId === null) {
-      return
-    }
-
-    let cancelled = false
-
-    async function loadIntegrationDetails() {
-      try {
-        setDetailLoading(true)
-        setError(null)
-
-        const [
-          overviewResult,
-          structureResult,
-          mappingsResult,
-          validationsResult,
-          dqRulesResult,
-          runsResult,
-          errorsResult,
-          issuesResult,
-        ] = await Promise.all([
-          getIntegrationOverview(selectedId!),
-          getIntegrationStructure(selectedId!),
-          getIntegrationMappings(selectedId!),
-          getIntegrationValidations(selectedId!),
-          getIntegrationDqRules(selectedId!),
-          getIntegrationRuns(selectedId!),
-          getIntegrationErrors(selectedId!),
-          getIntegrationIssues(selectedId!),
-        ])
-
-        if (cancelled) {
-          return
-        }
-
-        setOverview(
-          overviewResult,
-        )
-
-        setStructure(
-          structureResult,
-        )
-
-        setMappings(
-          mappingsResult,
-        )
-
-        setValidations(
-          validationsResult,
-        )
-
-        setDqRules(
-          dqRulesResult,
-        )
-
-        setRuns(
-          runsResult,
-        )
-
-        setErrors(
-          errorsResult,
-        )
-
-        setIssues(
-          issuesResult,
-        )
-      } catch (loadError) {
-        if (cancelled) {
-          return
-        }
-
-        setError(
-          loadError instanceof Error
-            ? loadError.message
-            : 'Unknown error',
-        )
-      } finally {
-        if (!cancelled) {
-          setDetailLoading(false)
-        }
-      }
-    }
-
-    void loadIntegrationDetails()
-
-    return () => {
-      cancelled = true
-    }
-  }, [selectedId])
 
 
   useEffect(() => {
-    if (activePage !== 'etl') {
+    if (activePage !== 'loads' || loadsTab !== 'runs') {
       return
     }
 
@@ -742,7 +518,7 @@ function App() {
     return () => {
       cancelled = true
     }
-  }, [activePage])
+  }, [activePage, loadsTab])
 
 
   async function selectBatch(
@@ -776,7 +552,7 @@ function App() {
   }
 
   useEffect(() => {
-    if (activePage !== 'dq') {
+    if (activePage !== 'loads' || loadsTab !== 'quality') {
       return
     }
 
@@ -851,7 +627,7 @@ function App() {
     return () => {
       cancelled = true
     }
-  }, [activePage])
+  }, [activePage, loadsTab])
 
 
   async function selectDqRun(
@@ -892,1112 +668,6 @@ function App() {
       setDqLoading(false)
     }
   }
-
-  const selectedIntegration = useMemo(
-    () => integrations.find(
-      item =>
-        item.source_object_id
-        === selectedId,
-    ) ?? null,
-    [
-      integrations,
-      selectedId,
-    ],
-  )
-
-
-  function selectIntegration(
-    sourceObjectId: number,
-  ) {
-    setSelectedId(
-      sourceObjectId,
-    )
-
-    setActiveTab(
-      'overview',
-    )
-  }
-
-
-  function renderOverview() {
-    if (!overview) {
-      return null
-    }
-
-    return (
-      <>
-        <div className="metric-grid">
-          <article className="metric-card">
-            <span><Trans i18nKey="batch.tr0463" /></span>
-            <strong>
-              {
-                overview.integration.source_columns
-              }
-            </strong>
-            <small>
-              PK: {
-                overview.integration.pk_columns
-              }
-            </small>
-          </article>
-
-          <article className="metric-card">
-            <span><Trans i18nKey="batch.tr0074" /></span>
-            <strong>
-              {
-                overview.integration.total_mappings
-              }
-            </strong>
-            <small>
-              <Trans i18nKey="batch.tr0464" /> {
-                overview.integration.mapped_source_columns
-              }
-            </small>
-          </article>
-
-          <article className="metric-card">
-            <span><Trans i18nKey="batch.tr0073" /></span>
-            <strong>
-              {
-                overview.integration.active_contracts
-              }
-            </strong>
-            <small>
-              <Trans i18nKey="batch.tr0460" /> {
-                overview.integration.required_columns
-              }
-            </small>
-          </article>
-
-          <article className="metric-card">
-            <span><Trans i18nKey="batch.tr0229" /></span>
-            <strong>
-              {
-                overview.dq_rules_total
-              }
-            </strong>
-            <small>
-              {
-                overview.dq_error_rules
-              } {getSeverityLabel('ERROR')} / {
-                overview.dq_warning_rules
-              } {getSeverityLabel('WARNING')}
-            </small>
-          </article>
-
-          <article className="metric-card">
-            <span><Trans i18nKey="batch.tr0457" /></span>
-            <strong>
-              {
-                overview.open_dq_issues
-              }
-            </strong>
-            <small>
-              <Trans i18nKey="batch.tr0433" />
-            </small>
-          </article>
-
-          <article className="metric-card">
-            <span><Trans i18nKey="batch.tr0467" /></span>
-            <strong>
-              {
-                overview.technical_errors
-              }
-            </strong>
-            <small>
-              <Trans i18nKey="batch.tr0439" />
-            </small>
-          </article>
-        </div>
-
-        <div className="overview-grid">
-          <section className="info-card">
-            <h3><Trans i18nKey="batch.tr0441" /></h3>
-
-            <dl>
-              <dt><Trans i18nKey="batch.tr0042" /></dt>
-              <dd>
-                {
-                  overview.integration.source_schema
-                }.{
-                  overview.integration.source_object
-                }
-              </dd>
-
-              <dt>STG</dt>
-              <dd>
-                {
-                  overview.integration.stg_schema
-                }.{
-                  overview.integration.stg_table
-                }
-              </dd>
-
-              <dt>ODS</dt>
-              <dd>
-                {overview.ods_schema}.{
-                  overview.ods_object
-                }
-              </dd>
-
-              <dt><Trans i18nKey="batch.tr0231" /></dt>
-              <dd>
-                {
-                  overview.integration.load_strategy
-                }
-              </dd>
-
-              <dt><Trans i18nKey="batch.tr0232" /></dt>
-              <dd>
-                {
-                  overview.integration.watermark_column
-                  ?? ''
-                }
-              </dd>
-
-              <dt><Trans i18nKey="batch.tr0449" /></dt>
-              <dd>
-                {
-                  formatDate(
-                    overview.integration.metadata_captured_at,
-                  )
-                }
-              </dd>
-            </dl>
-          </section>
-
-          <section className="info-card">
-            <h3><Trans i18nKey="batch.tr0445" /></h3>
-
-            {
-              overview.latest_job
-                ? (
-                  <dl>
-                    <dt><Trans i18nKey="batch.tr0036" /></dt>
-                    <dd>
-                      <span
-                        className={
-                          statusClass(
-                            overview.latest_job.job_status,
-                          )
-                        }
-                      >
-                        {
-                          overview.latest_job.job_status
-                        }
-                      </span>
-                    </dd>
-
-                    <dt><Trans i18nKey="batch.tr0076" /></dt>
-                    <dd>
-                      {
-                        overview.latest_job.batch_run_id
-                      }
-                    </dd>
-
-                    <dt><Trans i18nKey="batch.tr0075" /></dt>
-                    <dd>
-                      {
-                        overview.latest_job.run_mode
-                        ?? ''
-                      }
-                    </dd>
-
-                    <dt><Trans i18nKey="batch.tr0077" /></dt>
-                    <dd>
-                      {
-                        overview.latest_job.attempt_no
-                        ?? ''
-                      }
-                    </dd>
-
-                    <dt><Trans i18nKey="batch.tr0082" /></dt>
-                    <dd>
-                      {
-                        overview.latest_job.rows_read
-                        ?? 0
-                      }
-                    </dd>
-
-                    <dt><Trans i18nKey="batch.tr0039" /></dt>
-                    <dd>
-                      {
-                        formatDate(
-                          overview.latest_job.finished_at,
-                        )
-                      }
-                    </dd>
-                  </dl>
-                )
-                : (
-                  <p className="empty">
-                    <Trans i18nKey="batch.tr0452" />
-                  </p>
-                )
-            }
-          </section>
-
-          <section className="info-card">
-            <h3><Trans i18nKey="batch.tr0444" /></h3>
-
-            {
-              overview.latest_dq_run
-                ? (
-                  <dl>
-                    <dt><Trans i18nKey="batch.tr0036" /></dt>
-                    <dd>
-                      <span
-                        className={
-                          statusClass(
-                            overview.latest_dq_run.status,
-                          )
-                        }
-                      >
-                        {
-                          overview.latest_dq_run.status
-                        }
-                      </span>
-                    </dd>
-
-                    <dt><Trans i18nKey="batch.tr0057" /></dt>
-                    <dd>
-                      {
-                        overview.latest_dq_run.dq_run_id
-                      }
-                    </dd>
-
-                    <dt><Trans i18nKey="batch.tr0054" /></dt>
-                    <dd>
-                      {
-                        overview.latest_dq_run.rules_total
-                      }
-                    </dd>
-
-                    <dt><Trans i18nKey="batch.tr0060" /></dt>
-                    <dd>
-                      {
-                        overview.latest_dq_run.rules_passed
-                      }
-                    </dd>
-
-                    <dt><Trans i18nKey="batch.tr0041" /></dt>
-                    <dd>
-                      {
-                        overview.latest_dq_run.rules_failed
-                      }
-                    </dd>
-
-                    <dt><Trans i18nKey="batch.tr0039" /></dt>
-                    <dd>
-                      {
-                        formatDate(
-                          overview.latest_dq_run.finished_at,
-                        )
-                      }
-                    </dd>
-                  </dl>
-                )
-                : (
-                  <p className="empty">
-                    <Trans i18nKey="batch.tr0450" />
-                  </p>
-                )
-            }
-          </section>
-        </div>
-      </>
-    )
-  }
-
-
-  function renderStructure() {
-    return (
-      <div className="data-table-wrapper">
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th>#</th>
-              <th><Trans i18nKey="batch.tr0050" /></th>
-              <th><Trans i18nKey="batch.tr0230" /></th>
-              <th><Trans i18nKey="batch.tr0456" /></th>
-              <th>PK</th>
-              <th><Trans i18nKey="batch.tr0469" /></th>
-              <th><Trans i18nKey="batch.tr0440" /></th>
-              <th><Trans i18nKey="batch.tr0438" /></th>
-            </tr>
-          </thead>
-
-          <tbody>
-            {
-              structure.map(
-                column => (
-                  <tr
-                    key={
-                      `${column.ordinal_position}-${column.source_column}`
-                    }
-                  >
-                    <td>
-                      {
-                        column.ordinal_position
-                      }
-                    </td>
-
-                    <td className="code-value">
-                      {
-                        column.source_column
-                      }
-                    </td>
-
-                    <td>
-                      {
-                        column.source_type
-                      }
-                    </td>
-
-                    <td>
-                      {
-                        yesNo(
-                          column.is_nullable,
-                        )
-                      }
-                    </td>
-
-                    <td>
-                      {
-                        yesNo(
-                          column.is_primary_key,
-                        )
-                      }
-                    </td>
-
-                    <td>
-                      {
-                        yesNo(
-                          column.is_unique_key,
-                        )
-                      }
-                    </td>
-
-                    <td>
-                      {
-                        yesNo(
-                          column.is_identity,
-                        )
-                      }
-                    </td>
-
-                    <td>
-                      {
-                        yesNo(
-                          column.is_generated,
-                        )
-                      }
-                    </td>
-                  </tr>
-                ),
-              )
-            }
-          </tbody>
-        </table>
-      </div>
-    )
-  }
-
-
-  function renderMappings() {
-    return (
-      <div className="data-table-wrapper">
-        <table className="data-table mapping-table">
-          <thead>
-            <tr>
-              <th>#</th>
-              <th><Trans i18nKey="batch.tr0185" /></th>
-              <th><Trans i18nKey="batch.tr0042" /></th>
-              <th><Trans i18nKey="batch.tr0038" /></th>
-              <th><Trans i18nKey="batch.tr0459" /></th>
-              <th><Trans i18nKey="batch.tr0437" /></th>
-              <th><Trans i18nKey="batch.tr0053" /></th>
-            </tr>
-          </thead>
-
-          <tbody>
-            {
-              mappings.map(
-                mapping => (
-                  <tr
-                    key={
-                      mapping.mapping_id
-                    }
-                  >
-                    <td>
-                      {
-                        mapping.mapping_position
-                      }
-                    </td>
-
-                    <td>
-                      <span className="badge badge-accent">
-                        {
-                          mapping.mapping_type
-                        }
-                      </span>
-                    </td>
-
-                    <td>
-                      {
-                        mapping.sources.length > 0
-                          ? mapping.sources.map(
-                            source => (
-                              <div
-                                className="source-ref"
-                                key={
-                                  `${source.source_layer}-${source.source_position}-${source.source_column}`
-                                }
-                              >
-                                <small>
-                                  {
-                                    source.source_layer
-                                  }
-                                </small>
-
-                                <span>
-                                  {
-                                    source.source_schema
-                                  }.{
-                                    source.source_object
-                                  }.{
-                                    source.source_column
-                                  }
-                                </span>
-                              </div>
-                            ),
-                          )
-                          : ''
-                      }
-                    </td>
-
-                    <td className="code-value">
-                      {
-                        mapping.target_schema
-                      }.{
-                        mapping.target_object
-                      }.{
-                        mapping.target_column
-                      }
-                    </td>
-
-                    <td>
-                      {
-                        mapping.expected_pg_type
-                        ?? ''
-                      }
-                    </td>
-
-                    <td className="expression">
-                      {
-                        mapping.transform_expression
-                        ?? ''
-                      }
-                    </td>
-
-                    <td>
-                      v{
-                        mapping.version_no
-                      }
-                    </td>
-                  </tr>
-                ),
-              )
-            }
-          </tbody>
-        </table>
-      </div>
-    )
-  }
-
-
-  function renderValidations() {
-    return (
-      <div className="data-table-wrapper">
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th><Trans i18nKey="batch.tr0050" /></th>
-              <th><Trans i18nKey="batch.tr0230" /></th>
-              <th><Trans i18nKey="batch.tr0436" /></th>
-              <th><Trans i18nKey="batch.tr0294" /></th>
-              <th><Trans i18nKey="batch.tr0293" /></th>
-              <th><Trans i18nKey="batch.tr0038" /></th>
-              <th><Trans i18nKey="batch.tr0053" /></th>
-              <th><Trans i18nKey="batch.tr0036" /></th>
-            </tr>
-          </thead>
-
-          <tbody>
-            {
-              validations.map(
-                validation => (
-                  <tr
-                    key={
-                      validation.contract_id
-                    }
-                  >
-                    <td className="code-value">
-                      {
-                        validation.source_column
-                      }
-                    </td>
-
-                    <td>
-                      {
-                        validation.source_type
-                      }
-                    </td>
-
-                    <td>
-                      {
-                        validation.expected_pg_type
-                      }
-                    </td>
-
-                    <td>
-                      {
-                        yesNo(
-                          validation.is_required,
-                        )
-                      }
-                    </td>
-
-                    <td>
-                      {
-                        yesNo(
-                          validation.allow_blank,
-                        )
-                      }
-                    </td>
-
-                    <td className="code-value">
-                      {
-                        validation.contract_target_schema
-                      }.{
-                        validation.contract_target_object
-                      }.{
-                        validation.contract_target_column
-                      }
-                    </td>
-
-                    <td>
-                      v{
-                        validation.contract_version
-                      }
-                    </td>
-
-                    <td>
-                      <span
-                        className={
-                          validation.contract_active
-                            ? 'badge badge-success'
-                            : 'badge'
-                        }
-                      >
-                        {
-                          validation.contract_active
-                            ? 'ACTIVE'
-                            : 'CLOSED'
-                        }
-                      </span>
-                    </td>
-                  </tr>
-                ),
-              )
-            }
-          </tbody>
-        </table>
-      </div>
-    )
-  }
-
-
-  function renderDqRules() {
-    return (
-      <div className="data-table-wrapper">
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th><Trans i18nKey="batch.tr0045" /></th>
-              <th><Trans i18nKey="batch.tr0046" /></th>
-              <th><Trans i18nKey="batch.tr0055" /></th>
-              <th><Trans i18nKey="batch.tr0024" /></th>
-              <th><Trans i18nKey="batch.tr0042" /></th>
-              <th><Trans i18nKey="batch.tr0038" /></th>
-              <th><Trans i18nKey="batch.tr0050" /></th>
-            </tr>
-          </thead>
-
-          <tbody>
-            {
-              dqRules.map(
-                rule => (
-                  <tr
-                    key={
-                      rule.rule_id
-                    }
-                  >
-                    <td>
-                      <strong>
-                        {
-                          rule.rule_name
-                        }
-                      </strong>
-
-                      <small className="block-muted">
-                        {
-                          rule.rule_code
-                        }
-                      </small>
-                    </td>
-
-                    <td>
-                      <span
-                        className={
-                          rule.severity === 'ERROR'
-                            ? 'badge badge-danger'
-                            : 'badge badge-warning'
-                        }
-                      >
-                        {
-                          getSeverityLabel(rule.severity)
-                        }
-                      </span>
-                    </td>
-
-                    <td>
-                      {
-                        rule.category
-                      }
-                    </td>
-
-                    <td>
-                      <span className="badge badge-accent">
-                        {
-                          rule.relation_role
-                        }
-                      </span>
-                    </td>
-
-                    <td className="code-value">
-                      {
-                        rule.rule_source_object
-                      }
-                    </td>
-
-                    <td className="code-value">
-                      {
-                        rule.rule_target_object
-                      }
-                    </td>
-
-                    <td className="code-value">
-                      {
-                        rule.target_column
-                        ?? ''
-                      }
-                    </td>
-                  </tr>
-                ),
-              )
-            }
-          </tbody>
-        </table>
-      </div>
-    )
-  }
-
-
-  function renderRuns() {
-    if (runs.length === 0) {
-      return (
-        <div className="empty-state">
-          <Trans i18nKey="batch.tr0453" />
-        </div>
-      )
-    }
-
-    return (
-      <div className="data-table-wrapper">
-        <table className="data-table history-table">
-          <thead>
-            <tr>
-              <th><Trans i18nKey="batch.tr0076" /></th>
-              <th><Trans i18nKey="batch.tr0077" /></th>
-              <th><Trans i18nKey="batch.tr0075" /></th>
-              <th><Trans i18nKey="batch.tr0432" /></th>
-              <th><Trans i18nKey="batch.tr0443" /></th>
-              <th><Trans i18nKey="batch.tr0081" /></th>
-              <th><Trans i18nKey="batch.tr0082" /></th>
-              <th><Trans i18nKey="batch.tr0079" /></th>
-              <th><Trans i18nKey="batch.tr0072" /></th>
-              <th><Trans i18nKey="batch.tr0080" /></th>
-              <th><Trans i18nKey="batch.tr0078" /></th>
-              <th><Trans i18nKey="batch.tr0039" /></th>
-              <th><Trans i18nKey="batch.tr0048" /></th>
-            </tr>
-          </thead>
-
-          <tbody>
-            {
-              runs.map(
-                run => (
-                  <tr key={run.job_run_id}>
-                    <td className="code-value">
-                      {run.batch_run_id}
-                    </td>
-
-                    <td>
-                      {run.attempt_no ?? ''}
-                    </td>
-
-                    <td>
-                      <span className="badge badge-accent">
-                        {run.run_mode ?? ''}
-                      </span>
-                    </td>
-
-                    <td>
-                      <span
-                        className={
-                          statusClass(
-                            run.batch_status,
-                          )
-                        }
-                      >
-                        {run.batch_status}
-                      </span>
-                    </td>
-
-                    <td>
-                      <span
-                        className={
-                          statusClass(
-                            run.job_status,
-                          )
-                        }
-                      >
-                        {run.job_status}
-                      </span>
-                    </td>
-
-                    <td className="code-value">
-                      {
-                        run.reused_from_job_run_id
-                        ?? ''
-                      }
-                    </td>
-
-                    <td>
-                      {run.rows_read ?? 0}
-                    </td>
-
-                    <td>
-                      {run.rows_inserted ?? 0}
-                    </td>
-
-                    <td>
-                      {run.rows_updated ?? 0}
-                    </td>
-
-                    <td>
-                      {run.rows_rejected ?? 0}
-                    </td>
-
-                    <td>
-                      {run.error_count ?? 0}
-                    </td>
-
-                    <td>
-                      {
-                        formatDate(
-                          run.finished_at,
-                        )
-                      }
-                    </td>
-
-                    <td className="message-cell">
-                      {run.message ?? ''}
-                    </td>
-                  </tr>
-                ),
-              )
-            }
-          </tbody>
-        </table>
-      </div>
-    )
-  }
-
-
-  function renderErrors() {
-    if (errors.length === 0) {
-      return (
-        <div className="empty-state success-empty">
-          <Trans i18nKey="batch.tr0455" />
-        </div>
-      )
-    }
-
-    return (
-      <div className="data-table-wrapper">
-        <table className="data-table history-table">
-          <thead>
-            <tr>
-              <th><Trans i18nKey="batch.tr0468" /></th>
-              <th><Trans i18nKey="batch.tr0076" /></th>
-              <th><Trans i18nKey="batch.tr0094" /></th>
-              <th><Trans i18nKey="batch.tr0093" /></th>
-              <th><Trans i18nKey="batch.tr0465" /></th>
-              <th><Trans i18nKey="batch.tr0050" /></th>
-              <th><Trans i18nKey="batch.tr0049" /></th>
-              <th><Trans i18nKey="batch.tr0058" /></th>
-              <th><Trans i18nKey="batch.tr0435" /></th>
-              <th><Trans i18nKey="batch.tr0048" /></th>
-            </tr>
-          </thead>
-
-          <tbody>
-            {
-              errors.map(
-                errorItem => (
-                  <tr key={errorItem.error_id}>
-                    <td>
-                      {
-                        formatDate(
-                          errorItem.occurred_at,
-                        )
-                      }
-                    </td>
-
-                    <td className="code-value">
-                      {
-                        errorItem.batch_run_id
-                        ?? ''
-                      }
-                    </td>
-
-                    <td>
-                      {
-                        errorItem.error_stage
-                        ?? ''
-                      }
-                    </td>
-
-                    <td>
-                      <span className="badge badge-danger">
-                        {
-                          errorItem.error_code
-                          ?? 'ERROR'
-                        }
-                      </span>
-                    </td>
-
-                    <td className="code-value">
-                      {
-                        errorItem.source_pk
-                        ?? ''
-                      }
-                    </td>
-
-                    <td className="code-value">
-                      {
-                        errorItem.column_name
-                        ?? ''
-                      }
-                    </td>
-
-                    <td className="bad-value">
-                      {
-                        errorItem.bad_value
-                        ?? ''
-                      }
-                    </td>
-
-                    <td>
-                      {
-                        errorItem.expected_value
-                        ?? ''
-                      }
-                    </td>
-
-                    <td>
-                      {
-                        errorItem.exception_type
-                        ?? ''
-                      }
-                    </td>
-
-                    <td className="message-cell">
-                      {
-                        errorItem.error_message
-                        ?? ''
-                      }
-                    </td>
-                  </tr>
-                ),
-              )
-            }
-          </tbody>
-        </table>
-      </div>
-    )
-  }
-
-
-  function renderIssues() {
-    if (issues.length === 0) {
-      return (
-        <div className="empty-state success-empty">
-          <Trans i18nKey="batch.tr0451" />
-        </div>
-      )
-    }
-
-    return (
-      <div className="data-table-wrapper">
-        <table className="data-table history-table">
-          <thead>
-            <tr>
-              <th><Trans i18nKey="batch.tr0051" /></th>
-              <th><Trans i18nKey="batch.tr0057" /></th>
-              <th><Trans i18nKey="batch.tr0045" /></th>
-              <th><Trans i18nKey="batch.tr0046" /></th>
-              <th><Trans i18nKey="batch.tr0036" /></th>
-              <th><Trans i18nKey="batch.tr0465" /></th>
-              <th><Trans i18nKey="batch.tr0050" /></th>
-              <th><Trans i18nKey="batch.tr0049" /></th>
-              <th><Trans i18nKey="batch.tr0058" /></th>
-              <th><Trans i18nKey="batch.tr0048" /></th>
-              <th><Trans i18nKey="batch.tr0061" /></th>
-            </tr>
-          </thead>
-
-          <tbody>
-            {
-              issues.map(
-                issue => (
-                  <tr key={issue.dq_issue_id}>
-                    <td>
-                      {
-                        formatDate(
-                          issue.created_at,
-                        )
-                      }
-                    </td>
-
-                    <td className="code-value">
-                      {issue.dq_run_id}
-                    </td>
-
-                    <td>
-                      <strong>
-                        {issue.rule_name}
-                      </strong>
-
-                      <small className="block-muted">
-                        {issue.rule_code}
-                      </small>
-                    </td>
-
-                    <td>
-                      <span
-                        className={
-                          issue.severity === 'ERROR'
-                            ? 'badge badge-danger'
-                            : 'badge badge-warning'
-                        }
-                      >
-                        {getSeverityLabel(issue.severity)}
-                      </span>
-                    </td>
-
-                    <td>
-                      <span
-                        className={
-                          issue.issue_status === 'OPEN'
-                            ? 'badge badge-danger'
-                            : 'badge badge-success'
-                        }
-                      >
-                        {issue.issue_status}
-                      </span>
-                    </td>
-
-                    <td className="code-value">
-                      {issue.source_pk ?? ''}
-                    </td>
-
-                    <td className="code-value">
-                      {issue.column_name ?? ''}
-                    </td>
-
-                    <td className="bad-value">
-                      {issue.bad_value ?? ''}
-                    </td>
-
-                    <td>
-                      {issue.expected_value ?? ''}
-                    </td>
-
-                    <td className="message-cell">
-                      {issue.error_message ?? ''}
-                    </td>
-
-                    <td>
-                      {
-                        formatDate(
-                          issue.resolved_at,
-                        )
-                      }
-                    </td>
-                  </tr>
-                ),
-              )
-            }
-          </tbody>
-        </table>
-      </div>
-    )
-  }
-
-  function renderActiveTab() {
-    switch (activeTab) {
-      case 'overview':
-        return renderOverview()
-
-      case 'structure':
-        return renderStructure()
-
-      case 'mapping':
-        return renderMappings()
-
-      case 'validations':
-        return renderValidations()
-
-      case 'dq':
-        return renderDqRules()
-
-      case 'runs':
-        return renderRuns()
-
-      case 'errors':
-        return renderErrors()
-
-      case 'issues':
-        return renderIssues()
-
-      default:
-        return null
-    }
-  }
-
 
   function renderDqPage() {
     return (
@@ -3772,6 +2442,70 @@ function App() {
     )
   }
 
+  function renderLoadsPage() {
+    const current: LoadsTab | null =
+      loadsTabs.includes(loadsTab)
+        ? loadsTab
+        : defaultLoadsTab
+
+    return (
+      <>
+        <header className="workspace-header">
+          <div>
+            <h1>
+              <LocalizedText translationKey="navigation.loads" />
+            </h1>
+
+            <p>
+              {t('loads.sectionHint')}
+            </p>
+          </div>
+        </header>
+
+        <div className="tabs">
+          {
+            loadsTabs.map(
+              tab => (
+                <button
+                  type="button"
+                  key={tab}
+                  className={
+                    current === tab
+                      ? 'tab active'
+                      : 'tab'
+                  }
+                  onClick={
+                    () =>
+                      setLoadsTab(
+                        tab,
+                      )
+                  }
+                >
+                  {t(`loads.tab.${tab}`)}
+                </button>
+              ),
+            )
+          }
+        </div>
+
+        {
+          current === 'objects'
+            ? <LoadsObjectsPanel canRun={canIntegrationAdmin} />
+            : current === 'runs'
+              ? renderEtlPage()
+              : current === 'errors'
+                ? <AdminIntegrationHistory />
+                : current === 'quality'
+                  ? renderDqPage()
+                  : current === 'crm'
+                    ? <AdminIntegrationRunControl />
+                    : null
+        }
+      </>
+    )
+  }
+
+
   function renderEtlPage() {
     return (
       <>
@@ -4115,69 +2849,23 @@ function App() {
 
         <nav className="main-nav">
           {
-            canIntegration
+            loadsTabs.length > 0
               ? (
                 <button
                   type="button"
                   className={
-                    activePage === 'integrations'
+                    activePage === 'loads'
                       ? 'nav-item active'
                       : 'nav-item'
                   }
                   onClick={
                     () =>
                       setActivePage(
-                        'integrations',
+                        'loads',
                       )
                   }
                 >
-                  <LocalizedText translationKey="navigation.integrations" />
-                </button>
-              )
-              : null
-          }
-
-          {
-            canEtl
-              ? (
-                <button
-                  type="button"
-                  className={
-                    activePage === 'etl'
-                      ? 'nav-item active'
-                      : 'nav-item'
-                  }
-                  onClick={
-                    () =>
-                      setActivePage(
-                        'etl',
-                      )
-                  }
-                >
-                  <LocalizedText translationKey="navigation.etl" />
-                </button>
-              )
-              : null
-          }
-
-          {
-            canDq
-              ? (
-                <button
-                  type="button"
-                  className={
-                    activePage === 'dq'
-                      ? 'nav-item active'
-                      : 'nav-item'
-                  }
-                  onClick={
-                    () =>
-                      setActivePage(
-                        'dq',
-                      )
-                  }
-                >
-                  <LocalizedText translationKey="navigation.dq" />
+                  <LocalizedText translationKey="navigation.loads" />
                 </button>
               )
               : null
@@ -4228,63 +2916,6 @@ function App() {
               : null
           }
         </nav>
-
-        <div
-          className={
-            activePage === 'integrations'
-              ? 'sidebar-integration-area'
-              : 'sidebar-integration-area hidden'
-          }
-        >
-        <div className="sidebar-section-title">
-          <LocalizedText translationKey="sidebar.integrations" />
-          <span>
-            {
-              integrations.length
-            }
-          </span>
-        </div>
-
-        <div className="integration-list">
-          {
-            integrations.map(
-              integration => (
-                <button
-                  type="button"
-                  key={
-                    integration.source_object_id
-                  }
-                  className={
-                    integration.source_object_id
-                      === selectedId
-                      ? 'integration-item selected'
-                      : 'integration-item'
-                  }
-                  onClick={
-                    () =>
-                      selectIntegration(
-                        integration.source_object_id,
-                      )
-                  }
-                >
-                  <span className="integration-name">
-                    {
-                      integration.source_object
-                    }
-                  </span>
-
-                  <small>
-                    {
-                      integration.load_strategy
-                    }
-                  </small>
-                </button>
-              ),
-            )
-          }
-        </div>
-
-        </div>
 
         <div className="sidebar-footer">
           <LanguageSwitcher />
@@ -4355,128 +2986,11 @@ function App() {
         }
       >
         {
-          activePage === 'etl'
-            ? renderEtlPage()
-            : activePage === 'dq'
-              ? renderDqPage()
-              : activePage === 'reporting'
-                ? renderReportingPage()
-                : activePage === 'administration'
-                  ? <AdminPage />
-                  : (
-              <>
-        <header className="workspace-header">
-          <div>
-            <div className="breadcrumb">
-              <Trans i18nKey="batch.tr0434" />
-            </div>
-
-            <h1>
-              {
-                selectedIntegration?.source_object
-                ?? 'Integration Control'
-              }
-            </h1>
-
-            <p>
-              {
-                selectedIntegration?.description
-                ?? 'Select integration object'
-              }
-            </p>
-          </div>
-
-          {
-            selectedIntegration
-              ? (
-                <div className="header-meta">
-                  <span
-                    className={
-                      selectedIntegration.integration_active
-                        ? 'badge badge-success'
-                        : 'badge'
-                    }
-                  >
-                    {
-                      selectedIntegration.integration_active
-                        ? 'ACTIVE'
-                        : 'DISABLED'
-                    }
-                  </span>
-
-                  <span className="header-object-type">
-                    {
-                      selectedIntegration.object_type
-                    }
-                  </span>
-                </div>
-              )
-              : null
-          }
-        </header>
-
-
-        {
-          error
-            ? (
-              <div className="error">
-                <strong>
-                  <Trans i18nKey="batch.tr0040" />
-                </strong>
-
-                <span>
-                  {error}
-                </span>
-              </div>
-            )
-            : null
-        }
-
-
-        <div className="tabs">
-          {
-            tabs.map(
-              tab => (
-                <button
-                  type="button"
-                  key={
-                    tab.key
-                  }
-                  className={
-                    activeTab === tab.key
-                      ? 'tab active'
-                      : 'tab'
-                  }
-                  onClick={
-                    () =>
-                      setActiveTab(
-                        tab.key,
-                      )
-                  }
-                >
-                  {
-                    t(tab.labelKey)
-                  }
-                </button>
-              ),
-            )
-          }
-        </div>
-
-
-        <section className="content-panel">
-          {
-            detailLoading
-              ? (
-                <div className="loading-panel">
-                  <Trans i18nKey="batch.tr0447" />
-                </div>
-              )
-              : renderActiveTab()
-          }
-        </section>
-              </>
-            )
+          activePage === 'reporting'
+            ? renderReportingPage()
+            : activePage === 'administration'
+              ? <AdminPage />
+              : renderLoadsPage()
         }
       </main>
     </div>
