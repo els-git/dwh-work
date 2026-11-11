@@ -593,7 +593,9 @@ def _finish(dwh, run_id: int, ok: bool, result: RunResult, error: RunError | Non
 
 def run_object(source_object_id: int, *, dwh_connect: Callable[[], Any], read_credential: Callable[[str], str],
                source_connect_fn: Callable[[dict, str], Any] = source_connect, row_limit: int = ROW_LIMIT,
-               log: Callable[[str], None] = lambda message: None) -> RunResult:
+               log: Callable[[str], None] = lambda message: None, force_full: bool = False) -> RunResult:
+    """force_full (I08, "Full rerun"): read the whole object once even when the version is INCREMENTAL;
+    the watermark of the version is not used, the run records the new one as usual."""
     dwh = dwh_connect()
     try:
         try:
@@ -613,11 +615,13 @@ def run_object(source_object_id: int, *, dwh_connect: Callable[[], Any], read_cr
             plan = Plan(definition["target_schema"], definition["target_table"], definition["fields"], definition["key"],
                         definition.get("strategy"))
             result.load_strategy = plan.load_strategy
-            result.watermark_from = begin.get("watermark") if plan.load_strategy == "INCREMENTAL" else None
+            result.watermark_from = (begin.get("watermark") if plan.load_strategy == "INCREMENTAL" and not force_full
+                                     else None)
             where = increment_filter(plan, result.watermark_from)
             log(f"STAGE: strategy {plan.load_strategy}" + (
                 f", watermark {result.watermark_from}, overlap {plan.overlap_minutes} min" if where is not None
-                else (", first run: full read" if plan.load_strategy == "INCREMENTAL" else "")))
+                else (", full read requested" if force_full and plan.load_strategy == "INCREMENTAL"
+                      else (", first run: full read" if plan.load_strategy == "INCREMENTAL" else ""))))
             check_target(dwh, plan)
             try:
                 password = read_credential(source["code"])

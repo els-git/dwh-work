@@ -183,3 +183,36 @@
 ## 10. Шаг 5 — E2 (11.11.2026, ПК)
 
 `database/run_015_e2_apply_dwh.ps1` — **E2_RESULT: PASS** (вывод пользователя): пакет 015 в `dwh`. Реестр 1.34.0, раздел 12.37.
+
+## 11. Шаг 6 — backend, диспетчер, движок (11.11.2026, песочница)
+
+Разрешение пользователя 11.11.2026.
+
+**API** (`backend/src/dwh_api/object_run_admin.py`, SHA256 `9B7669F4…CC88`; подключение в `main.py`):
+- `GET /api/integrations/loads/objects` — статус всех объектов из `etl.v_object_load_status`. Права — `INTEGRATION_VIEW`, как у раздела интеграций; соединение только на чтение;
+- `POST /api/admin/integrations/object-run-requests` (`source_object_id`, `run_kind`) и `POST …/object-run-requests/{id}/cancel` — права `ADMIN_INTEGRATION_MANAGE` и уровень администратора, как у «Run Control», плюс проверка в БД (пакет 015);
+- ошибки состояния объекта: 409 — активная заявка уже есть, отмена не `QUEUED`; 422 — объект не готов, legacy, «Продолжить» не разрешено.
+
+**Диспетчер:**
+- `etl/src/run_request_dispatcher.py`: когда очередь CRM пуста, берёт одну заявку объекта. Если модуль объектов не загрузился, CRM-диспетчер продолжает работать и пишет одно предупреждение;
+- `etl/src/object_request_worker.py` (`E2FAED42…92DB`): захват → начало → выполнение (`RUN`: STG + ODS; `FULL_RERUN`: STG с чтением всего объекта + ODS; `CONTINUE_ODS`: только ODS) → завершение с запусками STG/ODS, кодом и кратким итогом. Текст ошибки — как у движка (разбор I13-08).
+
+**Движок** (`etl/src/run_object.py`, `F07113E8…7DD3`): параметр `force_full` — разовое чтение всего объекта при INCREMENTAL-версии, без водяного знака; новый водяной знак записывается как обычно.
+
+**Проверки:**
+- unit-тесты 441 OK (+13: `backend/tests/test_object_run_request.py`);
+- сквозной сценарий в песочнице: FastAPI TestClient → БД с пакетом 015 → `process_one` под `dwh_etl` → настоящий движок и источник (`scratchpad/e2e_i08.py`, базы `e2e_i08`/`src08`):
+  - вторая заявка → 409;
+  - `RUN` №1 (первый INCREMENTAL — полное чтение): 6 строк в STG и ODS, `SUCCESS`;
+  - в источнике изменена старая строка (`born = 'birthD'`) → `RUN` №2 (INCREMENTAL) прочитал 1 строку и изменения не увидел;
+  - `FULL_RERUN` прочитал 6 строк, обновил строку 2; ODS упал с разбором «born … 1 of 6 rows invalid; values: 'birthD' x1; keys: id=2» → заявка `FAILED`, в статусе «можно продолжить»;
+  - `CONTINUE_ODS` — только ODS, снова `FAILED`: STG ещё с `birthD`;
+  - после исправления источника `FULL_RERUN` → `SUCCESS`, дата в ODS;
+  - `CONTINUE_ODS` после успеха → 422;
+  - отмена `QUEUED` → 200, повтор → 409;
+  - диспетчер «пропал» после захвата → следующий захват: `FAILED` / `DISPATCHER_LOST`; блокировок не осталось.
+
+**Ограничения:**
+- UI нет — шаг 7;
+- в песочнице не проверен вызов из `run_request_dispatcher.main()`: он требует базу `dwh`. Проверен `process_one`, который `main()` вызывает; проверка — на ПК в шаге 8.
+
