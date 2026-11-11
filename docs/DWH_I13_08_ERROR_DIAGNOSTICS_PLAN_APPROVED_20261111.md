@@ -159,3 +159,16 @@ ODS_RESULT: FAILED | code=TYPE_CONVERSION | birth_date (Date from text, DD.MM.YY
 - в ODS явный `CAST` к `varchar(n)` по-прежнему обрезает строку — это поведение I06-05, не менялось;
 - число прочитанных строк в результате упавшего запуска — 0, общее число указано в тексте разбора.
 
+## 10. Шаг 6 — приёмка на ПК (11.11.2026)
+
+**PASS** (вывод и снимки пользователя):
+- SHA256 `run_object.py` совпал;
+- ODS v3 с `birth_date` («Date from text», `DD.MM.YYYY`) — `FAILED`: «birth_date (DATE_FROM_TEXT DD.MM.YYYY -> date): 4 of 65 rows invalid; values: 'birthD' x4; keys: id=1, id=147, id=174, id=177»;
+- «History / Errors»: в «ETL Runs» — тот же текст, в «ETL Errors» — «Column: birth_date», «Bad value: birthD»;
+- ODS v4 без `birth_date`: полный запуск STG (INCREMENTAL, 3 строки) + ODS (65 без изменений) — `SUCCESS`;
+- `check-crm` PASS.
+
+**Уточнение к примеру плана:** «47 из 65» в разделах 1 и 2a был ошибкой. Прежняя статистика «`99.99.9999` — 43» — маска (цифры → 9): это корректные даты в формате `DD.MM.YYYY`. Не проходят только 4 строки `birthD`.
+
+Реестр 1.33.0, раздел 12.36.
+
