@@ -19,7 +19,12 @@ param(
     [string]$Task,
 
     # run-object: id of the published source object (meta.source_object.source_object_id).
-    [long]$ObjectId = 0
+    [long]$ObjectId = 0,
+
+    # run-object: ALL (STG load, then the ODS step if the object has a published ODS version)
+    # or ODS (the ODS step alone, from the STG table as it is).
+    [ValidateSet("ALL", "ODS")]
+    [string]$Stage = "ALL"
 )
 
 $ErrorActionPreference = "Stop"
@@ -129,10 +134,12 @@ switch ($Task) {
             exit 2
         }
         $env:DWH_RUN_OBJECT_ID = [string]$ObjectId
+        $env:DWH_RUN_OBJECT_STAGE = $Stage
         try {
             Run-EtlScript "run_object.py"
         } finally {
             Remove-Item Env:DWH_RUN_OBJECT_ID -ErrorAction SilentlyContinue
+            Remove-Item Env:DWH_RUN_OBJECT_STAGE -ErrorAction SilentlyContinue
         }
     }
 }

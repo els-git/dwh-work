@@ -146,6 +146,11 @@ _REJECTED_MESSAGES = (
     "has no fields",
     "not active",
     "not open",
+    # I06-05 (package 012): ODS configuration.
+    "stg configuration",
+    "stg columns do not exist",
+    "invalid ods configuration",
+    "save an ods draft",
 )
 
 
@@ -434,7 +439,7 @@ def _quote(name: str) -> str:
     return '"' + name.replace('"', '""') + '"'
 
 
-def build_proposal(definition: dict, target: dict | None, source_label: str) -> tuple[str, str]:
+def build_proposal(definition: dict, target: dict | None, source_label: str, task: str = "I05") -> tuple[str, str]:
     """(change_kind, DDL) for a missing target table or missing target columns."""
     schema, table = definition.get("target_schema"), definition.get("target_table")
     if not schema or not table:
@@ -447,7 +452,7 @@ def build_proposal(definition: dict, target: dict | None, source_label: str) -> 
         types = {f["target_column"]: field_types.postgres_type(f["target_type"]) for f in fields}
     except ValueError:
         raise HTTPException(status_code=422, detail="Target type has no PostgreSQL column type") from None
-    header = f"-- I05 change proposal for {source_label}; apply only as a database package (E0 -> E1 -> E2).\n"
+    header = f"-- {task} change proposal for {source_label}; apply only as a database package (E0 -> E1 -> E2).\n"
     if target is None:
         if not key:
             raise HTTPException(status_code=422, detail="Business key not selected")

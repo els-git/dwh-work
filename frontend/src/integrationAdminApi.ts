@@ -1415,3 +1415,152 @@ export function rejectTargetProposal(
     },
   )
 }
+
+
+// ------------------------------------------------------------------ ODS configuration (I06-05, package 012)
+
+export type OdsTransform =
+  'COPY' | 'CAST' | 'TRIM' | 'UPPER' | 'LOWER' | 'EMPTY_TO_NULL' | 'DEFAULT' | 'CONSTANT'
+  | 'DATE_FROM_TEXT' | 'LOAD_RUN_ID' | 'LOADED_AT'
+
+
+export interface OdsField {
+  target_column: string
+  transform: OdsTransform
+  stg_column: string | null
+  stg_type: string | null
+  target_type: string
+  conversion: ConversionKind
+  param: string | null
+  write_policy: 'AUTHORITATIVE' | 'INSERT_ONLY'
+  allow_explicit_null: boolean
+}
+
+
+export interface OdsDefinition {
+  target_schema?: 'ods'
+  target_table: string | null
+  fields: OdsField[]
+  key: string[]
+}
+
+
+export interface OdsConfigState {
+  legacy: boolean
+  stg: {
+    schema: string
+    table: string
+    version_id: number
+    version_no: number
+    status: string
+  } | null
+  current: {
+    ods_version_id: number
+    version_no: number
+    status: 'READY' | 'DRIFT'
+    published_at: string
+    definition_hash: string
+    definition: OdsDefinition
+  } | null
+  draft: {
+    ods_version_id: number
+    version_no: number
+    draft_revision: number
+    definition_hash: string | null
+    updated_at: string
+    definition: OdsDefinition
+    last_validation: {
+      ok: boolean
+      issues: ObjectConfigIssue[]
+      draft_revision: number
+      definition_hash: string
+      created_at: string
+    } | null
+  } | null
+}
+
+
+export interface OdsConfigResponse {
+  config: OdsConfigState
+  stg_columns: TargetColumn[] | null
+  targets: TargetTable[]
+  type_choices: string[]
+  transforms: OdsTransform[]
+  date_formats: string[]
+  compatibility: Record<string, Compatibility>
+}
+
+
+function odsConfigPath(
+  sourceObjectId: number,
+): string {
+  return '/api/admin/integrations/source-objects/'
+    + encodeURIComponent(String(sourceObjectId))
+    + '/ods-config'
+}
+
+
+export function getOdsConfig(
+  sourceObjectId: number,
+): Promise<OdsConfigResponse> {
+  return apiRequest<OdsConfigResponse>(
+    odsConfigPath(sourceObjectId),
+  )
+}
+
+
+export function saveOdsConfigDraft(
+  sourceObjectId: number,
+  expectedRevision: number | null,
+  config: OdsDefinition,
+): Promise<{ draft_revision: number }> {
+  return apiRequest<{ draft_revision: number }>(
+    odsConfigPath(sourceObjectId) + '/draft',
+    {
+      method: 'PUT',
+      body: JSON.stringify({
+        expected_revision: expectedRevision,
+        config,
+      }),
+    },
+  )
+}
+
+
+function odsDraftAction<T>(
+  sourceObjectId: number,
+  action: 'validate' | 'publish' | 'proposal',
+  draftRevision: number,
+): Promise<T> {
+  return apiRequest<T>(
+    odsConfigPath(sourceObjectId) + '/' + action,
+    {
+      method: 'POST',
+      body: JSON.stringify({ draft_revision: draftRevision }),
+    },
+  )
+}
+
+
+export function validateOdsConfig(
+  sourceObjectId: number,
+  draftRevision: number,
+): Promise<{ ok: boolean, issues: ObjectConfigIssue[], draft_revision: number }> {
+  return odsDraftAction(sourceObjectId, 'validate', draftRevision)
+}
+
+
+export function publishOdsConfig(
+  sourceObjectId: number,
+  draftRevision: number,
+): Promise<{ version_no: number, status: string }> {
+  return odsDraftAction(sourceObjectId, 'publish', draftRevision)
+}
+
+
+export function createOdsConfigProposal(
+  sourceObjectId: number,
+  draftRevision: number,
+): Promise<{ proposal_id: number, change_kind: string, ddl: string }> {
+  return odsDraftAction(sourceObjectId, 'proposal', draftRevision)
+}

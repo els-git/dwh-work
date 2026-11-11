@@ -15,6 +15,7 @@ import {
 import {
   useSeverityLabel,
 } from './severityLabels'
+import OdsConfigPanel from './OdsConfigPanel'
 import {
   checkObjectConfigDrift,
   createObjectConfigProposal,
@@ -165,6 +166,9 @@ function ObjectConfigPanel({
   const [keyColumns, setKeyColumns] = useState<string[]>([])
 
   const [issues, setIssues] = useState<ObjectConfigIssue[] | null>(null)
+
+  // I06-05: the panel edits the source -> STG mapping or the STG -> ODS configuration.
+  const [section, setSection] = useState<'stg' | 'ods'>('stg')
 
   const [loadStrategy, setLoadStrategy] = useState<LoadStrategy>('FULL')
 
@@ -608,6 +612,35 @@ function ObjectConfigPanel({
         {t('objectConfig.title', { object: `${sourceObject.source_system_code} · ${sourceObject.source_schema}.${sourceObject.source_object}` })}
       </h3>
 
+      <nav className="admin-integrations-tabs">
+        <button
+          type="button"
+          className={section === 'stg' ? 'admin-integrations-tab active' : 'admin-integrations-tab'}
+          onClick={() => setSection('stg')}
+        >
+          {t('odsConfig.tabStg')}
+        </button>
+        <button
+          type="button"
+          className={section === 'ods' ? 'admin-integrations-tab active' : 'admin-integrations-tab'}
+          onClick={() => setSection('ods')}
+        >
+          {t('odsConfig.tabOds')}
+        </button>
+      </nav>
+
+      {
+        section === 'ods' && (
+          <OdsConfigPanel
+            sourceObject={sourceObject}
+            onClose={onClose}
+          />
+        )
+      }
+
+      {
+        section === 'stg' && (
+          <>
       {
         loading
           ? (
@@ -1185,6 +1218,9 @@ function ObjectConfigPanel({
             </div>
           )
           : null
+      }
+          </>
+        )
       }
     </section>
   )
