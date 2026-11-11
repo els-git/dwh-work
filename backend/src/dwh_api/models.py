@@ -161,7 +161,7 @@ class IntegrationMapping(ApiModel):
 
 class EtlRun(ApiModel):
     batch_run_id: int
-    source_batch_run_id: int
+    source_batch_run_id: int | None
 
     pipeline_code: str
     run_mode: str | None
@@ -193,7 +193,7 @@ class EtlRun(ApiModel):
 
 class EtlJobRun(ApiModel):
     batch_run_id: int
-    source_batch_run_id: int
+    source_batch_run_id: int | None
 
     root_batch_run_id: int | None
     attempt_no: int | None
