@@ -13,9 +13,11 @@ and closes the run. No code per source: everything comes from the version in for
                                      type (else SCHEMA_DRIFT) and so does every target column
                                      (else TARGET_DRIFT); nothing is read before that.
   4. read                            planner estimate checked first; values as text, in batches,
-                                     into a temporary table with the target types (explicit CAST
-                                     by PostgreSQL; a failure stops the run), at most ROW_LIMIT
-                                     rows (R6); progress is printed.
+                                     into a temporary text table, at most ROW_LIMIT rows (R6);
+                                     progress is printed. Every value is checked against its
+                                     target type (pg_input_is_valid, I13-08); any invalid value
+                                     stops the run with a field-by-field report; only then the
+                                     typed temporary table is filled (CAST by PostgreSQL).
   5. validation                      key without NULL and without duplicates.
   6. apply (one transaction)         new key -> INSERT (AUTHORITATIVE and INSERT_ONLY
                                      fields); existing key -> UPDATE of AUTHORITATIVE fields
@@ -25,8 +27,10 @@ and closes the run. No code per source: everything comes from the version in for
                                      etl.object_run_finish(SUCCESS) in the same transaction.
   Any error: rollback of all target writes, then the run is closed FAILED with a code.
 
-Messages never contain credentials or source values; the business key of a failing
-row may be recorded (etl.error_log.record_key), as in the CRM ETL.
+Messages never contain credentials. Source values appear only in the conversion report of
+I13-08 (decision R1 = B: up to 5 invalid values per field with counts and up to 10 keys); every
+other message is built from codes only. The report goes into etl.error_log (message, column,
+first key, bad_value, diagnostic_context) through the finish functions of package 014.
 
 ODS step (I06-05, package 012): after a successful STG run, an object with a published ODS
 version is transformed from its STG table into its ODS table inside the DWH (no source access):
@@ -59,14 +63,18 @@ SOURCE_STATEMENT_TIMEOUT_MS = 30 * 60 * 1000
 
 
 class RunError(Exception):
-    """A run failure with a stable code; the message never contains data or secrets."""
+    """A run failure with a stable code; never contains secrets. Only a conversion report
+    (I13-08) carries source values: message, bad_value and diagnostic."""
 
-    def __init__(self, code: str, message: str, *, record_key: dict | None = None, column: str | None = None):
+    def __init__(self, code: str, message: str, *, record_key: dict | None = None, column: str | None = None,
+                 bad_value: str | None = None, diagnostic: dict | None = None):
         super().__init__(message)
         self.code = code
         self.message = message
         self.record_key = record_key
         self.column = column
+        self.bad_value = bad_value
+        self.diagnostic = diagnostic
 
 
 @dataclass
@@ -175,6 +183,64 @@ def database_error(exc: psycopg.Error, stage: str) -> RunError:
         column = match.group(1) if match else None
     message = f"{stage}: {code} (SQLSTATE {state or 'unknown'})" + (f", column {column}" if column else "")
     return RunError(code, message, column=column)
+
+
+# ------------------------------------------------------------------ conversion report (I13-08)
+
+
+REPORT_VALUES = 5
+REPORT_KEYS = 10
+REPORT_VALUE_CHARS = 50
+
+
+def _shown(value: str) -> str:
+    return value if len(value) <= REPORT_VALUE_CHARS else value[:REPORT_VALUE_CHARS] + "…"
+
+
+def _key_text(key: dict) -> str:
+    parts = [f"{k}={v}" for k, v in key.items()]
+    return parts[0] if len(parts) == 1 else "(" + ", ".join(parts) + ")"
+
+
+def conversion_error(stage: str, total: int, fields: list[dict]) -> RunError:
+    """RunError TYPE_CONVERSION with the report of every failed field.
+
+    fields: [{"column", "rule", "invalid_rows", "values": [{"value", "count"}], "keys": [dict]}]."""
+    parts = []
+    for f in fields:
+        text = f"{f['column']} ({f['rule']}): {f['invalid_rows']} of {total} rows invalid"
+        if f["values"]:
+            text += "; values: " + ", ".join(f"'{_shown(v['value'])}' x{v['count']}" for v in f["values"])
+            if f.get("more_values"):
+                text += ", ..."
+        if f["keys"]:
+            text += "; keys: " + ", ".join(_key_text(k) for k in f["keys"])
+            if f["invalid_rows"] > len(f["keys"]):
+                text += f" ({len(f['keys'])} of {f['invalid_rows']})"
+        parts.append(text)
+    first = fields[0]
+    diagnostic = {"kind": "TYPE_CONVERSION", "stage": stage, "total_rows": total,
+                  "fields": [{k: f[k] for k in ("column", "rule", "invalid_rows", "values", "keys")} for f in fields]}
+    return RunError("TYPE_CONVERSION", " | ".join(parts), column=first["column"],
+                    record_key=first["keys"][0] if first["keys"] else None,
+                    bad_value=first["values"][0]["value"] if first["values"] else None, diagnostic=diagnostic)
+
+
+def _report_field(cur, relation: sql.Composable, invalid: sql.Composable, value: sql.Composable | None,
+                  key_json: sql.Composable, key_order: sql.Composable) -> tuple[list[dict], bool, list[dict]]:
+    """Most frequent invalid values (with counts) and the first keys of the invalid rows."""
+    values: list[dict] = []
+    more = False
+    if value is not None:
+        cur.execute(sql.SQL("SELECT {v}, count(*) FROM {r} WHERE {i} GROUP BY 1 ORDER BY 2 DESC, 1 LIMIT {n}").format(
+            v=value, r=relation, i=invalid, n=sql.Literal(REPORT_VALUES + 1)))
+        rows = cur.fetchall()
+        more = len(rows) > REPORT_VALUES
+        values = [{"value": "" if v is None else str(v), "count": c} for v, c in rows[:REPORT_VALUES]]
+    cur.execute(sql.SQL("SELECT {k} FROM {r} WHERE {i} ORDER BY {o} LIMIT {n}").format(
+        k=key_json, r=relation, i=invalid, o=key_order, n=sql.Literal(REPORT_KEYS)))
+    keys = [row[0] for row in cur.fetchall()]
+    return values, more, keys
 
 
 # ------------------------------------------------------------------ source
@@ -319,21 +385,17 @@ STAGE_BATCH = 1_000
 
 
 def stage_rows(dwh, plan: Plan, rows, log: Callable[[str], None] = lambda m: None) -> int:
-    """Temporary table with the target types; text values are converted by PostgreSQL (explicit CAST).
+    """Source text values -> temporary text table -> check against the target types -> temporary
+    table with the target types (explicit CAST by PostgreSQL).
 
     Plain multi-row INSERTs in batches (no COPY: a COPY to the DWH interleaved with the source
     FETCHes hung on the user's Windows PC on 05.11.2026).
     """
-    from dwh_api.field_types import postgres_type
-
-    types = [postgres_type(f["target_type"]) for f in plan.written]
     with dwh.cursor() as cur:
-        cur.execute(sql.SQL("CREATE TEMP TABLE dwh_object_run_stage ({}) ON COMMIT DROP").format(
-            sql.SQL(", ").join(sql.SQL("{} {}").format(_ident(f["target_column"]), sql.SQL(t))
-                               for f, t in zip(plan.written, types))))
-        row_sql = sql.SQL("({})").format(sql.SQL(", ").join(
-            sql.SQL("CAST({} AS {})").format(sql.Placeholder(), sql.SQL(t)) for t in types))
-        head = sql.SQL("INSERT INTO dwh_object_run_stage ({}) VALUES ").format(
+        cur.execute(sql.SQL("CREATE TEMP TABLE dwh_object_run_raw ({}) ON COMMIT DROP").format(
+            sql.SQL(", ").join(sql.SQL("{} text").format(_ident(f["target_column"])) for f in plan.written)))
+        row_sql = sql.SQL("({})").format(sql.SQL(", ").join([sql.Placeholder()] * len(plan.written)))
+        head = sql.SQL("INSERT INTO dwh_object_run_raw ({}) VALUES ").format(
             sql.SQL(", ").join(_ident(c) for c in plan.columns))
         batch: list = []
         count = 0
@@ -351,7 +413,48 @@ def stage_rows(dwh, plan: Plan, rows, log: Callable[[str], None] = lambda m: Non
                 if count % 50_000 == 0:
                     log(f"STAGE: {count} rows staged")
         flush()
+    check_values(dwh, plan, count)
+    with dwh.cursor() as cur:
+        from dwh_api.field_types import postgres_type
+
+        types = [postgres_type(f["target_type"]) for f in plan.written]
+        cur.execute(sql.SQL("CREATE TEMP TABLE dwh_object_run_stage ({}) ON COMMIT DROP").format(
+            sql.SQL(", ").join(sql.SQL("{} {}").format(_ident(f["target_column"]), sql.SQL(t))
+                               for f, t in zip(plan.written, types))))
+        cur.execute(sql.SQL("INSERT INTO dwh_object_run_stage ({}) SELECT {} FROM dwh_object_run_raw").format(
+            sql.SQL(", ").join(_ident(c) for c in plan.columns),
+            sql.SQL(", ").join(sql.SQL("CAST({} AS {})").format(_ident(f["target_column"]), sql.SQL(t))
+                               for f, t in zip(plan.written, types))))
     return count
+
+
+def check_values(dwh, plan: Plan, total: int) -> None:
+    """Every staged text value against its target type (pg_input_is_valid, PostgreSQL 16+): wrong
+    format, number out of range, text longer than varchar(n). Raises the conversion report."""
+    from dwh_api.field_types import postgres_type
+
+    if total == 0:
+        return
+    checks = [(f, sql.SQL("{c} IS NOT NULL AND NOT pg_input_is_valid({c}, {t})").format(
+        c=_ident(f["target_column"]), t=sql.Literal(postgres_type(f["target_type"])))) for f in plan.written]
+    relation = sql.SQL("dwh_object_run_raw")
+    key_json = sql.SQL("jsonb_build_object({})").format(
+        sql.SQL(", ").join(sql.SQL("{}, {}").format(sql.Literal(k), _ident(k)) for k in plan.key))
+    key_order = sql.SQL(", ").join(_ident(k) for k in plan.key)
+    with dwh.cursor() as cur:
+        cur.execute(sql.SQL("SELECT {} FROM dwh_object_run_raw").format(
+            sql.SQL(", ").join(sql.SQL("count(*) FILTER (WHERE {})").format(c) for _, c in checks)))
+        counts = cur.fetchone()
+        failed = []
+        for (f, invalid), n in zip(checks, counts):
+            if not n:
+                continue
+            values, more, keys = _report_field(cur, relation, invalid, _ident(f["target_column"]), key_json, key_order)
+            failed.append({"column": f["target_column"],
+                           "rule": f"{f['source_type']} -> {postgres_type(f['target_type'])}",
+                           "invalid_rows": n, "values": values, "more_values": more, "keys": keys})
+    if failed:
+        raise conversion_error("STG", total, failed)
 
 
 def validate_key(dwh, plan: Plan) -> None:
@@ -470,14 +573,21 @@ def staged_watermark(dwh, plan: Plan) -> str | None:
 # ------------------------------------------------------------------ run
 
 
+def _finish_args(ok: bool, error: RunError | None) -> tuple:
+    """Error part of the finish call (package 014: column, key, bad_value, diagnostic_context)."""
+    return (None if ok else error.code, None if ok else error.message[:2000],
+            Jsonb(error.record_key) if (error and error.record_key) else None,
+            error.column if error else None,
+            error.bad_value if error else None,
+            Jsonb(error.diagnostic) if (error and error.diagnostic) else None)
+
+
 def _finish(dwh, run_id: int, ok: bool, result: RunResult, error: RunError | None = None) -> str:
     with dwh.cursor() as cur:
         cur.execute(
-            "SELECT etl.object_run_finish(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
-            (run_id, ok, result.rows_read, result.rows_inserted, result.rows_updated, result.rows_unchanged,
-             None if ok else error.code, None if ok else error.message[:2000],
-             Jsonb(error.record_key) if (error and error.record_key) else None,
-             error.column if error else None))
+            "SELECT etl.object_run_finish(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+            (run_id, ok, result.rows_read, result.rows_inserted, result.rows_updated, result.rows_unchanged)
+            + _finish_args(ok, error))
         return cur.fetchone()[0]
 
 
@@ -651,12 +761,61 @@ def stage_ods(dwh, plan: Plan, definition: dict, stg_table: str, ods_run_id: int
 def _ods_finish(dwh, result: OdsResult, ok: bool, error: RunError | None = None) -> str:
     with dwh.cursor() as cur:
         cur.execute(
-            "SELECT etl.object_ods_run_finish(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
-            (result.ods_run_id, ok, result.rows_read, result.rows_inserted, result.rows_updated, result.rows_unchanged,
-             None if ok else error.code, None if ok else error.message[:2000],
-             Jsonb(error.record_key) if (error and error.record_key) else None,
-             error.column if error else None))
+            "SELECT etl.object_ods_run_finish(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+            (result.ods_run_id, ok, result.rows_read, result.rows_inserted, result.rows_updated, result.rows_unchanged)
+            + _finish_args(ok, error))
         return cur.fetchone()[0]
+
+
+def _ods_rule(f: dict) -> str:
+    from dwh_api.field_types import postgres_type
+
+    rule = f["transform"]
+    if f["transform"] == "DATE_FROM_TEXT" and f.get("param"):
+        rule += " " + f["param"]
+    return f"{rule} -> {postgres_type(f['target_type'])}"
+
+
+def diagnose_ods(dwh, definition: dict, stg_table: str, ods_run_id: int, total: int) -> RunError | None:
+    """After a data error of the ODS staging (the transaction is already rolled back): each field
+    is computed alone by a temporary function of the session that catches the data error of its
+    white list expression. Runs only after a failure; created objects vanish with the rollback."""
+    fields = definition["fields"]
+    by_target = {f["target_column"]: f for f in fields}
+    key_cols = [by_target[k]["stg_column"] for k in definition.get("key") or []
+                if k in by_target and by_target[k].get("stg_column")]
+    if not key_cols:
+        return None
+    source = sql.SQL("stg.{}").format(_ident(stg_table))
+    relation = sql.SQL("{} s").format(source)
+    key_json = sql.SQL("jsonb_build_object({})").format(
+        sql.SQL(", ").join(sql.SQL("{}, s.{}").format(sql.Literal(k), _ident(k)) for k in key_cols))
+    key_order = sql.SQL(", ").join(sql.SQL("s.{}").format(_ident(k)) for k in key_cols)
+    failed = []
+    with dwh.cursor() as cur:
+        checks = []
+        for i, f in enumerate(fields):
+            if f["transform"] in ("LOAD_RUN_ID", "LOADED_AT"):
+                continue
+            name = sql.Identifier(f"dwh_ods_ok_{i}")
+            body = sql.SQL("BEGIN PERFORM {}; RETURN true; EXCEPTION WHEN data_exception THEN RETURN false; END").format(
+                ods_expression(f, ods_run_id)).as_string(dwh)
+            cur.execute(sql.SQL("CREATE FUNCTION pg_temp.{n}(s {src}) RETURNS boolean LANGUAGE plpgsql AS {b}").format(
+                n=name, src=source, b=sql.Literal(body)))
+            checks.append((f, sql.SQL("NOT pg_temp.{}(s)").format(name)))
+        if not checks:
+            return None
+        cur.execute(sql.SQL("SELECT {} FROM {}").format(
+            sql.SQL(", ").join(sql.SQL("count(*) FILTER (WHERE {})").format(c) for _, c in checks), relation))
+        counts = cur.fetchone()
+        for (f, invalid), n in zip(checks, counts):
+            if not n:
+                continue
+            value = sql.SQL("CAST(s.{} AS text)").format(_ident(f["stg_column"])) if f.get("stg_column") else None
+            values, more, keys = _report_field(cur, relation, invalid, value, key_json, key_order)
+            failed.append({"column": f["target_column"], "rule": _ods_rule(f), "invalid_rows": n,
+                           "values": values, "more_values": more, "keys": keys})
+    return conversion_error("ODS", total, failed) if failed else None
 
 
 def run_ods(source_object_id: int, stg_run_id: int | None, *, dwh_connect: Callable[[], Any],
@@ -686,7 +845,20 @@ def run_ods(source_object_id: int, stg_run_id: int | None, *, dwh_connect: Calla
             try:
                 result.rows_read = stage_ods(dwh, plan, definition, stg_table, result.ods_run_id, row_limit)
             except psycopg.Error as exc:
-                raise database_error(exc, "ods") from None
+                error = database_error(exc, "ods")
+                state = getattr(getattr(exc, "diag", None), "sqlstate", None) or ""
+                if state.startswith("22"):  # data exception: report it field by field (I13-08)
+                    dwh.rollback()
+                    log("STAGE: ODS data error, checking each field")
+                    with dwh.cursor() as cur:
+                        cur.execute(sql.SQL("SELECT count(*) FROM stg.{}").format(_ident(stg_table)))
+                        total = cur.fetchone()[0]
+                    try:
+                        error = diagnose_ods(dwh, definition, stg_table, result.ods_run_id, total) or error
+                    except psycopg.Error:  # the report is optional: keep the original coded error
+                        log("STAGE: ODS field check failed, original error kept")
+                    dwh.rollback()
+                raise error from None
             log(f"STAGE: ODS {result.rows_read} STG rows transformed")
             validate_key(dwh, plan)
             try:

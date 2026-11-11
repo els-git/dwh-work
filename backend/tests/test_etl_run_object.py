@@ -356,3 +356,56 @@ class EstimateTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ConversionReportTest(unittest.TestCase):
+    """I13-08: report of invalid values (R1 = B: values shown) and the finish arguments of package 014."""
+
+    def fields(self):
+        return [{"column": "birth_date", "rule": "DATE_FROM_TEXT DD.MM.YYYY -> date", "invalid_rows": 47,
+                 "values": [{"value": "99.99.9999", "count": 43}, {"value": "birthD", "count": 4}],
+                 "more_values": False, "keys": [{"id": i} for i in range(1, 11)]},
+                {"column": "amount", "rule": "TEXT -> bigint", "invalid_rows": 1,
+                 "values": [{"value": "x" * 80, "count": 1}], "more_values": True, "keys": [{"id": 2, "sub": "a"}]}]
+
+    def test_message_fields_values_keys(self):
+        err = ro.conversion_error("ODS", 65, self.fields())
+        self.assertEqual(err.code, "TYPE_CONVERSION")
+        first, second = err.message.split(" | ")
+        self.assertEqual(first, "birth_date (DATE_FROM_TEXT DD.MM.YYYY -> date): 47 of 65 rows invalid; "
+                                "values: '99.99.9999' x43, 'birthD' x4; keys: id=1, id=2, id=3, id=4, id=5, id=6, "
+                                "id=7, id=8, id=9, id=10 (10 of 47)")
+        self.assertIn("'" + "x" * 50 + "…' x1, ...", second)
+        self.assertIn("keys: (id=2, sub=a)", second)
+        self.assertNotIn("(1 of 1)", second)
+
+    def test_error_log_parts(self):
+        err = ro.conversion_error("STG", 65, self.fields())
+        self.assertEqual((err.column, err.record_key, err.bad_value), ("birth_date", {"id": 1}, "99.99.9999"))
+        self.assertEqual(err.diagnostic["stage"], "STG")
+        self.assertEqual(err.diagnostic["total_rows"], 65)
+        self.assertEqual([f["column"] for f in err.diagnostic["fields"]], ["birth_date", "amount"])
+        self.assertNotIn("more_values", err.diagnostic["fields"][0])
+        args = ro._finish_args(False, err)
+        self.assertEqual(args[0], "TYPE_CONVERSION")
+        self.assertEqual(args[3:5], ("birth_date", "99.99.9999"))
+        self.assertEqual(args[5].obj["fields"][0]["invalid_rows"], 47)
+
+    def test_success_and_plain_errors_send_no_details(self):
+        self.assertEqual(ro._finish_args(True, None), (None, None, None, None, None, None))
+        args = ro._finish_args(False, ro.RunError("SOURCE_ERROR", "source: SOURCE_ERROR"))
+        self.assertEqual(args[4:], (None, None))
+
+    def test_field_without_values_or_keys(self):
+        err = ro.conversion_error("ODS", 3, [{"column": "c", "rule": "CONSTANT -> date", "invalid_rows": 3,
+                                              "values": [], "more_values": False, "keys": []}])
+        self.assertEqual(err.message, "c (CONSTANT -> date): 3 of 3 rows invalid")
+        self.assertIsNone(err.record_key)
+        self.assertIsNone(err.bad_value)
+
+    def test_finish_uses_twelve_parameter_variants(self):
+        conn = dwh_conn()
+        result = ro.run_object(16, dwh_connect=lambda: conn, read_credential=lambda c: (_ for _ in ()).throw(RuntimeError()))
+        (params,) = conn.finished()
+        self.assertEqual(len(params), 12)
+        self.assertEqual(result.error_code, "CREDENTIAL_UNAVAILABLE")
