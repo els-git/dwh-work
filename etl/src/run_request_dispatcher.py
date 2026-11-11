@@ -396,6 +396,39 @@ def mark_success(
     conn.commit()
 
 
+_OBJECT_WORKER_WARNED = False
+
+
+def process_object_request(
+    conn,
+    name: str,
+) -> bool:
+    """One object run request (I08, package 015); False when none is queued.
+
+    The object engine needs backend/src on the path (source gateway, SecretStore). Without it the
+    CRM dispatcher keeps working and the object queue is skipped with one warning.
+    """
+    global _OBJECT_WORKER_WARNED
+
+    try:
+        from object_request_worker import (
+            process_one,
+        )
+    except ImportError as exc:
+        if not _OBJECT_WORKER_WARNED:
+            print(
+                "WARNING: object run requests are not processed:",
+                f"{type(exc).__name__}: {exc}",
+            )
+            _OBJECT_WORKER_WARNED = True
+        return False
+
+    return process_one(
+        conn,
+        name,
+    )
+
+
 def main(
     *,
     quiet_empty: bool = False,
@@ -431,6 +464,13 @@ def main(
         )
 
         if request is None:
+            # I08: object run requests are taken when the CRM queue is empty.
+            if process_object_request(
+                conn,
+                name,
+            ):
+                return
+
             if not quiet_empty:
                 print(
                     "NO QUEUED REQUEST"
