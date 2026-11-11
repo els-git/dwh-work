@@ -31,7 +31,7 @@ launcher.configure_python()
 from dwh_api.config import get_api_config
 from dwh_api.db import connect_readonly
 
-text = Path(os.environ["DWH_READONLY_SQL"]).read_text(encoding="utf-8")
+text = Path(os.environ["DWH_READONLY_SQL"]).read_text(encoding="utf-8-sig")  # files saved by Set-Content -Encoding UTF8 carry a BOM
 code = "\n".join(l for l in text.splitlines() if not l.strip().startswith("--"))
 statements = [s for s in code.split(";") if s.strip()]
 out = []

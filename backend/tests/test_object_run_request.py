@@ -16,103 +16,75 @@ import psycopg
 from fastapi import HTTPException
 
 import object_request_worker as worker
-import run_object as ro
 from dwh_api import object_run_admin as api
 
 
-def stg(status="SUCCESS", run_id=7, code=None, message=None):
-    return ro.RunResult(run_id=run_id, batch_run_id=70, status=status, rows_read=3, rows_inserted=1, rows_updated=1,
-                        rows_unchanged=1, error_code=code, message=message)
+RUN_OK = ["STAGE: run 14 started (batch_run 45, version 3)", "RUN_ID: 14 | BATCH_RUN_ID: 45",
+          "ROWS: read=65 inserted=0 updated=0 unchanged=65 stale=0 deleted=0", "STRATEGY: FULL", "RUN_RESULT: SUCCESS",
+          "ODS_RUN_ID: 11 | BATCH_RUN_ID: 46", "ODS_ROWS: read=65 inserted=0 updated=0 unchanged=65", "ODS_RESULT: SUCCESS"]
 
 
-def ods(status="SUCCESS", ods_run_id=9, code=None, message=None):
-    return ro.OdsResult(ods_run_id=ods_run_id, batch_run_id=90, status=status, rows_read=3, rows_inserted=0,
-                        rows_updated=2, rows_unchanged=1, error_code=code, message=message)
+class ParseOutputTest(unittest.TestCase):
+    def test_success_links_both_runs(self):
+        ok, s, o, code, msg = worker.parse_output(RUN_OK, "RUN", 0)
+        self.assertEqual((ok, s, o, code), (True, 14, 11, None))
+        self.assertIn("STG run 14: read=65", msg)
+        self.assertIn("ODS run 11: read=65", msg)
 
-
-class Engine:
-    """Replaces run_object / run_ods of the engine and records the calls."""
-
-    def __init__(self, stg_result=None, ods_result="unset", stg_error=None):
-        self.stg_result = stg_result if stg_result is not None else stg()
-        self.ods_result = ods() if ods_result == "unset" else ods_result
-        self.stg_error = stg_error
-        self.calls = []
-
-    def __enter__(self):
-        self.saved = (ro.run_object, ro.run_ods)
-
-        def run_object(obj, **kw):
-            self.calls.append(("stg", obj, kw.get("force_full")))
-            if self.stg_error:
-                raise self.stg_error
-            return self.stg_result
-
-        def run_ods(obj, stg_run_id, **kw):
-            self.calls.append(("ods", obj, stg_run_id))
-            return self.ods_result
-        ro.run_object, ro.run_ods = run_object, run_ods
-        return self
-
-    def __exit__(self, *exc):
-        ro.run_object, ro.run_ods = self.saved
-        return False
-
-
-def run(kind, engine):
-    with engine:
-        return worker.execute(16, kind, dwh_connect=lambda: None, read_credential=lambda c: "", log=lambda m: None)
-
-
-class ExecuteTest(unittest.TestCase):
-    def test_run_success_links_both_runs(self):
-        e = Engine()
-        ok, s, o, code, msg = run("RUN", e)
-        self.assertEqual((ok, s, o, code), (True, 7, 9, None))
-        self.assertEqual(e.calls, [("stg", 16, False), ("ods", 16, 7)])
-        self.assertIn("STG run 7: read 3", msg)
-        self.assertIn("ODS run 9: read 3", msg)
-
-    def test_full_rerun_forces_full_read(self):
-        e = Engine()
-        self.assertTrue(run("FULL_RERUN", e)[0])
-        self.assertEqual(e.calls[0], ("stg", 16, True))
-
-    def test_stg_failure_stops_before_ods(self):
-        e = Engine(stg_result=stg("FAILED", code="TYPE_CONVERSION", message="born (TEXT -> date): 1 of 3 rows invalid"))
-        ok, s, o, code, msg = run("RUN", e)
+    def test_stg_failure_keeps_message_with_separators(self):
+        lines = ["RUN_ID: 7 | BATCH_RUN_ID: 70", "ROWS: read=0 inserted=0 updated=0 unchanged=0 stale=0 deleted=0",
+                 "RUN_RESULT: FAILED | code=TYPE_CONVERSION | a (TEXT -> bigint): 1 of 3 rows invalid | b (TEXT -> date): 2 of 3"]
+        ok, s, o, code, msg = worker.parse_output(lines, "RUN", 1)
         self.assertEqual((ok, s, o, code), (False, 7, None, "TYPE_CONVERSION"))
-        self.assertEqual([c[0] for c in e.calls], ["stg"])
-        self.assertIn("born (TEXT -> date)", msg)
+        self.assertIn("a (TEXT -> bigint): 1 of 3 rows invalid | b (TEXT -> date): 2 of 3", msg)
 
-    def test_ods_failure_keeps_stg_link(self):
-        e = Engine(ods_result=ods("FAILED", code="TYPE_CONVERSION", message="birth_date: 4 of 65 rows invalid"))
-        ok, s, o, code, msg = run("RUN", e)
-        self.assertEqual((ok, s, o, code), (False, 7, 9, "TYPE_CONVERSION"))
-        self.assertIn("STG run 7", msg)
-        self.assertIn("ODS run 9 FAILED: birth_date", msg)
-
-    def test_no_ods_configuration_is_success(self):
-        ok, s, o, code, msg = run("RUN", Engine(ods_result=None))
-        self.assertEqual((ok, s, o), (True, 7, None))
-        self.assertIn("no published ODS configuration", msg)
-
-    def test_continue_runs_ods_alone(self):
-        e = Engine()
-        ok, s, o, code, msg = run("CONTINUE_ODS", e)
-        self.assertEqual((ok, s, o), (True, None, 9))
-        self.assertEqual(e.calls, [("ods", 16, None)])
-
-    def test_continue_without_ods_configuration_fails(self):
-        self.assertEqual(run("CONTINUE_ODS", Engine(ods_result=None))[:4], (False, None, None, "ODS_NOT_CONFIGURED"))
-
-    def test_refused_and_unexpected(self):
-        refused = run("RUN", Engine(stg_error=ro.RunError("RUN_REFUSED", "Object configuration is DRIFT")))
-        self.assertEqual(refused[3], "RUN_REFUSED")
+    def test_ods_failure_and_refusal(self):
+        lines = RUN_OK[:-1] + ["ODS_RESULT: FAILED | code=TYPE_CONVERSION | birth_date: 4 of 65 rows invalid"]
+        self.assertEqual(worker.parse_output(lines, "RUN", 1)[:4], (False, 14, 11, "TYPE_CONVERSION"))
+        refused = worker.parse_output(["RUN_RESULT: REFUSED | code=RUN_REFUSED | Object configuration is DRIFT"], "RUN", 1)
+        self.assertEqual(refused[:4], (False, None, None, "RUN_REFUSED"))
         self.assertIn("DRIFT", refused[4])
-        unexpected = run("RUN", Engine(stg_error=KeyError("secret-value")))
-        self.assertEqual(unexpected[3], "INTERNAL_ERROR")
-        self.assertNotIn("secret-value", unexpected[4])
+
+    def test_not_configured(self):
+        lines = RUN_OK[:5] + ["ODS_RESULT: NOT_CONFIGURED (no published ODS version)"]
+        self.assertEqual(worker.parse_output(lines, "RUN", 0)[:3], (True, 14, None))
+        self.assertEqual(worker.parse_output(["ODS_RESULT: NOT_CONFIGURED (no published ODS version)"], "CONTINUE_ODS", 1)[3],
+                         "ODS_NOT_CONFIGURED")
+
+    def test_crash_without_result(self):
+        ok, s, o, code, msg = worker.parse_output(["RUN_ID: 3 | BATCH_RUN_ID: 30", "Traceback (most recent call last):"],
+                                                  "RUN", 1)
+        self.assertEqual((ok, s, code), (False, 3, "INTERNAL_ERROR"))
+        self.assertIn("exit code 1", msg)
+
+
+def script(body: str) -> list[str]:
+    return [sys.executable, "-c", body]
+
+
+class RunChildTest(unittest.TestCase):
+    def test_environment_and_streaming(self):
+        seen = []
+        body = ("import os; print('RUN_ID: 5 | BATCH_RUN_ID: 50'); "
+                "print('ENV', os.environ['DWH_RUN_OBJECT_ID'], os.environ['DWH_RUN_OBJECT_STAGE'], "
+                "repr(os.environ['DWH_RUN_OBJECT_FULL'])); print('RUN_RESULT: SUCCESS'); "
+                "print('ODS_RUN_ID: 6 | BATCH_RUN_ID: 60'); print('ODS_RESULT: SUCCESS')")
+        ok, s, o, code, msg = worker.execute(16, "FULL_RERUN", log=seen.append, timeout=30, command=script(body))
+        self.assertEqual((ok, s, o), (True, 5, 6))
+        self.assertIn("  ENV 16 ALL '1'", seen)
+        lines, _ = worker.run_child(16, "CONTINUE_ODS", log=lambda m: None, timeout=30,
+                                    command=script("import os; print(os.environ['DWH_RUN_OBJECT_STAGE'], "
+                                                   "repr(os.environ['DWH_RUN_OBJECT_FULL']))"))
+        self.assertEqual(lines, ["ODS ''"])
+
+    def test_timeout_stops_the_child(self):
+        body = "import time; print('RUN_ID: 9 | BATCH_RUN_ID: 90', flush=True); time.sleep(60)"
+        ok, s, o, code, msg = worker.execute(16, "RUN", log=lambda m: None, timeout=2, command=script(body))
+        self.assertEqual((ok, s, code), (False, 9, "TIMEOUT"))
+        self.assertIn("ABANDONED", msg)
+
+    def test_unknown_kind(self):
+        self.assertEqual(worker.execute(16, "DELETE", log=lambda m: None)[3], "UNSUPPORTED_RUN_KIND")
 
 
 class Cursor:
@@ -158,26 +130,22 @@ class Conn:
 class ProcessOneTest(unittest.TestCase):
     def test_empty_queue(self):
         conn = Conn(None)
-        self.assertFalse(worker.process_one(conn, "w", dwh_connect=lambda: None, read_credential=lambda c: "",
-                                            log=lambda m: None))
+        self.assertFalse(worker.process_one(conn, "w", log=lambda m: None))
         self.assertEqual(len(conn.calls), 1)
 
-    def test_claim_start_execute_finish(self):
+    def test_claim_start_child_finish(self):
         conn = Conn((5, 16, "RUN"))
-        with Engine():
-            self.assertTrue(worker.process_one(conn, "w", dwh_connect=lambda: None, read_credential=lambda c: "",
-                                               log=lambda m: None))
+        body = "print('\\n'.join(%r))" % (RUN_OK,)
+        self.assertTrue(worker.process_one(conn, "w", log=lambda m: None, timeout=30, command=script(body)))
         sqls = [c[0] for c in conn.calls]
         self.assertIn("object_run_request_start", sqls[1])
-        finish = conn.calls[-1][1]
-        self.assertEqual(finish[:5], (5, True, 7, 9, None))
+        self.assertEqual(conn.calls[-1][1][:5], (5, True, 14, 11, None))
 
     def test_failed_request_gets_code(self):
         conn = Conn((6, 16, "RUN"))
-        with Engine(stg_result=stg("FAILED", code="SOURCE_ERROR", message="source: SOURCE_ERROR")):
-            worker.process_one(conn, "w", dwh_connect=lambda: None, read_credential=lambda c: "", log=lambda m: None)
-        finish = conn.calls[-1][1]
-        self.assertEqual(finish[:5], (6, False, 7, None, "SOURCE_ERROR"))
+        body = "print('RUN_ID: 7 | BATCH_RUN_ID: 70'); print('RUN_RESULT: FAILED | code=SOURCE_ERROR | source: SOURCE_ERROR')"
+        worker.process_one(conn, "w", log=lambda m: None, timeout=30, command=script(body))
+        self.assertEqual(conn.calls[-1][1][:5], (6, False, 7, None, "SOURCE_ERROR"))
 
 
 class Diag:

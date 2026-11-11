@@ -921,6 +921,15 @@ def main() -> None:
     if stage not in ("ALL", "ODS"):
         print("STOP: DWH_RUN_OBJECT_STAGE must be ALL or ODS")
         sys.exit(2)
+    # I08: "Full rerun" of a request reads the whole object once (DWH_RUN_OBJECT_FULL=1).
+    force_full = os.environ.get("DWH_RUN_OBJECT_FULL", "").strip() == "1"
+    # I08: a run that takes longer than this prints the stack of every thread (repeatedly), so a hang
+    # shows where it waits. Default 600 s; 0 switches it off.
+    dump_after = int(os.environ.get("DWH_RUN_OBJECT_STACK_DUMP_SECONDS", "600") or "0")
+    if dump_after > 0:
+        import faulthandler
+
+        faulthandler.dump_traceback_later(dump_after, repeat=True, file=sys.stdout)
     log = lambda m: print(m, flush=True)  # noqa: E731
     if stage == "ODS":
         try:
@@ -931,7 +940,7 @@ def main() -> None:
         sys.exit(0 if _print_ods(ods) and ods is not None else 1)
     try:
         result = run_object(int(value), dwh_connect=lambda: connect(get_dwh_config()),
-                            read_credential=read_source_credential, log=log)
+                            read_credential=read_source_credential, log=log, force_full=force_full)
     except RunError as error:
         print(f"RUN_RESULT: REFUSED | code={error.code} | {error.message}")
         sys.exit(1)
