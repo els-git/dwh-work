@@ -215,7 +215,7 @@ export interface IntegrationOverview {
 
 export interface EtlJobRun {
   batch_run_id: number
-  source_batch_run_id: number
+  source_batch_run_id: number | null
 
   root_batch_run_id: number | null
   attempt_no: number | null
@@ -320,7 +320,7 @@ export interface DqIssue {
 
 export interface EtlRun {
   batch_run_id: number
-  source_batch_run_id: number
+  source_batch_run_id: number | null
 
   pipeline_code: string
   run_mode: string | null
