@@ -188,6 +188,18 @@ class GatewayConnection:
         else:
             self._raw.cancel()
 
+    def abort(self) -> None:
+        """Break the network connection (TCP shutdown) when even the cancel request got no effect: the answer of
+        the source is lost on the way (network or pooler). The waiting statement then fails at once; nothing is
+        sent to the source."""
+        import socket
+
+        sock = socket.socket(fileno=self._raw.pgconn.socket)
+        try:
+            sock.shutdown(socket.SHUT_RDWR)
+        finally:
+            sock.detach()
+
     @property
     def closed(self) -> bool:
         return bool(self._raw.closed)

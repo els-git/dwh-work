@@ -66,6 +66,9 @@ SOURCE_STATEMENT_TIMEOUT_MS = 30 * 60 * 1000
 # does not answer at all is cancelled by a watchdog after DWH_SOURCE_REPLY_TIMEOUT_SECONDS (SOURCE_NO_RESPONSE).
 SOURCE_LOCK_TIMEOUT_MS = 60 * 1000
 SOURCE_REPLY_TIMEOUT_SECONDS = 300
+# 12.11.2026: on the PC the cancel request did not help either (the first FETCH got no answer after DECLARE was
+# answered): the connection is then broken after SOURCE_ABORT_GRACE_SECONDS more.
+SOURCE_ABORT_GRACE_SECONDS = 30
 
 
 class RunError(Exception):
@@ -355,15 +358,25 @@ def reply_timeout_seconds() -> int:
 
 
 class ReplyWatchdog:
-    """Cancels a source statement that gets no answer within `seconds` (a PostgreSQL cancel request)."""
+    """A source statement without answer: after `seconds` a PostgreSQL cancel request; if the statement still
+    waits `grace` seconds later, the connection is broken (the answer is lost on the way)."""
 
-    def __init__(self, conn, seconds: int) -> None:
+    def __init__(self, conn, seconds: int, grace: int = SOURCE_ABORT_GRACE_SECONDS,
+                 log: Callable[[str], None] = lambda message: None) -> None:
         self.conn = conn
         self.seconds = seconds
+        self.grace = grace
+        self.log = log
         self.fired: str | None = None
+        self.aborted = False
+        self._active = 0
+        self._lock = threading.Lock()
 
     def run(self, cur, statement: sql.Composable, what: str):
-        timer = threading.Timer(self.seconds, self._fire, args=(what,))
+        with self._lock:
+            self._active += 1
+            ticket = self._active
+        timer = threading.Timer(self.seconds, self._fire, args=(what, ticket))
         timer.daemon = True
         timer.start()
         try:
@@ -371,12 +384,34 @@ class ReplyWatchdog:
             return cur.fetchall() if what == "FETCH" else None
         finally:
             timer.cancel()
+            with self._lock:
+                self._active += 1  # the statement is over: a late timer of this ticket does nothing
 
-    def _fire(self, what: str) -> None:
+    def _waiting(self, ticket: int) -> bool:
+        with self._lock:
+            return self._active == ticket
+
+    def _fire(self, what: str, ticket: int) -> None:
+        if not self._waiting(ticket):
+            return
         self.fired = what
+        self.log(f"STAGE: source gave no answer to {what} in {self.seconds} s, cancel request sent")
         try:
             self.conn.cancel()
-        except Exception:  # noqa: BLE001 - the cancel request is best effort; the run limit stays
+        except Exception:  # noqa: BLE001 - the cancel request is best effort; the abort follows
+            pass
+        abort = threading.Timer(self.grace, self._abort, args=(what, ticket))
+        abort.daemon = True
+        abort.start()
+
+    def _abort(self, what: str, ticket: int) -> None:
+        if not self._waiting(ticket):
+            return
+        self.aborted = True
+        self.log(f"STAGE: cancel had no effect in {self.grace} s, source connection closed")
+        try:
+            self.conn.abort()
+        except Exception:  # noqa: BLE001 - the run limit of the dispatcher stays the last guard
             pass
 
 
@@ -386,6 +421,10 @@ def source_wait_error(exc: psycopg.Error, watchdog: ReplyWatchdog, schema: str, 
         return RunError("LOCK_TIMEOUT", f"source: table {schema}.{table} is locked by another session of the source "
                         f"for more than {SOURCE_LOCK_TIMEOUT_MS // 1000} s (SQLSTATE 55P03); end that session "
                         "or its open transaction and run again")
+    if watchdog.aborted:
+        return RunError("SOURCE_NO_RESPONSE", f"source: no answer to {watchdog.fired} on {schema}.{table} within "
+                        f"{watchdog.seconds} s, the cancel request had no effect in {watchdog.grace} s, connection "
+                        "closed; the answer of the source was lost on the way (network, VPN or connection pooler)")
     if watchdog.fired is not None and state == "57014":
         return RunError("SOURCE_NO_RESPONSE", f"source: no answer to {watchdog.fired} on {schema}.{table} within "
                         f"{watchdog.seconds} s, statement cancelled (SQLSTATE 57014); the source server or its "
@@ -407,7 +446,7 @@ def read_source(conn, schema: str, table: str, plan: Plan, row_limit: int, where
     if where is not None:
         select = select + sql.SQL(" WHERE ") + where
     count = 0
-    watchdog = ReplyWatchdog(conn, reply_timeout or reply_timeout_seconds())
+    watchdog = ReplyWatchdog(conn, reply_timeout or reply_timeout_seconds(), log=log)
     try:
         with conn.cursor() as cur:
             watchdog.run(cur, sql.SQL("DECLARE dwh_object_run NO SCROLL CURSOR FOR {}").format(select), "DECLARE")
@@ -428,7 +467,11 @@ def read_source(conn, schema: str, table: str, plan: Plan, row_limit: int, where
     except psycopg.Error as exc:
         raise (source_wait_error(exc, watchdog, schema, table) or database_error(exc, "source")) from None
     finally:
-        conn.rollback()
+        try:
+            conn.rollback()
+        except psycopg.Error:
+            if not watchdog.aborted:
+                raise
 
 
 # ------------------------------------------------------------------ DWH apply

@@ -348,7 +348,11 @@ class SlowSourceCursor:
         text = repr(query)
         if self.conn.lock and "DECLARE" in text:
             raise db_error("55P03")
-        if ("FETCH" if self.conn.hang == "FETCH" else "DECLARE") in text and self.conn.hang:
+        if self.conn.hang == "LOST" and "FETCH" in text:
+            if not self.conn.aborted.wait(5):
+                raise AssertionError("watchdog did not abort")
+            raise psycopg.OperationalError("server closed the connection unexpectedly")
+        if self.conn.hang in ("DECLARE", "FETCH") and self.conn.hang in text:
             if not self.conn.cancelled.wait(5):
                 raise AssertionError("watchdog did not cancel")
             raise db_error("57014")
@@ -365,6 +369,7 @@ class SlowSource:
         import threading
         self.hang, self.lock, self.fetched = hang, lock, False
         self.cancelled = threading.Event()
+        self.aborted = threading.Event()
 
     def cursor(self):
         return SlowSourceCursor(self)
@@ -372,8 +377,12 @@ class SlowSource:
     def cancel(self):
         self.cancelled.set()
 
+    def abort(self):
+        self.aborted.set()
+
     def rollback(self):
-        pass
+        if self.aborted.is_set():
+            raise psycopg.OperationalError("connection is closed")
 
 
 class SourceWaitTest(unittest.TestCase):
@@ -401,6 +410,21 @@ class SourceWaitTest(unittest.TestCase):
             self.assertEqual(ctx.exception.code, "SOURCE_NO_RESPONSE")
             self.assertIn(f"no answer to {where}", ctx.exception.message)
             self.assertTrue(conn.cancelled.is_set())
+
+    def test_lost_answer_breaks_the_connection(self):
+        original = ro.ReplyWatchdog.__init__.__defaults__
+        ro.ReplyWatchdog.__init__.__defaults__ = (1,) + original[1:]
+        logs = []
+        try:
+            conn = SlowSource(hang="LOST")
+            with self.assertRaises(ro.RunError) as ctx:
+                list(ro.read_source(conn, "public", "t", self.Plan, 10, log=logs.append, reply_timeout=1))
+        finally:
+            ro.ReplyWatchdog.__init__.__defaults__ = original
+        self.assertEqual(ctx.exception.code, "SOURCE_NO_RESPONSE")
+        self.assertIn("connection closed", ctx.exception.message)
+        self.assertTrue(conn.cancelled.is_set() and conn.aborted.is_set())
+        self.assertEqual(len(logs), 2)
 
     def test_cancel_without_watchdog_stays_timeout(self):
         conn = SlowSource()
