@@ -55,7 +55,21 @@
    unzip -o -j dwh_release_2026.11.1.zip dwh_update.py -d /root/dwh_install
    sudo python3 /root/dwh_install/dwh_update.py /srv/dwh/incoming/dwh_release_2026.11.1.zip --first-install
    ```
-4. База (шаг 7): копия с ПК (`pg_dump -Fc`) восстанавливается в `dwh` — отдельные команды дам на этом шаге.
+4. База (шаг 7).
+   - На ПК `tools\export_dwh_for_server.ps1` выгружает базу из контейнера `dwh-postgres` в `runtime\server_export\dwh_export_<время>\`:
+     - роли **без паролей**;
+     - копию базы (`pg_dump -Fc`);
+     - сведения о базе;
+     - число строк каждой таблицы;
+     - `SHA256SUMS`.
+   - Папка копируется на сервер в `/srv/dwh/incoming/`.
+   - На сервере `sudo python3 dwh_import_db.py <папка>`:
+     1. сверяет SHA256;
+     2. создаёт роли; владельцу базы вход запрещён;
+     3. восстанавливает базу (`pg_restore --create`);
+     4. сравнивает каждую таблицу и число объектов с ПК;
+     5. задаёт **новые случайные пароли** `dwh_app` и `dwh_etl` и сам пишет их в `/etc/dwh/dwh.env` — пароли никому не показываются.
+   - Повторный перенос (окончательный, перед переходом): с `--replace`, службы DWH остановлены.
 5. Ключи (шаг 8): восстановление из `.dwhkey` и активация — `docs/DWH_SECRETSTORE_KEY_RUNBOOK.md`, раздел «Linux-сервер». Python для команд: `/opt/dwh/current/venv/bin/python`, скрипт `/opt/dwh/current/src/tools/secret_key_tool.py`. Зашифрованные учётные данные источников с ПК (`DWH_SECRET_STORE_DIR`) — в `/var/lib/dwh/secrets`.
 6. nginx: шаблон `/opt/dwh/current/src/deploy/nginx/dwh.conf` скопировать в `/etc/nginx/sites-available/dwh.conf`, вписать DNS-имя, включить:
    ```bash

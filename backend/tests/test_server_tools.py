@@ -19,6 +19,7 @@ for _path in (PROJECT / "tools" / "server", PROJECT / "tools" / "release"):
 import dispatcher_service  # noqa: E402
 import dwh_backup  # noqa: E402
 import dwh_prepare_server as prep  # noqa: E402
+import dwh_import_db as imp  # noqa: E402
 import dwh_task  # noqa: E402
 import dwh_update as up  # noqa: E402
 
@@ -216,6 +217,31 @@ class PrepareServerTests(unittest.TestCase):
             self.assertEqual(executed, [])
             self.assertEqual(prep.main(["--apply"]), 0)
             self.assertEqual(executed, [["timedatectl", "set-timezone", "Asia/Baku"]])
+
+
+class ImportDbTests(Temp):
+    def test_roles_script(self):
+        text = ('CREATE ROLE postgres;\nALTER ROLE postgres WITH SUPERUSER LOGIN;\nCREATE ROLE dwh_admin;\n'
+                'ALTER ROLE dwh_admin WITH SUPERUSER LOGIN;\nCREATE ROLE "dwh_app";\nGRANT dwh_app TO dwh_admin;\n')
+        out = imp.roles_script(text)
+        self.assertNotIn("postgres", out)
+        self.assertIn("rolname = 'dwh_admin'", out)
+        self.assertIn("rolname = 'dwh_app'", out)
+        self.assertIn("ALTER ROLE dwh_admin WITH SUPERUSER LOGIN;", out)
+        self.assertIn("GRANT dwh_app TO dwh_admin;", out)
+
+    def test_compare_and_sums(self):
+        self.assertEqual(imp.compare("rows|a.t|3\nfunctions|a|2\n", "rows|a.t|3\nfunctions|a|2\n"), [])
+        problems = imp.compare("rows|a.t|3\nrows|a.u|1\n", "rows|a.t|2\n")
+        self.assertEqual(problems, ["rows|a.t: PC 3, server 2", "rows|a.u: PC 1, server -"])
+        for name, data in {"roles.sql": b"r", "dwh.dump": b"d", "info.txt": b"owner=x", "counts.txt": b""}.items():
+            (self.dir / name).write_bytes(data)
+        (self.dir / "SHA256SUMS").write_text("".join(f"{hashlib.sha256((self.dir / n).read_bytes()).hexdigest()}  {n}\n"
+                                                     for n in ("roles.sql", "dwh.dump", "info.txt", "counts.txt")))
+        imp.check_sums(self.dir)
+        (self.dir / "dwh.dump").write_bytes(b"changed")
+        with self.assertRaises(imp.ImportError_):
+            imp.check_sums(self.dir)
 
 
 class SettingsTests(unittest.TestCase):
