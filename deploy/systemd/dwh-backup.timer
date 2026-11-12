@@ -1,0 +1,11 @@
+# I16: database copy every night at 02:30 (server time, Asia/Baku).
+[Unit]
+Description=Nightly DWH database backup
+
+[Timer]
+OnCalendar=*-*-* 02:30:00
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

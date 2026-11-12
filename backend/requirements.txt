@@ -3,3 +3,6 @@ uvicorn
 psycopg[binary]
 python-dotenv
 cryptography==50.0.2
+# Report export (reporting_export.py); found missing in I16 step 3.
+reportlab
+openpyxl

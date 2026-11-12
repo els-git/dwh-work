@@ -1,0 +1,15 @@
+# I16: nightly copy of the database dwh (pg_dump -Fc) into /backup/dwh, 14 copies kept.
+[Unit]
+Description=DWH database backup
+After=postgresql.service
+
+[Service]
+Type=oneshot
+User=postgres
+Group=postgres
+ExecStart=/usr/bin/python3 /opt/dwh/current/src/tools/server/dwh_backup.py --dir /backup/dwh --keep 14
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/backup/dwh
