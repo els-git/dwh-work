@@ -188,6 +188,24 @@ class ConnectTest(unittest.TestCase):
         right.close()
         self.assertEqual(raw.sent, ["SHOW transaction_read_only"])
 
+    def test_nudge_reads_data_already_received(self):
+        import socket
+        from psycopg import waiting
+
+        def held_by_libpq():
+            while not (yield waiting.WAIT_R):
+                pass
+            return "rows"
+        left, right = socket.socketpair()
+        try:
+            with self.assertRaises(Exception):
+                waiting.wait_select(held_by_libpq(), left.fileno(), interval=0.05, timeout=1)
+            self.assertEqual(waiting.wait_select(sg.nudged(held_by_libpq(), ticks=2), left.fileno(), interval=0.05,
+                                                 timeout=1), "rows")
+        finally:
+            left.close()
+            right.close()
+
     def test_not_read_only_fails_closed_before_any_query(self):
         raw = RawConn(read_only_answer="off")
         with self.assertRaises(sg.SourceGatewayError) as ctx:

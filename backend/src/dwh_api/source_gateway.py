@@ -65,6 +65,48 @@ _LITERALS = re.compile(
 )
 
 
+# I08 step 8 (12.11.2026): on the user's Windows PC the answer to a FETCH was already received but psycopg kept
+# waiting (the rows came out the moment the socket was shut down): the data sat in a buffer of libpq/SSL while the
+# socket itself had nothing more to read, and on a quiet socket psycopg never asks libpq to read again. Source
+# connections therefore "nudge" the driver: while a statement waits for an answer, libpq is asked to read what it
+# already holds once every NUDGE_TICKS wait intervals (0.1 s each). Reading without data available does not block
+# and sends nothing to the source.
+NUDGE_TICKS = 10
+
+
+def nudged(gen, ticks: int = NUDGE_TICKS):
+    """Wrap a psycopg wait generator: a quiet READ wait is answered "ready to read" every `ticks` intervals."""
+    from psycopg.waiting import READY_R, WAIT_R
+
+    try:
+        state = next(gen)
+    except StopIteration as stop:
+        return stop.value
+    idle = 0
+    while True:
+        ready = yield state
+        if not ready and state & WAIT_R:
+            idle += 1
+            if idle >= ticks:
+                ready = READY_R
+                idle = 0
+        else:
+            idle = 0
+        try:
+            state = gen.send(ready)
+        except StopIteration as stop:
+            return stop.value
+
+
+def _install_nudge(raw) -> None:
+    original = type(raw).wait
+
+    def wait(gen, *args, **kwargs):
+        return original(raw, nudged(gen), *args, **kwargs)
+
+    raw.wait = wait
+
+
 class SourceGatewayError(Exception):
     """Refusal of the gateway; ``code`` is SOURCE_WRITE_BLOCKED or SOURCE_NOT_READ_ONLY."""
 
@@ -227,6 +269,8 @@ def connect(*, host: str, port: int, dbname: str, user: str, password: str | Non
     raw = connect_fn(**kwargs)
     kwargs.clear()
     try:
+        if isinstance(raw, psycopg.Connection):
+            _install_nudge(raw)
         raw.read_only = True
         with raw.cursor() as cur:
             cur.execute("SHOW transaction_read_only")
