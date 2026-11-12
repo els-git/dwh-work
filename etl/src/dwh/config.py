@@ -9,7 +9,8 @@ from dotenv import load_dotenv
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
-load_dotenv(PROJECT_ROOT / ".env")
+# PC: the project .env. Server (I16): DWH_ENV_FILE=/etc/dwh/dwh.env (see dwh_api/config.py).
+load_dotenv(os.environ.get("DWH_ENV_FILE") or PROJECT_ROOT / ".env")
 
 
 def _required(name: str) -> str:
@@ -35,7 +36,7 @@ class DatabaseConfig:
 
 def get_dwh_config() -> DatabaseConfig:
     return DatabaseConfig(
-        host="127.0.0.1",
+        host=os.getenv("DWH_DB_HOST", "127.0.0.1"),
         port=int(os.getenv("DWH_DB_PORT", "5433")),
         database=_required("DWH_DB_NAME"),
         user="dwh_etl",

@@ -8,7 +8,9 @@ from dotenv import load_dotenv
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
-ENV_PATH = PROJECT_ROOT / ".env"
+# PC: the project .env. Server (I16): DWH_ENV_FILE=/etc/dwh/dwh.env, set by the systemd units;
+# values already in the environment (EnvironmentFile=) are never overridden.
+ENV_PATH = Path(os.environ.get("DWH_ENV_FILE") or PROJECT_ROOT / ".env")
 
 load_dotenv(ENV_PATH)
 
@@ -59,6 +61,7 @@ def get_api_config() -> ApiConfig:
             "DWH_APP_PASSWORD"
         ),
 
+        # Only localhost: on the server nginx is the single entry point (HTTPS).
         api_host="127.0.0.1",
         api_port=int(
             os.getenv(

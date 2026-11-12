@@ -1,0 +1,11 @@
+# I16: Python packages of DWH on the Linux server (Debian 13, Python 3.13).
+# tools/release/make_release.py downloads these (and their dependencies) as manylinux wheels
+# into the release package; the server installs them offline (pip --no-index).
+# Versions: checked with the full test suite (I16 step 3).
+fastapi==0.162.5
+uvicorn==0.54.0
+psycopg[binary]==3.3.9
+python-dotenv==1.2.4
+cryptography==50.0.2
+reportlab==5.1.0
+openpyxl==3.1.5

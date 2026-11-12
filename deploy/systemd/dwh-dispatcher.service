@@ -1,0 +1,33 @@
+# I16: DWH dispatcher - CRM run requests and object run requests (each object run in a child process).
+# Stop: the current iteration finishes first (TimeoutStopSec), like Ctrl+C on the PC.
+[Unit]
+Description=DWH dispatcher
+After=network-online.target postgresql.service dwh-api.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=dwh
+Group=dwh
+WorkingDirectory=/opt/dwh/current/src
+EnvironmentFile=/etc/dwh/dwh.env
+Environment=DWH_ENV_FILE=/etc/dwh/dwh.env
+Environment=PYTHONPATH=/opt/dwh/current/src/backend/src:/opt/dwh/current/src/etl/src
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/dwh/current/venv/bin/python /opt/dwh/current/src/tools/server/dispatcher_service.py
+KillSignal=SIGTERM
+TimeoutStopSec=3900
+Restart=on-failure
+RestartSec=10
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+ReadWritePaths=/var/lib/dwh /var/log/dwh
+
+[Install]
+WantedBy=multi-user.target

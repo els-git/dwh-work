@@ -48,7 +48,7 @@ DWH — платформа хранилища данных с frontend, backend 
 Единый согласованный план: неизменяемые ID задач, итерации, зависимости, критерии приёмки, решения, журнал и статусы `PLANNED`, `IN_PROGRESS`, `BLOCKED`, `DONE`, `CANCELLED`, `DEFERRED`. **DONE — только после фактических проверок и подтверждения пользователя.** Историю не удалять, задачи не перенумеровывать, прежние требования не переписывать без согласования. Новые задачи — только с новыми ID и явной договорённостью.
 
 **Последний подтверждённый SHA256 (11.11.2026, в git):**
-`68DDAAAF07D3F153DDEE4F6DDCE2AE6E6C17D8A0C59F73851BD633A4161CFC9F`
+`FF04A117C302FB858F290CFB30A768D52018F9DF91C35EA5D1B633D2EFD6ACFE`
 
 Документы на ПК обновляются через `git pull` после слияния PR. Скрипты `sync_docs_to_pc.ps1` удалены 03.11.2026: связь с git их заменила.
 
@@ -339,7 +339,9 @@ DWH — платформа хранилища данных с frontend, backend 
 
 **Шаг 2 I16 сделан в песочнице 12.11.2026** (план, раздел 9; разрешение пользователя на изменение backend): `secret_systemd_creds_provider.py`, `DWH_SECRET_KEY_PROVIDER` = `dpapi` (по умолчанию) / `systemd-creds` в `secret_keyring.py`, `secret_key_tools.py` и `tools/secret_key_tool.py --provider systemd-creds` (файлы `/etc/dwh/keyring/<key_id>.cred`, имя `dwh-key.<key_id>`, `activate` пишет `/etc/dwh/keyring.env` и drop-in `dwh-.service.d/10-keyring.conf`); тесты 456 OK (Python 3.13 и 3.11), в песочнице есть настоящий `systemd-creds` 255. Тесты под Python 3.11: `$SP/pylib311`.
 
-**Следующий шаг:** шаг 3 I16 — код к серверу (настройки вместо путей ПК, systemd/nginx, `make_release.ps1`, `dwh-update`, `dwh-backup`, `dwh-check-network`). Параллельно администраторы готовят сервер (шаг 4).
+**Шаг 3 I16 сделан в песочнице 12.11.2026** (план, раздел 10): `DWH_ENV_FILE` в `dwh_api/config.py` и `dwh/config.py` (+ `DWH_DB_HOST` в ETL), `deploy/` (requirements-server, systemd, nginx, dwh.env.example), `tools/server/` (`dwh_update.py` с откатом, `dwh_backup.py`, `dwh_check_network.py`, `dwh_task.py` через `systemd-run`, `dispatcher_service.py`), `tools/release/make_release.py` + `tools/make_release.ps1`, инструкция `docs/DWH_SERVER_RUNBOOK.md`; тесты 464 OK; сквозная проверка: `$SP/e2e_i16.py` (сервер-имитация в `/srv/i16e2e`, база `dwh` — копия `e2e_i08` с заглушками `meta.v_integration_control_object` и `etl.integration_run_request_claim`), nginx установлен в песочнице. PostgreSQL песочницы запускать через `setsid` (иначе останавливается вместе с оболочкой).
+
+**Следующий шаг:** шаг 4 I16 — администраторы готовят сервер по чек-листу (план, раздел 4); затем шаг 5 — `dwh_check_network.py` на сервере.
 
 PR #7 с профилями закрыт без слияния. Тест 005 в E0/E1 внутри своей транзакции подменяет `app.integration_admin_session_user` тестовыми токенами; `ROLLBACK` её восстанавливает. Read-only запросы — через `database/tools/run_readonly_sql.ps1`.
 
