@@ -230,6 +230,29 @@ class ImportDbTests(Temp):
         self.assertIn("ALTER ROLE dwh_admin WITH SUPERUSER LOGIN;", out)
         self.assertIn("GRANT dwh_app TO dwh_admin;", out)
 
+    def test_linux_create_script(self):
+        script = (b"SET client_encoding = 'WIN1251';\r\n"
+                  b"CREATE DATABASE dwh WITH TEMPLATE = template0 ENCODING = 'WIN1251' LOCALE_PROVIDER = libc "
+                  b"LOCALE = 'Russian_Russia.1251';\r\n"
+                  b"ALTER DATABASE dwh SET lc_messages TO 'Russian_Russia.1251';\r\n"
+                  b"ALTER DATABASE dwh SET search_path TO 'app';\r\n"
+                  b"\\connect dwh\r\nCOPY t FROM stdin;\r\n\xe0\xe1\r\n\\.\r\n")
+        known = {"c", "posix", "c.utf8", "en_us.utf8"}
+        out, notes = imp.linux_create_script(script, "en_US.UTF-8", known)
+        self.assertIn(b"ENCODING = 'UTF8' LOCALE_PROVIDER = libc LOCALE = 'en_US.UTF-8';", out)
+        self.assertIn(b"-- (I16 import, Windows locale) ALTER DATABASE dwh SET lc_messages", out)
+        self.assertIn(b"ALTER DATABASE dwh SET search_path TO 'app';", out)
+        self.assertIn(b"\xe0\xe1", out)
+        self.assertEqual(len(notes), 2)
+        same, notes = imp.linux_create_script(b"CREATE DATABASE dwh WITH TEMPLATE = template0 ENCODING = 'UTF8' "
+                                              b"LOCALE = 'C';\nALTER DATABASE dwh SET lc_time TO 'C.utf8';\n",
+                                              "en_US.UTF-8", known)
+        self.assertIn(b"LOCALE = 'C';", same)
+        self.assertIn(b"\nALTER DATABASE dwh SET lc_time TO 'C.utf8';", same)
+        self.assertEqual(notes, [])
+        with self.assertRaises(imp.ImportError_):
+            imp.linux_create_script(b"SELECT 1;\n", "en_US.UTF-8", known)
+
     def test_compare_and_sums(self):
         self.assertEqual(imp.compare("rows|a.t|3\nfunctions|a|2\n", "rows|a.t|3\nfunctions|a|2\n"), [])
         problems = imp.compare("rows|a.t|3\nrows|a.u|1\n", "rows|a.t|2\n")

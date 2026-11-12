@@ -56,7 +56,7 @@
    sudo python3 /root/dwh_install/dwh_update.py /srv/dwh/incoming/dwh_release_2026.11.1.zip --first-install
    ```
 4. База (шаг 7).
-   - На ПК `tools\export_dwh_for_server.ps1` выгружает базу из контейнера `dwh-postgres` в `runtime\server_export\dwh_export_<время>\`:
+   - На ПК `tools\export_dwh_for_server.ps1` выгружает базу из службы PostgreSQL 17 Windows (`127.0.0.1:5433`, штатные `pg_dump`/`pg_dumpall`, пароль администратора запрашивается) в `runtime\server_export\dwh_export_<время>\`:
      - роли **без паролей**;
      - копию базы (`pg_dump -Fc`);
      - сведения о базе;
@@ -66,7 +66,7 @@
    - На сервере `sudo python3 dwh_import_db.py <папка>`:
      1. сверяет SHA256;
      2. создаёт роли; владельцу базы вход запрещён;
-     3. восстанавливает базу (`pg_restore --create`);
+     3. восстанавливает базу (`pg_restore --create`); локаль Windows заменяется на `en_US.UTF-8` (`--locale`), кодировка — `UTF8`;
      4. сравнивает каждую таблицу и число объектов с ПК;
      5. задаёт **новые случайные пароли** `dwh_app` и `dwh_etl` и сам пишет их в `/etc/dwh/dwh.env` — пароли никому не показываются.
    - Повторный перенос (окончательный, перед переходом): с `--replace`, службы DWH остановлены.
