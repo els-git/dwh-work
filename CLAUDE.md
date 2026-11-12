@@ -48,7 +48,7 @@ DWH — платформа хранилища данных с frontend, backend 
 Единый согласованный план: неизменяемые ID задач, итерации, зависимости, критерии приёмки, решения, журнал и статусы `PLANNED`, `IN_PROGRESS`, `BLOCKED`, `DONE`, `CANCELLED`, `DEFERRED`. **DONE — только после фактических проверок и подтверждения пользователя.** Историю не удалять, задачи не перенумеровывать, прежние требования не переписывать без согласования. Новые задачи — только с новыми ID и явной договорённостью.
 
 **Последний подтверждённый SHA256 (11.11.2026, в git):**
-`FF04A117C302FB858F290CFB30A768D52018F9DF91C35EA5D1B633D2EFD6ACFE`
+`81C2CE2228A64B333D6A856C6950AC98ED26F665F7FA3B8EA5262698DEEEA482`
 
 Документы на ПК обновляются через `git pull` после слияния PR. Скрипты `sync_docs_to_pc.ps1` удалены 03.11.2026: связь с git их заменила.
 
@@ -341,7 +341,9 @@ DWH — платформа хранилища данных с frontend, backend 
 
 **Шаг 3 I16 сделан в песочнице 12.11.2026** (план, раздел 10): `DWH_ENV_FILE` в `dwh_api/config.py` и `dwh/config.py` (+ `DWH_DB_HOST` в ETL), `deploy/` (requirements-server, systemd, nginx, dwh.env.example), `tools/server/` (`dwh_update.py` с откатом, `dwh_backup.py`, `dwh_check_network.py`, `dwh_task.py` через `systemd-run`, `dispatcher_service.py`), `tools/release/make_release.py` + `tools/make_release.ps1`, инструкция `docs/DWH_SERVER_RUNBOOK.md`; тесты 464 OK; сквозная проверка: `$SP/e2e_i16.py` (сервер-имитация в `/srv/i16e2e`, база `dwh` — копия `e2e_i08` с заглушками `meta.v_integration_control_object` и `etl.integration_run_request_claim`), nginx установлен в песочнице. PostgreSQL песочницы запускать через `setsid` (иначе останавливается вместе с оболочкой).
 
-**Следующий шаг:** шаг 4 I16 — администраторы готовят сервер по чек-листу (план, раздел 4); затем шаг 5 — `dwh_check_network.py` на сервере.
+**Шаг 4 I16 (12.11.2026):** сервер `dwh-srv`, IP `10.1.20.20`, вход по SSH с ПК пользователя (у Claude доступа к серверу нет — команды выполняет пользователь). Проверка по чек-листу — `tools/server/dwh_check_server.py` (только чтение), копируется на сервер `scp` вместе с `dwh_check_network.py`.
+
+**Следующий шаг:** вывод `dwh_check_server.py` и `dwh_check_network.py` с сервера → закрыть замечания с администраторами → шаг 6 (первый пакет выпуска).
 
 PR #7 с профилями закрыт без слияния. Тест 005 в E0/E1 внутри своей транзакции подменяет `app.integration_admin_session_user` тестовыми токенами; `ROLLBACK` её восстанавливает. Read-only запросы — через `database/tools/run_readonly_sql.ps1`.
 
