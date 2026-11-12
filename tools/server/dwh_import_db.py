@@ -7,7 +7,10 @@ Steps:
   1. SHA256 of every export file (SHA256SUMS);
   2. roles from roles.sql (no passwords in it): created when missing, attributes and memberships as on
      the PC; the owner role of the database stays without login;
-  3. the database itself: pg_restore --create (owner, encoding, collation and settings as on the PC);
+  3. the database itself: pg_restore --create as a script (owner, settings and rights of the database as
+     on the PC); the PC runs PostgreSQL on Windows, whose locale names (e.g. 'English_United States.1252')
+     do not exist on Linux, so CREATE DATABASE gets UTF8 and --locale (default en_US.UTF-8; C/POSIX kept),
+     and per-database lc_* settings with Windows names are left out (printed);
      --replace drops the existing dwh first (the DWH services must be stopped);
   4. comparison: rows of every table and objects per schema, server against counts.txt of the PC;
   5. new random passwords for dwh_app and dwh_etl, written straight into /etc/dwh/dwh.env
@@ -32,6 +35,9 @@ SERVICE_ROLES = ("dwh_app", "dwh_etl")
 ENV_FILE = Path("/etc/dwh/dwh.env")
 ENV_TEMPLATE = Path("/opt/dwh/current/src/deploy/dwh.env.example")
 COUNTS_SQL = Path(__file__).resolve().with_name("table_counts.sql")
+LINUX_LOCALE = "en_US.UTF-8"
+CREATE_DB_RE = re.compile(rb"^CREATE DATABASE [^\r\n]*;", re.M)
+LC_SETTING_RE = re.compile(rb"^ALTER DATABASE \S+ SET (lc_messages|lc_monetary|lc_numeric|lc_time) TO .*;\r?$", re.M)
 ROLE_RE = re.compile(r'^CREATE ROLE ("?)([A-Za-z_][A-Za-z0-9_$]*)\1;$')
 
 
@@ -94,6 +100,55 @@ def roles_script(text: str) -> str:
     return "\n".join(out) + "\n"
 
 
+def norm_locale(name: str) -> str:
+    return name.lower().replace("utf-8", "utf8")
+
+
+def server_locales() -> set[str]:
+    try:
+        listed = subprocess.run(["locale", "-a"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True).stdout
+    except OSError:
+        listed = ""
+    return {norm_locale(line.strip()) for line in listed.splitlines() if line.strip()} | {"c", "posix"}
+
+
+def linux_create_script(script: bytes, locale: str, available: set[str] | None = None) -> tuple[bytes, list[str]]:
+    """The pg_restore --create script with CREATE DATABASE for Linux: encoding UTF8; a locale that this
+    server does not have (Windows names such as 'English_United States.1252') becomes the given locale;
+    per-database lc_* settings with such names are left out."""
+    known = server_locales() if available is None else available
+    notes = []
+
+    def exists(value: bytes) -> bool:
+        return norm_locale(value.decode("utf-8", "replace")) in known
+    creates = CREATE_DB_RE.findall(script)
+    if len(creates) != 1:
+        raise ImportError_(f"expected one CREATE DATABASE in the copy, found {len(creates)}")
+
+    def fix(match: re.Match) -> bytes:
+        line = match.group(0)
+        line = re.sub(rb"ENCODING = '[^']*'", b"ENCODING = 'UTF8'", line)
+        for key in (b"LOCALE", b"LC_COLLATE", b"LC_CTYPE"):
+            def one(m: re.Match) -> bytes:
+                value = m.group(1)
+                if exists(value):
+                    return m.group(0)
+                notes.append(f"{key.decode()} {value.decode('utf-8', 'replace')} -> {locale}")
+                return key + b" = '" + locale.encode() + b"'"
+            line = re.sub(rb"(?<![A-Z_])" + key + rb" = '([^']*)'", one, line)
+        return line
+
+    script = CREATE_DB_RE.sub(fix, script, count=1)
+
+    def drop(match: re.Match) -> bytes:
+        value = match.group(0)
+        if exists(re.search(rb"TO '([^']*)'", value).group(1)):
+            return value
+        notes.append("left out: " + value.decode("utf-8", "replace").strip())
+        return b"-- (I16 import, Windows locale) " + value
+    return LC_SETTING_RE.sub(drop, script), notes
+
+
 def compare(expected_text: str, actual_text: str) -> list[str]:
     expected = {l.rsplit("|", 1)[0]: l.rsplit("|", 1)[1] for l in expected_text.splitlines() if "|" in l}
     actual = {l.rsplit("|", 1)[0]: l.rsplit("|", 1)[1] for l in actual_text.splitlines() if "|" in l}
@@ -128,6 +183,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("export", help="folder copied from the PC (dwh_export_<time>)")
     parser.add_argument("--replace", action="store_true", help="drop the existing database dwh first")
+    parser.add_argument("--locale", default=LINUX_LOCALE, help="locale of the database on the server")
     parser.add_argument("--keep-env", action="store_true", help="do not change passwords and /etc/dwh/dwh.env")
     args = parser.parse_args(argv)
     if os.name != "posix" or os.geteuid() != 0:
@@ -144,6 +200,18 @@ def main(argv: list[str] | None = None) -> int:
         for unit in ("dwh-api", "dwh-dispatcher"):
             if subprocess.run(["systemctl", "is-active", "--quiet", unit], stderr=subprocess.DEVNULL).returncode == 0:
                 raise ImportError_(f"{unit} is running; stop it first: sudo systemctl stop dwh-api dwh-dispatcher")
+        # Everything that can fail is prepared before anything is changed (roles, drop).
+        script = subprocess.run(["runuser", "-u", "postgres", "--", "pg_restore", "--create", "-f", "-"],
+                                input=(export / "dwh.dump").read_bytes(), stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE)
+        if script.returncode != 0:
+            raise ImportError_("pg_restore could not read the copy: "
+                               + script.stderr.decode("utf-8", "replace").strip()[-300:])
+        if norm_locale(args.locale) not in server_locales():
+            raise ImportError_(f"locale {args.locale} is not installed on this server (locale -a)")
+        sql, notes = linux_create_script(script.stdout, args.locale)
+        for note in notes:
+            print(f"locale: {note}")
         psql(roles_script((export / "roles.sql").read_text()))
         if info["owner"] != "postgres":
             psql(f'ALTER ROLE "{info["owner"]}" NOLOGIN;')
@@ -151,8 +219,7 @@ def main(argv: list[str] | None = None) -> int:
         if exists:
             psql(f"DROP DATABASE {DB} WITH (FORCE);")
             print("previous database dwh dropped (--replace)")
-        as_postgres(["pg_restore", "--create", "--exit-on-error", "-d", "postgres"],
-                    stdin=(export / "dwh.dump").read_bytes())
+        as_postgres(["psql", "-X", "-q", "-v", "ON_ERROR_STOP=1", "-d", "postgres", "-f", "-"], stdin=sql)
         psql("ANALYZE;", DB)
         print("database dwh restored")
         actual = psql(COUNTS_SQL.read_text(), DB)
