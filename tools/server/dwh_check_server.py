@@ -107,33 +107,37 @@ def check_system() -> None:
 
 
 def check_disks() -> None:
-    for path, size_gb, kind, what in (("/", 150, "SSD", "system"), ("/var/lib/postgresql", 400, "SSD", "database"),
-                                      ("/backup", 900, None, "copies")):
+    """Layout agreed on 12.11.2026 (plan I16, 11.3): system SSD ~200 GB with /backup on it,
+    a separate SSD ~500 GB for /var/lib/postgresql. Virtual disks often report themselves as
+    rotational, so "HDD" is a warning to confirm, not a failure."""
+    db_mount = mount_of("/var/lib/postgresql")
+    for path, size_gb, separate_needed, what in (("/", 150, False, "system"),
+                                                 ("/var/lib/postgresql", 400, True, "database"),
+                                                 ("/backup", 0, False, "copies")):
         mount = mount_of(path)
         if mount is None or not Path(path).exists():
             add("FAIL", f"disk {what}: {path} missing")
             continue
-        usage = shutil.disk_usage(path)
-        total = usage.total // 1024 ** 3
-        separate = mount[1] == path or path == "/"
+        total = shutil.disk_usage(path).total // 1024 ** 3
         media = rotational(mount[0])
-        level = "PASS"
-        notes = []
-        if not separate:
+        level, notes = "PASS", []
+        if separate_needed and mount[1] != path:
             level = "FAIL"
             notes.append("not a separate disk")
+        if path == "/backup" and db_mount is not None and mount[0] == db_mount[0]:
+            level = "FAIL"
+            notes.append("on the same disk as the database")
         if total < size_gb:
             level = "FAIL" if level == "FAIL" else "WARN"
-            notes.append(f"smaller than planned")
-        if kind == "SSD" and media == "HDD":
-            level = "FAIL"
-            notes.append("HDD, needed SSD")
+            notes.append("smaller than planned")
+        if media == "HDD" and path != "/backup":
+            level = "FAIL" if level == "FAIL" else "WARN"
+            notes.append("reported as HDD - confirm SSD (virtual disks often report HDD)")
         add(level, f"disk {what}: {path} on {mount[0]} ({mount[1]}), {total} GB, {media}"
             + (f" - {', '.join(notes)}" if notes else ""))
     fstab = Path("/etc/fstab").read_text() if Path("/etc/fstab").exists() else ""
-    for path in ("/var/lib/postgresql", "/backup"):
-        add("PASS" if f" {path} " in fstab or f"\t{path}\t" in fstab else "WARN",
-            f"{path} in /etc/fstab " + ("(survives reboot)" if path in fstab else "not found"))
+    present = " /var/lib/postgresql " in fstab or "\t/var/lib/postgresql\t" in fstab
+    add("PASS" if present else "FAIL", "/var/lib/postgresql in /etc/fstab " + ("(survives reboot)" if present else "not found"))
 
 
 def check_users_dirs() -> None:
