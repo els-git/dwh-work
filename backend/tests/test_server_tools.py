@@ -18,6 +18,7 @@ for _path in (PROJECT / "tools" / "server", PROJECT / "tools" / "release"):
 
 import dispatcher_service  # noqa: E402
 import dwh_backup  # noqa: E402
+import dwh_prepare_server as prep  # noqa: E402
 import dwh_task  # noqa: E402
 import dwh_update as up  # noqa: E402
 
@@ -195,6 +196,26 @@ class DispatcherServiceTests(unittest.TestCase):
                 stop.set()
         dispatcher_service.serve(run_once, stop, poll_seconds=0.01)
         self.assertEqual(calls, [True, True, True])
+
+
+class PrepareServerTests(unittest.TestCase):
+    def test_postgres_memory_by_server_size(self):
+        text16 = prep.pg_conf_text(16)
+        self.assertIn("shared_buffers = '4GB'", text16)
+        self.assertIn("effective_cache_size = '10GB'", text16)
+        self.assertIn("timezone = 'Asia/Baku'", text16)
+        self.assertIn("listen_addresses = 'localhost'", text16)
+        self.assertIn("shared_buffers = '8GB'", prep.pg_conf_text(32))
+
+    def test_without_apply_nothing_runs(self):
+        executed = []
+        steps = [("A1 time zone -> Asia/Baku", [["timedatectl", "set-timezone", "Asia/Baku"]])]
+        with mock.patch.object(prep, "plan", return_value=steps), mock.patch.object(prep, "execute", executed.append), \
+                mock.patch.object(prep.os, "geteuid", return_value=0), mock.patch.object(prep.shutil, "which", return_value="/x"):
+            self.assertEqual(prep.main([]), 0)
+            self.assertEqual(executed, [])
+            self.assertEqual(prep.main(["--apply"]), 0)
+            self.assertEqual(executed, [["timedatectl", "set-timezone", "Asia/Baku"]])
 
 
 class SettingsTests(unittest.TestCase):
