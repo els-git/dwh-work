@@ -1,9 +1,15 @@
 """Master key administration for the SecretStore keyring (I02-05).
 
-Used only by tools/secret_key.ps1 on the server, never by the API:
-  new      generate a key, save <key_id>.dpapi and an encrypted backup file
-  restore  rebuild <key_id>.dpapi from a backup file
+Used only by the operator tools (tools/secret_key.ps1 on the Windows PC,
+tools/secret_key_tool.py --provider systemd-creds on the Linux server), never by the API:
+  new      generate a key, save <key_id>.dpapi (or <key_id>.cred) and an encrypted backup file
+  restore  rebuild the key file from a backup file
   verify   check that the key file opens and (optionally) matches a backup
+
+Key protection: Windows DPAPI (CurrentUser) on the PC; on the Linux server
+systemd-creds with the host key / TPM2 (I16, decision C9), the credential name
+dwh-key.<key_id> is bound into the encrypted file. The backup format is the same
+for both, so a key moves between them through its backup file.
 
 The backup is AES-256-GCM encrypted with a key derived from a backup
 passphrase by scrypt; the passphrase is typed by the operator and kept
@@ -20,13 +26,18 @@ import hmac
 import json
 import os
 import secrets
+import subprocess
+from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 
-from dwh_api.secret_keyring import key_file, valid_key_id
+from dwh_api.secret_keyring import (
+    CREDENTIAL_FILE_SUFFIX, KEY_FILE_SUFFIX, credential_name, key_file, valid_key_id,
+)
 
 BACKUP_FORMAT = "DWH-SECRETSTORE-KEY-BACKUP-1"
 BACKUP_SUFFIX = ".dwhkey"
@@ -135,6 +146,54 @@ def dpapi_unprotect(blob: bytes) -> bytes:
     return _dpapi(blob, False)
 
 
+# ----- Linux: systemd-creds (I16, decision C9) -------------------------------
+
+SYSTEMD_CREDS = "/usr/bin/systemd-creds"
+
+
+def _systemd_creds(action: str, data: bytes, key_id: str, run=None) -> bytes:
+    run = run or subprocess.run
+    if os.name == "nt":
+        raise KeyToolError("systemd-creds is not available here")
+    try:
+        name = credential_name(key_id)
+    except Exception:
+        raise KeyToolError("Invalid key id") from None
+    try:
+        # --with-key=auto (default): host key, plus TPM2 when the server has one.
+        result = run([SYSTEMD_CREDS, action, f"--name={name}", "-", "-"], input=data,
+                     stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False, timeout=60)
+    except (OSError, subprocess.SubprocessError):
+        raise KeyToolError("systemd-creds could not be started") from None
+    if result.returncode != 0 or not result.stdout:
+        # stderr may name files; it never carries the key, but it is not shown anyway.
+        raise KeyToolError("systemd-creds refused the operation")
+    return result.stdout
+
+
+def systemd_protect(raw: bytes, key_id: str) -> bytes:
+    return _systemd_creds("encrypt", raw, key_id)
+
+
+def systemd_unprotect(blob: bytes, key_id: str) -> bytes:
+    return _systemd_creds("decrypt", blob, key_id)
+
+
+@dataclass(frozen=True)
+class Protector:
+    """How key files are protected: file suffix, protect(raw, key_id), unprotect(blob, key_id)."""
+    suffix: str
+    protect: Callable[[bytes, str], bytes]
+    unprotect: Callable[[bytes, str], bytes]
+
+
+SYSTEMD_PROTECTOR = Protector(CREDENTIAL_FILE_SUFFIX, systemd_protect, systemd_unprotect)
+
+
+def _dpapi_protector(protect, unprotect) -> Protector:
+    return Protector(KEY_FILE_SUFFIX, lambda raw, key_id: protect(raw), lambda blob, key_id: unprotect(blob))
+
+
 # ----- Operations -----------------------------------------------------------
 
 def _write_new(path: Path, data: bytes) -> None:
@@ -145,21 +204,22 @@ def _write_new(path: Path, data: bytes) -> None:
 
 
 def create_key(keyring: Path, backup_dir: Path, key_id: str, passphrase: str,
-               protect=dpapi_protect, unprotect=dpapi_unprotect) -> tuple[str, Path]:
+               protect=dpapi_protect, unprotect=dpapi_unprotect, protector: Protector | None = None) -> tuple[str, Path]:
+    p = protector or _dpapi_protector(protect, unprotect)
     if not valid_key_id(key_id):
         raise KeyToolError("Invalid key id")
     if not keyring.is_dir() or not backup_dir.is_dir():
         raise KeyToolError("Keyring or backup folder does not exist")
     if keyring.resolve() == backup_dir.resolve():
         raise KeyToolError("Backup folder must differ from the keyring folder")
-    path = key_file(keyring, key_id)
+    path = key_file(keyring, key_id, p.suffix)
     backup = backup_dir / (key_id + BACKUP_SUFFIX)
     if path.exists() or backup.exists():
         raise KeyToolError("Key or backup with this id already exists")
     raw = secrets.token_bytes(32)
     document = make_backup(raw, key_id, passphrase)
-    blob = protect(raw)
-    if unprotect(blob) != raw or open_backup(document, passphrase)[1] != raw:
+    blob = p.protect(raw, key_id)
+    if p.unprotect(blob, key_id) != raw or open_backup(document, passphrase)[1] != raw:
         raise KeyToolError("Self-check failed; nothing was written")
     _write_new(backup, document)
     _write_new(path, blob)
@@ -167,25 +227,28 @@ def create_key(keyring: Path, backup_dir: Path, key_id: str, passphrase: str,
 
 
 def restore_key(keyring: Path, backup_file: Path, passphrase: str,
-                protect=dpapi_protect, unprotect=dpapi_unprotect) -> tuple[str, str, bool]:
+                protect=dpapi_protect, unprotect=dpapi_unprotect,
+                protector: Protector | None = None) -> tuple[str, str, bool]:
     """Returns (key_id, fingerprint, written). Existing matching key is kept."""
+    p = protector or _dpapi_protector(protect, unprotect)
     key_id, raw = open_backup(backup_file.read_bytes(), passphrase)
-    path = key_file(keyring, key_id)
+    path = key_file(keyring, key_id, p.suffix)
     if path.exists():
-        if fingerprint(unprotect(path.read_bytes())) != fingerprint(raw):
+        if fingerprint(p.unprotect(path.read_bytes(), key_id)) != fingerprint(raw):
             raise KeyToolError("A different key with this id is already in the keyring")
         return key_id, fingerprint(raw), False
-    blob = protect(raw)
-    if unprotect(blob) != raw:
+    blob = p.protect(raw, key_id)
+    if p.unprotect(blob, key_id) != raw:
         raise KeyToolError("Self-check failed; nothing was written")
     _write_new(path, blob)
     return key_id, fingerprint(raw), True
 
 
-def verify_key(keyring: Path, key_id: str, unprotect=dpapi_unprotect) -> str:
-    path = key_file(keyring, key_id)
+def verify_key(keyring: Path, key_id: str, unprotect=dpapi_unprotect, protector: Protector | None = None) -> str:
+    p = protector or _dpapi_protector(dpapi_protect, unprotect)
+    path = key_file(keyring, key_id, p.suffix)
     try:
-        raw = unprotect(path.read_bytes())
+        raw = p.unprotect(path.read_bytes(), key_id)
     except KeyToolError:
         raise
     except Exception:
@@ -193,6 +256,45 @@ def verify_key(keyring: Path, key_id: str, unprotect=dpapi_unprotect) -> str:
     if len(raw) != 32:
         raise KeyToolError("Key file is damaged")
     return fingerprint(raw)
+
+
+# ----- Linux activation: settings and service drop-in ---------------------------
+
+SYSTEMD_ENV_FILE = Path("/etc/dwh/keyring.env")
+SYSTEMD_DROPIN = Path("/etc/systemd/system/dwh-.service.d/10-keyring.conf")
+
+
+def keyring_key_ids(keyring: Path, suffix: str = CREDENTIAL_FILE_SUFFIX) -> list[str]:
+    ids = sorted(item.name[:-len(suffix)] for item in keyring.iterdir()
+                 if item.is_file() and not item.is_symlink() and item.name.endswith(suffix))
+    return [key_id for key_id in ids if valid_key_id(key_id)]
+
+
+def systemd_activation_texts(keyring: Path, active_key_id: str, key_ids: list[str],
+                             env_file: Path = SYSTEMD_ENV_FILE) -> tuple[str, str]:
+    """(settings file, drop-in for every dwh-*.service): the services load every key of the
+    keyring as an encrypted credential; the active one encrypts new credentials."""
+    if not valid_key_id(active_key_id) or active_key_id not in key_ids:
+        raise KeyToolError("Active key is not in the keyring")
+    env_text = ("# I16 SecretStore keys: systemd credentials, written by secret_key_tool.py activate\n"
+                "DWH_SECRET_KEY_PROVIDER=systemd-creds\n"
+                f"DWH_SECRET_ACTIVE_KEY_ID={active_key_id}\n")
+    lines = ["# I16 SecretStore keys for every dwh-*.service; written by secret_key_tool.py activate",
+             "[Service]", f"EnvironmentFile={env_file}"]
+    lines += [f"LoadCredentialEncrypted={credential_name(key_id)}:{keyring / (key_id + CREDENTIAL_FILE_SUFFIX)}"
+              for key_id in key_ids]
+    return env_text, "\n".join(lines) + "\n"
+
+
+def write_atomic(path: Path, text: str, mode: int = 0o640) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    with open(tmp, "w", encoding="utf-8", newline="\n") as handle:
+        handle.write(text)
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.chmod(tmp, mode)
+    os.replace(tmp, path)
 
 
 # ----- .env settings --------------------------------------------------------

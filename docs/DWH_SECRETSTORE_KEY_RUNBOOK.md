@@ -70,3 +70,27 @@ Backend должен работать под тем же пользовател�
 - DPAPI привязан к учётной записи Windows: при её смене или потере профиля ключ восстанавливается только из копии.
 - Потеря и ПК, и пароля копии — ключ не восстановить.
 - Служебная учётная запись и HSM/KMS для эксплуатационного сервера — вне I02-05.
+
+## Linux-сервер (I16, решение С9)
+
+На сервере Debian 13 ключи защищены не DPAPI, а `systemd-creds`. Каждый ключ — файл `/etc/dwh/keyring/<key_id>.cred`, зашифрованный ключом сервера (и TPM 2.0, если он есть); в файл вшито имя `dwh-key.<key_id>`, поэтому переименованный файл не откроется. Службы DWH получают ключи через `LoadCredentialEncrypted=`: systemd расшифровывает их в память службы (`$CREDENTIALS_DIRECTORY`), на диске открытого ключа нет.
+
+Формат копий `.dwhkey` тот же, что на ПК: ключ с ПК переносится на сервер восстановлением из копии, пароли источников при этом заново не вводятся.
+
+Команды выполняются от `root` (`sudo`); `<python>` — Python окружения DWH на сервере (уточняется в шаге 3 I16).
+
+- Папка ключей (один раз): `install -d -m 0700 -o root -g root /etc/dwh/keyring`.
+- Восстановить ключ из копии: `<python> tools/secret_key_tool.py restore --provider systemd-creds --keyring /etc/dwh/keyring --backup-file <файл>.dwhkey`.
+- Проверить ключ (и копию): `<python> tools/secret_key_tool.py verify --provider systemd-creds --keyring /etc/dwh/keyring --key-id <key_id> [--backup-file <файл>.dwhkey]`.
+- Создать ключ (ротация): `<python> tools/secret_key_tool.py new --provider systemd-creds --keyring /etc/dwh/keyring --backup-dir <папка копии вне сервера> --key-id <новый id>`.
+- Сделать ключ действующим: `<python> tools/secret_key_tool.py activate --provider systemd-creds --keyring /etc/dwh/keyring --key-id <key_id>`. Команда:
+  - проверяет все ключи папки;
+  - пишет `/etc/dwh/keyring.env` (`DWH_SECRET_KEY_PROVIDER=systemd-creds`, действующий ключ);
+  - пишет `/etc/systemd/system/dwh-.service.d/10-keyring.conf` (все ключи папки — службам `dwh-*`).
+
+  Затем `systemctl daemon-reload` и перезапуск служб DWH.
+
+Ограничения на сервере:
+- `root` может расшифровать ключ (как администратор Windows — DPAPI);
+- копия диска без самого сервера (его ключа или TPM) ключи не раскрывает;
+- при замене сервера или сбросе TPM ключи восстанавливаются только из копий `.dwhkey`.
