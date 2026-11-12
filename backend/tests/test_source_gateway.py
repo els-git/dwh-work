@@ -179,6 +179,13 @@ class ConnectTest(unittest.TestCase):
         raw.cancel_safe = lambda timeout: cancelled.append(timeout)
         conn.cancel()
         self.assertEqual(cancelled, [10.0])
+        import socket
+        left, right = socket.socketpair()
+        raw.pgconn = type("PgConn", (), {"socket": left.fileno()})()
+        conn.abort()
+        self.assertEqual(right.recv(10), b"")  # the peer sees the connection shut down
+        left.close()
+        right.close()
         self.assertEqual(raw.sent, ["SHOW transaction_read_only"])
 
     def test_not_read_only_fails_closed_before_any_query(self):
