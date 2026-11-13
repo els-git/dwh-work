@@ -179,6 +179,8 @@ def check_programs() -> None:
     for program in ("nginx", "git", "unzip", "systemd-creds", "sha256sum"):
         found = shutil.which(program) or (f"/usr/sbin/{program}" if Path(f"/usr/sbin/{program}").exists() else None)
         add("PASS" if found else "FAIL", f"{program}: {'present' if found else 'missing'}")
+    font = Path("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf").is_file()
+    add("PASS" if font else "FAIL", "PDF font DejaVuSans (fonts-dejavu-core): " + ("present" if font else "missing"))
     tpm = Path("/dev/tpmrm0").exists() or Path("/dev/tpm0").exists()
     add("PASS" if tpm else "WARN", "TPM 2.0: " + ("present (keys bound to it)" if tpm else "none (keys bound to the host key only)"))
     for program in ("node", "npm", "gcc"):

@@ -5,7 +5,7 @@
 
 Done here (each item only when needed; running again changes nothing):
   A1  time zone Asia/Baku
-  A4  packages python3-venv nginx git unzip ufw (apt; needs the internet or the internal mirror)
+  A4  packages python3-venv nginx git unzip ufw fonts-dejavu-core (apt; needs the internet or the internal mirror)
   A3  system user dwh (no login), folders of the runbook, /srv/dwh/incoming, /backup
   A8  PostgreSQL 17: conf.d/dwh.conf (memory by the size of the server, time zone Asia/Baku), restart
   A10 firewall ufw: incoming only 22 and 443, outgoing open; the default nginx site removed (port 80)
@@ -23,7 +23,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-PACKAGES = ("python3-venv", "nginx", "git", "unzip", "ufw")
+PACKAGES = ("python3-venv", "nginx", "git", "unzip", "ufw", "fonts-dejavu-core")  # fonts: PDF reports
 PG_CONF = Path("/etc/postgresql/17/main/conf.d/dwh.conf")
 NGINX_DEFAULT = Path("/etc/nginx/sites-enabled/default")
 
