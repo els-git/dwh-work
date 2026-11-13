@@ -86,7 +86,7 @@
 
 ## 3a. Вход на сервер (I13-12)
 
-Вход по SSH — **только по ключу** (с 13.11.2026): `/etc/ssh/sshd_config.d/10-dwh-keys-only.conf` — `PasswordAuthentication no`, `KbdInteractiveAuthentication no`, `PermitRootLogin no`. `sudo` по-прежнему спрашивает пароль пользователя.
+**С 13.11.2026 (решение пользователя) вход по SSH снова разрешён и по паролю, и по ключу** — до выхода в промышленную эксплуатацию (задача I13-12 `DEFERRED`). Включить «только по ключу» снова: файл `/etc/ssh/sshd_config.d/10-dwh-keys-only.conf` с `PasswordAuthentication no`, `KbdInteractiveAuthentication no`, `PermitRootLogin no`, затем `sudo sshd -t && sudo systemctl reload ssh`.
 - Ключ администратора — на ПК (`C:\Users\elshad.asgarov\.ssh\id_ed25519`, с passphrase); копия хранится вне ПК, рядом с копиями `.dwhkey`.
 - Новый администратор: его открытый ключ добавляется в `~/.ssh/authorized_keys` нужного пользователя (права `600`, папка `.ssh` — `700`).
 - При потере всех ключей — консоль виртуальной машины у администраторов; вернуть вход по паролю: `sudo rm /etc/ssh/sshd_config.d/10-dwh-keys-only.conf && sudo systemctl reload ssh`.
