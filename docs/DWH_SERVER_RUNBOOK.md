@@ -71,7 +71,10 @@
      5. задаёт **новые случайные пароли** `dwh_app` и `dwh_etl` и сам пишет их в `/etc/dwh/dwh.env` — пароли никому не показываются.
    - Повторный перенос (окончательный, перед переходом): с `--replace`, службы DWH остановлены.
 5. Ключи (шаг 8): восстановление из `.dwhkey` и активация — `docs/DWH_SECRETSTORE_KEY_RUNBOOK.md`, раздел «Linux-сервер». Python для команд: `/opt/dwh/current/venv/bin/python`, скрипт `/opt/dwh/current/src/tools/secret_key_tool.py`. Зашифрованные учётные данные источников с ПК (`DWH_SECRET_STORE_DIR`) — в `/var/lib/dwh/secrets`.
-6. nginx: шаблон `/opt/dwh/current/src/deploy/nginx/dwh.conf` скопировать в `/etc/nginx/sites-available/dwh.conf`, вписать DNS-имя, включить:
+6. nginx: шаблон `/opt/dwh/current/src/deploy/nginx/dwh.conf` скопировать в `/etc/nginx/sites-available/dwh.conf`, вписать DNS-имя, включить. Пока нет сертификата УЦ — временный самоподписанный (браузер предупредит), потом заменить файлы:
+   ```bash
+   sudo openssl req -x509 -newkey rsa:3072 -sha256 -days 365 -nodes -keyout /etc/dwh/tls/dwh.key -out /etc/dwh/tls/dwh.crt -subj "/CN=app-dwh-srv" -addext "subjectAltName=IP:10.1.20.20,DNS:app-dwh-srv" && sudo chmod 600 /etc/dwh/tls/dwh.key
+   ```
    ```bash
    sudo ln -s /etc/nginx/sites-available/dwh.conf /etc/nginx/sites-enabled/dwh.conf
    sudo nginx -t && sudo systemctl reload nginx
