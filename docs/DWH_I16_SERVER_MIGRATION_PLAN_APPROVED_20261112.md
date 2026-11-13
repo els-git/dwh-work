@@ -499,3 +499,11 @@ Node.js, компиляторы и доступ в интернет **не ну�
 2. на сервере `dwh_update.py` → ожидается `UPDATE_RESULT: PASS` и копия `pre-update-2026.11.2`;
 3. откат `--rollback-to 2026.11.1` → `ROLLBACK_RESULT: PASS`;
 4. возврат `--rollback-to 2026.11.2` → `ROLLBACK_RESULT: PASS`.
+
+**Часть 2 — PASS (13.11.2026):**
+- пакет `2026.11.2` (коммит `6a5ebb7d`, 33 файла) собран на ПК, `sha256sum -c` на сервере OK;
+- `dwh_update.py` — копия базы `pre-update-2026.11.2` создана, службы здоровы, `UPDATE_RESULT: PASS`;
+- `--rollback-to 2026.11.1` — `ROLLBACK_RESULT: PASS`; `--rollback-to 2026.11.2` — `ROLLBACK_RESULT: PASS`;
+- итог: `/opt/dwh/current` → `2026.11.2`, `/api/health` `ok`.
+
+**Остаётся в шаге 10:** заявки «Запустить» / «Заново полностью» для `OPERATION_COLLECTOR` на сервере — после записи `10.1.20.20` в `pg_hba.conf` источника.
