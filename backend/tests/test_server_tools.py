@@ -128,6 +128,24 @@ class SwitchTests(Temp):
         stops = [c for c in s.run.calls if c[:2] == ["systemctl", "stop"]]
         self.assertEqual(stops[0][2], "dwh-dispatcher.service")  # dispatcher stops first
 
+    def test_manual_rollback(self):
+        s = self.settings()
+        v1, v2 = self.release(s, "v1"), self.release(s, "v2", "[Service]\nX=2\n")
+        for r in (v1, v2):
+            (r / "venv").mkdir()
+        up.switch_to(s, v2)
+        with mock.patch.object(up, "healthy", lambda st: (True, "fake")):
+            self.assertEqual(up.rollback("v1", s), 0)
+            self.assertEqual(Path(os.path.realpath(s.current)), v1.resolve())
+            self.assertEqual((s.unit_dir / "dwh-api.service").read_text(), "[Service]\n")
+            with self.assertRaises(up.UpdateError):
+                up.rollback("v1", s)  # already current
+            with self.assertRaises(up.UpdateError):
+                up.rollback("v9", s)  # not installed
+        with mock.patch.object(up, "healthy", lambda st: (os.path.realpath(st.current).endswith("v1"), "fake")):
+            self.assertEqual(up.rollback("v2", s), 1)  # v2 does not start: back to v1
+        self.assertEqual(Path(os.path.realpath(s.current)), v1.resolve())
+
     def test_prune_keeps_current_and_previous(self):
         s = self.settings()
         s.keep = 1

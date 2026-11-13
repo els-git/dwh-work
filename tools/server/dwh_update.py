@@ -1,6 +1,7 @@
 """Install a DWH release package on the server (I16, decision C4). Run as root.
 
   sudo python3 dwh_update.py /srv/dwh/incoming/dwh_release_<version>.zip [--first-install]
+  sudo python3 dwh_update.py --rollback-to <version>     back to an installed release (manual rollback)
 
 Steps (any failure before the switch leaves the running release untouched):
   1. SHA256 of the package against dwh_release_<version>.sha256 next to it;
@@ -317,9 +318,43 @@ def update(package: Path, settings: Settings, first_install: bool = False) -> in
     return 1
 
 
+def rollback(version: str, settings: Settings) -> int:
+    """Manual rollback: switch /opt/dwh/current to an installed release and check it. The database is not
+    touched (copies before every update are in /backup/dwh, labelled pre-update-<version>)."""
+    log = settings.log
+    if not VERSION_RE.match(version):
+        raise UpdateError("Invalid version")
+    target = settings.releases / version
+    if not (target / "src").is_dir() or not (target / "venv").is_dir():
+        raise UpdateError(f"Release {version} is not installed in {settings.releases}")
+    previous = current_release(settings)
+    if previous is not None and previous == target.resolve():
+        raise UpdateError(f"Release {version} is already current")
+    if install_units(settings, target):
+        log("systemd units of the release installed")
+    ok, detail = restart_on(settings, target)
+    if ok:
+        os.utime(target)  # most recent: kept by the retention of old releases
+        log(f"services: {detail}")
+        log(f"ROLLBACK_RESULT: PASS (current release {version}"
+            + (f", was {previous.name})" if previous else ")"))
+        return 0
+    log(f"release {version} did not start: {detail}")
+    if previous is None:
+        log("ROLLBACK_RESULT: FAIL (no previous release to return to)")
+        return 1
+    install_units(settings, previous)
+    back_ok, back_detail = restart_on(settings, previous)
+    log(f"previous release {previous.name}: {back_detail}")
+    log(f"ROLLBACK_RESULT: FAIL ({version} not started; {previous.name} "
+        f"{'running' if back_ok else 'NOT running - check the services'})")
+    return 1
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("package")
+    parser.add_argument("package", nargs="?")
+    parser.add_argument("--rollback-to", metavar="VERSION", help="switch back to an installed release")
     parser.add_argument("--first-install", action="store_true", help="no current release, no database copy yet")
     parser.add_argument("--root", default="/opt/dwh")
     args = parser.parse_args(argv)
@@ -327,6 +362,15 @@ def main(argv: list[str] | None = None) -> int:
         print("UPDATE_RESULT: FAIL (run as root: sudo python3 dwh_update.py ...)")
         return 1
     settings = Settings(root=Path(args.root))
+    if bool(args.package) == bool(args.rollback_to):
+        print("UPDATE_RESULT: FAIL (give a package or --rollback-to <version>)")
+        return 1
+    if args.rollback_to:
+        try:
+            return rollback(args.rollback_to, settings)
+        except (UpdateError, OSError) as exc:
+            print(f"ROLLBACK_RESULT: FAIL ({exc})")
+            return 1
     try:
         return update(Path(args.package).resolve(), settings, args.first_install)
     except (UpdateError, OSError, zipfile.BadZipFile) as exc:
