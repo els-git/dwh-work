@@ -116,7 +116,11 @@ def ask(url: str, system: str, user: str, max_tokens: int, timeout: int) -> tupl
     started = time.monotonic()
     with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310 - localhost only
         data = json.loads(response.read())
-    return data["choices"][0]["message"]["content"], data.get("timings") or {}, time.monotonic() - started
+    message = data["choices"][0]["message"]
+    timings = dict(data.get("timings") or {})
+    timings["reasoning_chars"] = len(message.get("reasoning_content") or "")
+    timings["finish_reason"] = data["choices"][0].get("finish_reason")
+    return message.get("content") or "", timings, time.monotonic() - started
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -125,7 +129,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--url", default="http://127.0.0.1:8081")
     parser.add_argument("--out", default="/srv/dwh/incoming")
     parser.add_argument("--only", choices=("help", "sql"))
-    parser.add_argument("--timeout", type=int, default=600)
+    parser.add_argument("--timeout", type=int, default=900)
+    parser.add_argument("--max-tokens", type=int, default=0,
+                        help="answer limit incl. reasoning (models that think need 3000+); default 500 help / 400 SQL")
     args = parser.parse_args(argv)
     if not re.fullmatch(r"[A-Za-z0-9._-]{1,80}", args.label):
         print("PROBE_RESULT: FAIL (label: letters, digits, . _ - only)")
@@ -144,9 +150,9 @@ def main(argv: list[str] | None = None) -> int:
     checks = {"OK": 0, "NO_DATA": 0, "ERROR": 0}
     for q in questions:
         if q["kind"] == "help":
-            system, user, limit = HELP_SYSTEM, f"Справка:\n{find_context(q['text'], pieces)}\n\nВопрос: {q['text']}", 500
+            system, user, limit = HELP_SYSTEM, f"Справка:\n{find_context(q['text'], pieces)}\n\nВопрос: {q['text']}", args.max_tokens or 500
         else:
-            system, user, limit = SQL_SYSTEM + "\n\nТаблицы:\n" + schema, q["text"], 400
+            system, user, limit = SQL_SYSTEM + "\n\nТаблицы:\n" + schema, q["text"], args.max_tokens or 400
         try:
             answer, timings, seconds = ask(args.url, system, user, limit, args.timeout)
         except Exception as exc:  # noqa: BLE001
@@ -157,7 +163,9 @@ def main(argv: list[str] | None = None) -> int:
         speed = timings.get("predicted_per_second")
         if speed:
             speeds.append(speed)
-        head = f"## {q['id']} ({q['kind']}) — {seconds:.0f} s" + (f", {speed:.1f} tok/s" if speed else "")
+        head = (f"## {q['id']} ({q['kind']}) — {seconds:.0f} s" + (f", {speed:.1f} tok/s" if speed else "")
+                + (f", reasoning {timings['reasoning_chars']} chars" if timings.get("reasoning_chars") else "")
+                + (" — CUT (limit reached)" if timings.get("finish_reason") == "length" else ""))
         lines += [head, "", f"**Вопрос:** {q['text']}", ""]
         if q["kind"] == "sql":
             found = SQL_RE.search(answer)
