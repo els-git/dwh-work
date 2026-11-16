@@ -14,6 +14,7 @@ export interface AiStatus {
 export interface AiHelpAnswer {
   request_id: number
   status: 'OK' | 'DENIED' | 'NO_DATA'
+  code?: string
   answer: string
   sections: { number: string, title: string }[]
 }
@@ -89,6 +90,17 @@ export interface AiRequestLogRow {
 }
 
 
+// An HTTP error with its status: the chat shows its own text for "busy", "unavailable" and "stopped".
+export class AiHttpError extends Error {
+  readonly status: number
+
+  constructor(status: number, message: string) {
+    super(message)
+    this.status = status
+  }
+}
+
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers)
   headers.set('Accept', 'application/json')
@@ -104,23 +116,28 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       payload = null
     }
     const detail = typeof payload?.detail === 'string' ? payload.detail : null
-    throw new Error(payload?.message ?? detail ?? `${response.status} ${response.statusText}`)
+    throw new AiHttpError(response.status, payload?.message ?? detail ?? `${response.status} ${response.statusText}`)
   }
   return response.json() as Promise<T>
 }
 
 
-function post<T>(path: string, body: unknown): Promise<T> {
-  return request<T>(path, { method: 'POST', body: JSON.stringify(body) })
+function post<T>(path: string, body: unknown, signal?: AbortSignal): Promise<T> {
+  return request<T>(path, { method: 'POST', body: JSON.stringify(body), signal })
 }
 
 
 export const getAiStatus = () => request<AiStatus>('/api/ai/status')
 
-export const askAiHelp = (question: string, image: string | null) =>
-  post<AiHelpAnswer>('/api/ai/help', { question, image })
+export const askAiHelp = (question: string, image: string | null, clientId: string, signal: AbortSignal) =>
+  post<AiHelpAnswer>('/api/ai/help', { question, image, client_id: clientId }, signal)
 
-export const askAiReport = (question: string) => post<AiReportAnswer>('/api/ai/report', { question })
+export const askAiReport = (question: string, clientId: string, signal: AbortSignal) =>
+  post<AiReportAnswer>('/api/ai/report', { question, client_id: clientId }, signal)
+
+// The Stop button: the server stops the question at once and frees the model for the next one.
+export const cancelAiQuestion = (clientId: string) =>
+  post<{ stopped: boolean }>('/api/ai/cancel', { client_id: clientId })
 
 export const getAiConfig = () => request<AiConfig>('/api/ai/admin/config')
 

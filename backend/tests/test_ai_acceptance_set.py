@@ -8,7 +8,7 @@ import sys
 import unittest
 from pathlib import Path
 
-from dwh_api.ai_knowledge import KnowledgeIndex, UserScope
+from dwh_api.ai_knowledge import KnowledgeIndex, UserScope, is_russian
 from dwh_api.ai_sql_guard import AllowedObject, check_text
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -36,6 +36,8 @@ class AcceptanceSetTests(unittest.TestCase):
         for item in DOC["items"]:
             if item["kind"] != "help":
                 continue
+            if not is_russian(item["question"]):
+                continue  # translated by the model first (dwh_ai_acceptance.py), not searchable offline
             role = DOC["roles"][item["role"]]
             user = UserScope(role["level"], frozenset(role["permissions"]), frozenset(role["resources"]))
             found = index.search(item["question"], user)
