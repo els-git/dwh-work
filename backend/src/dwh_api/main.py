@@ -26,6 +26,7 @@ from dwh_api.role_catalog import router as role_catalog_router
 from dwh_api.access_control import router as access_control_router
 from dwh_api.user_catalog import router as user_catalog_router
 from dwh_api.ai_assistant import router as ai_assistant_router
+from dwh_api.saved_reports import router as saved_reports_router
 from dwh_api.models import (
     ApiError,
     ApiMetadata,
@@ -2321,6 +2322,14 @@ async def authorization_middleware(
         )
 
 
+    # I17-09: saved reports; every call is checked again in the database (package 017).
+    elif path.startswith("/api/reports/saved/"):
+        permissions = (
+            "REPORT_VIEW",
+        )
+        resource_required = True
+
+
     elif path.startswith(
         "/api/reporting/retail/export"
     ):
@@ -2442,3 +2451,4 @@ app.include_router(role_catalog_router)
 app.include_router(access_control_router)
 app.include_router(user_catalog_router)
 app.include_router(ai_assistant_router)
+app.include_router(saved_reports_router)

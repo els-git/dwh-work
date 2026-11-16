@@ -268,7 +268,9 @@ def status(request: Request) -> dict:
     return {"model_ready": ready, "report_configured": bool(os.environ.get("DWH_AI_DB_PASSWORD", "").strip()),
             "average_answer_seconds": average, "average_answer_count": count,
             "can_help": "AI_ASSISTANT_USE" in user.permissions, "can_report": "AI_REPORT_RUN" in user.permissions,
-            "can_admin": "AI_ADMIN_MANAGE" in user.permissions}
+            "can_admin": "AI_ADMIN_MANAGE" in user.permissions,
+            # I17-09: a report can be saved to "Reporting" (folders need REPORT_VIEW, saving AI_REPORT_RUN).
+            "can_save_reports": {"AI_REPORT_RUN", "REPORT_VIEW"} <= user.permissions}
 
 
 # ------------------------------------------------------------------ help

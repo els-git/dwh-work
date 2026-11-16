@@ -15,12 +15,13 @@ import {
   askAiReport,
   cancelAiQuestion,
   getAiStatus,
-  type AiCell,
   type AiHelpAnswer,
   type AiReportAnswer,
   type AiStatus,
 } from './aiApi'
 import './AiAssistantPanel.css'
+import { cellText, downloadReportCsv } from './reportCsv'
+import SaveReportForm from './SaveReportForm'
 
 
 // I17: chat of the AI assistant, available on every screen. Help answers come from the user guide
@@ -33,6 +34,7 @@ interface ChatMessage {
   id: number
   role: 'user' | 'assistant'
   text: string
+  question?: string
   image?: string
   status?: string
   sections?: string[]
@@ -135,25 +137,8 @@ function newClientId(): string {
 }
 
 
-function cellText(value: AiCell): string {
-  return value === null ? '' : String(value)
-}
-
-
 function downloadCsv(answer: AiReportAnswer) {
-  const columns = answer.columns ?? []
-  const quote = (text: string) => `"${text.replace(/"/g, '""')}"`
-  const lines = [columns.map(quote).join(';')]
-  for (const row of answer.rows ?? []) {
-    lines.push(columns.map(column => quote(cellText(row[column] ?? null))).join(';'))
-  }
-  const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' })
-  const url = URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = url
-  link.download = `dwh_report_${answer.request_id}.csv`
-  link.click()
-  URL.revokeObjectURL(url)
+  downloadReportCsv(answer.columns ?? [], answer.rows ?? [], `dwh_report_${answer.request_id}.csv`)
 }
 
 
@@ -300,7 +285,8 @@ function AiAssistantPanel() {
         if (seq !== askSeq.current) {
           return
         }
-        push({ role: 'assistant', text: reportText(answer), status: answer.status, report: answer, seconds: spent() })
+        push({ role: 'assistant', text: reportText(answer), status: answer.status, report: answer, seconds: spent(),
+               question: text })
       }
     } catch (exc) {
       if (seq === askSeq.current) {
@@ -473,6 +459,9 @@ function AiAssistantPanel() {
               ? <div className="ai-sources">{t('ai.sources')}: {message.sections.join('; ')}</div>
               : null}
             {message.report ? renderReport(message.report) : null}
+            {message.report?.status === 'OK' && status?.can_save_reports
+              ? <SaveReportForm requestId={message.report.request_id} defaultTitle={message.question ?? ''} />
+              : null}
             {message.report?.repaired ? <div className="ai-sources">{t('ai.repaired')}</div> : null}
             {message.seconds ? <div className="ai-time">{t('ai.answerTime', { seconds: message.seconds })}</div> : null}
           </div>

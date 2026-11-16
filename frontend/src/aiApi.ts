@@ -8,6 +8,7 @@ export interface AiStatus {
   can_report: boolean
   can_admin: boolean
   average_answer_seconds: number | null
+  can_save_reports?: boolean
   average_answer_count: number
 }
 
@@ -158,3 +159,47 @@ export const saveAiGlossary = (payload: {
 export const saveAiExample = (payload: {
   example_id: number | null, object_id: number, question: string, sql_text: string, is_active: boolean,
 }) => post<{ example_id: number }>('/api/ai/admin/examples', payload)
+
+
+// I17-09: saved reports in "Reporting" (folders personal or shared; the database checks every right).
+export interface ReportFolder {
+  folder_id: number
+  folder_name: string
+  visibility: 'PERSONAL' | 'SHARED'
+  owner_username: string
+  is_own: boolean
+  can_edit: boolean
+  report_count: number
+}
+
+export interface SavedReport {
+  report_id: number
+  folder_id: number
+  title: string
+  question: string
+  owner_username: string
+  is_own: boolean
+  can_edit: boolean
+  is_allowed: boolean
+  sql_text: string | null
+  created_at: string
+  updated_at: string
+}
+
+const SAVED = '/api/reports/saved'
+
+export const getReportFolders = () => request<ReportFolder[]>(`${SAVED}/folders`)
+
+export const createReportFolder = (folderName: string, visibility: ReportFolder['visibility']) =>
+  post<{ folder_id: number }>(`${SAVED}/folders`, { folder_name: folderName, visibility })
+
+export const deleteReportFolder = (folderId: number) => post<{ deleted: boolean }>(`${SAVED}/folders/${folderId}/delete`, {})
+
+export const getSavedReports = () => request<SavedReport[]>(`${SAVED}/reports`)
+
+export const saveReport = (requestId: number, folderId: number, title: string) =>
+  post<{ report_id: number }>(`${SAVED}/reports`, { request_id: requestId, folder_id: folderId, title })
+
+export const deleteSavedReport = (reportId: number) => post<{ deleted: boolean }>(`${SAVED}/reports/${reportId}/delete`, {})
+
+export const runSavedReport = (reportId: number) => post<AiReportAnswer>(`${SAVED}/reports/${reportId}/run`, {})

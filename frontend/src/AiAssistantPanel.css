@@ -340,3 +340,28 @@
   color: var(--danger, #d9534f);
   cursor: pointer;
 }
+
+.ai-save {
+  margin-top: 8px;
+}
+
+.ai-save-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.ai-save-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+}
+
+.ai-save-actions {
+  display: flex;
+  gap: 8px;
+}
