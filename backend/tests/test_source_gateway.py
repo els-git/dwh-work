@@ -244,6 +244,7 @@ ALLOWED_DIRECT = {
     "backend/src/dwh_api/secret_admin_executor.py": "DWH database (operator of SecretStore)",
     "backend/src/dwh_api/postgres_connector.py": "passes psycopg.connect to the gateway as connect_fn",
     "etl/src/dwh/db.py": "connect(): DWH database; connect_readonly(): source through the gateway",
+    "backend/src/dwh_api/ai_llm.py": "local model service of the AI assistant; LlmSettings refuses hosts other than 127.0.0.1",
 }
 
 DIRECT = re.compile(
