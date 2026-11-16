@@ -46,3 +46,26 @@ class ApiTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AverageAnswerTimeTests(unittest.TestCase):
+    """Step 9: the chat shows the average time of the last 10 model answers."""
+
+    def setUp(self):
+        from dwh_api import ai_assistant
+        self.mod = ai_assistant
+        with ai_assistant._recent_lock:
+            self.saved = list(ai_assistant._recent_seconds)
+            ai_assistant._recent_seconds.clear()
+        self.addCleanup(self.restore)
+
+    def restore(self):
+        with self.mod._recent_lock:
+            self.mod._recent_seconds.clear()
+            self.mod._recent_seconds.extend(self.saved)
+
+    def test_empty_then_last_ten_only(self):
+        self.assertEqual(self.mod.average_answer_time(), (None, 0))
+        for value in [1000.0] * 5 + [60.0] * 10:
+            self.mod.record_answer_time(value)
+        self.assertEqual(self.mod.average_answer_time(), (60.0, 10))
