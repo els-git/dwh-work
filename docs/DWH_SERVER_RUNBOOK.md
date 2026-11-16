@@ -112,6 +112,22 @@ sudo python3 /opt/dwh/current/src/tools/server/dwh_update.py /srv/dwh/incoming/d
 
 База обновлением не меняется: SQL-пакеты ставятся отдельно с подтверждением `APPLY`. Хранятся 3 последних выпуска.
 
+## 4a. SQL-пакеты (с пакета 016)
+
+Файлы пакета приходят с выпуском (`/opt/dwh/current/src/database`), SHA256 сверяются с `tools/server/sql_packages.json`. Каждый этап — только с разрешения пользователя.
+
+E1 — на копии `dwh` (рабочая база только читается; копия остаётся с пакетом):
+```bash
+sudo python3 /opt/dwh/current/src/tools/server/dwh_sql_package.py --package 016 --stage e1
+```
+Порядок: состояние `dwh` до пакета (check предыдущего пакета — все PASS) → `pg_dump` → копия → пакет одной транзакцией → check и тест → откат пакета → пакет снова → check. Итог — `E1_RESULT: PASS`.
+
+E2 — на рабочей `dwh`:
+```bash
+sudo python3 /opt/dwh/current/src/tools/server/dwh_sql_package.py --package 016 --stage e2
+```
+Порядок: состояние `dwh` → копия `/backup/dwh` с меткой `pre-016` → число строк → ввод `APPLY` → пакет одной транзакцией (`lock_timeout` 10 с) → check → число строк не изменилось, кроме добавленных пакетом. Итог — `E2_RESULT: PASS`. Отчёт этапа — `/srv/dwh/incoming/<этап>_<пакет>_<время>.txt`.
+
 **Откат вручную** на установленный выпуск (например, если ошибка проявилась уже после `PASS`). Команду берут из выпуска, в котором она есть (с `2026.11.2`):
 ```bash
 sudo python3 /opt/dwh/releases/<новый выпуск>/src/tools/server/dwh_update.py --rollback-to <прежний выпуск>

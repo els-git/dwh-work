@@ -1,0 +1,34 @@
+{
+  "016": {
+    "number": "016",
+    "owner": "dwh_admin",
+    "marker": "meta.ai_report_object",
+    "copy_db": "dwh_i17_016_test",
+    "check_expected": 10,
+    "added_rows": {
+      "app.permission": 3
+    },
+    "migration": {
+      "path": "database/migrations/016_ai_assistant.sql",
+      "sha256": "A7106A17565DE9F436CD2A34F22DC2BED681EEDF23644C03B3A8AA54225E8654"
+    },
+    "down": {
+      "path": "database/migrations/016_ai_assistant.down.sql",
+      "sha256": "E7853D3DDF6239934D0463E14ECAC5164403A91ED6048E3E32AE9229C50CDD20"
+    },
+    "check": {
+      "path": "database/checks/016_ai_assistant_check.sql",
+      "sha256": "6317C76490890D02C0C7849A2E062AFF49B9528E7B280F0BA1136B91BD67180B"
+    },
+    "test": {
+      "path": "database/tests/016_ai_assistant_test.sql",
+      "sha256": "7E2D4295F7A7A790CFCBFA9B49323FE9760AE51AA897DA06D22172074E9D7525"
+    },
+    "previous_check": {
+      "path": "database/checks/015_object_run_request_check.sql",
+      "sha256": "CEDFCEC836B02D02E4F9BC67667810B69F029C71FAEA5398CC5EE4CA0171E264",
+      "label": "015",
+      "expected": 8
+    }
+  }
+}

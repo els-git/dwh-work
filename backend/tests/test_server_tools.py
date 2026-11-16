@@ -20,6 +20,7 @@ import dispatcher_service  # noqa: E402
 import dwh_backup  # noqa: E402
 import dwh_prepare_server as prep  # noqa: E402
 import dwh_import_db as imp  # noqa: E402
+import dwh_sql_package as sqlpkg  # noqa: E402
 import dwh_task  # noqa: E402
 import dwh_update as up  # noqa: E402
 
@@ -299,6 +300,28 @@ class SettingsTests(unittest.TestCase):
                              env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         self.assertEqual(out.returncode, 0, out.stderr)
         self.assertEqual(out.stdout.split("\n")[:2], [handle.name, "db.local 5432"])
+
+
+class SqlPackageTests(Temp):
+    def test_manifest_matches_repository(self):
+        packages = json.loads(sqlpkg.PACKAGES.read_text(encoding="utf-8"))
+        self.assertIn("016", packages)
+        for name, package in packages.items():
+            for key in ("migration", "down", "check", "test", "previous_check"):
+                path = PROJECT / package[key]["path"]
+                self.assertEqual(sqlpkg.sha256_file(path), package[key]["sha256"].upper(), f"{name} {key}")
+            self.assertIn(f"MIGRATION_{package['number']}_DONE", (PROJECT / package["migration"]["path"]).read_text())
+
+    def test_check_result(self):
+        run = sqlpkg.Run(Path(self.tmp.name) / "r.txt")
+        ok = subprocess.CompletedProcess([], 0, "on|dwh|dwh_app|17\na|PASS\nb|PASS\n", "")
+        sqlpkg.check_result(run, "c", ok, 2)
+        with self.assertRaises(sqlpkg.Stop):
+            sqlpkg.check_result(run, "c", subprocess.CompletedProcess([], 0, "a|PASS\nb|FAIL\n", ""), 2)
+        with self.assertRaises(sqlpkg.Stop):
+            sqlpkg.check_result(run, "c", ok, 3)
+        with self.assertRaises(sqlpkg.Stop):
+            sqlpkg.check_result(run, "c", subprocess.CompletedProcess([], 3, "a|PASS\nb|PASS\n", "boom"), 2)
 
 
 if __name__ == "__main__":
