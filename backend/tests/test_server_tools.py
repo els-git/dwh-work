@@ -361,10 +361,12 @@ class AiSetupTests(Temp):
         env.write_text("DWH_APP_PASSWORD=x\n")
         patches = {"LLM_ENV": root / "llm.env", "UNIT_DST": root / "dwh-llm.service", "SYSCTL": root / "90.conf",
                    "DWH_ENV": env}
-        with mock.patch.multiple(aisetup, **patches), mock.patch.object(prep, "PG_CONF", root / "dwh.conf"), \
-                mock.patch.object(prep, "memory_gb", return_value=31):
+        connect = mock.Mock(return_value=False)
+        with mock.patch.multiple(aisetup, has_connect=connect, **patches), \
+                mock.patch.object(prep, "PG_CONF", root / "dwh.conf"), mock.patch.object(prep, "memory_gb", return_value=31):
             codes = [c for c, _ in aisetup.plan(self.args())]
-            self.assertEqual(codes, ["L1", "L2", "L3", "L4", "L5"])
+            self.assertEqual(codes, ["L1", "L2", "L3", "L4", "L5", "L7"])
+            connect.return_value = True
             (root / "llm.env").write_text(aisetup.llm_env_text(self.args()))
             (root / "dwh-llm.service").write_text(aisetup.UNIT_SRC.read_text())
             (root / "90.conf").write_text(aisetup.SYSCTL_TEXT)

@@ -12,6 +12,7 @@ Changes (each only if still needed):
   L5 dwh_ai_ro password         random, set by ALTER ROLE through psql standard input, written only to
                                 /etc/dwh/dwh.env with DWH_AI_LLM_URL / DWH_AI_MODEL_LABEL (never printed)
   L6 services                   dwh-llm started; dwh-api and dwh-dispatcher restarted (new settings)
+  L7 GRANT CONNECT              on database dwh to dwh_ai_ro (in dwh PUBLIC has no CONNECT)
 Check: dwh-llm active and answering /health (waits for the model to load, --wait minutes); dwh_ai_ro logs in,
 read-only, reads dm (row count only) and is refused on app. Prints AI_SETUP_RESULT: PASS / FAIL / PLAN.
 Uses the system python3 only.
@@ -108,7 +109,16 @@ def plan(args) -> list[tuple[str, str]]:
         steps.append(("L5", "dwh_ai_ro: new random password -> ALTER ROLE and /etc/dwh/dwh.env (not printed)"))
     elif env.get("DWH_AI_MODEL_LABEL") != args.label or env.get("DWH_AI_LLM_URL") != "http://127.0.0.1:8081":
         steps.append(("L5", f"/etc/dwh/dwh.env: DWH_AI_LLM_URL, DWH_AI_MODEL_LABEL={args.label}"))
+    if not has_connect():
+        steps.append(("L7", "GRANT CONNECT ON DATABASE dwh TO dwh_ai_ro (in dwh PUBLIC has no CONNECT)"))
     return steps
+
+
+def has_connect() -> bool:
+    """dwh_ai_ro may connect to dwh (in dwh CONNECT is not granted to PUBLIC, only to the DWH roles)."""
+    result = run(["runuser", "-u", "postgres", "--", "psql", "-X", "-At", "-d", "dwh", "-c",
+                  "SELECT has_database_privilege('dwh_ai_ro', 'dwh', 'CONNECT')"], check=False)
+    return result.returncode == 0 and result.stdout.strip() == "t"
 
 
 def apply(args, steps: list[tuple[str, str]]) -> None:
@@ -143,6 +153,9 @@ def apply(args, steps: list[tuple[str, str]]) -> None:
         os.chown(tmp, stat.st_uid, stat.st_gid)
         tmp.chmod(stat.st_mode & 0o777)
         tmp.replace(DWH_ENV)
+    if "L7" in codes:
+        run(["runuser", "-u", "postgres", "--", "psql", "-X", "-q", "-v", "ON_ERROR_STOP=1", "-d", "dwh", "-c",
+             "GRANT CONNECT ON DATABASE dwh TO dwh_ai_ro"])
     run(["systemctl", "restart", "dwh-llm.service"] if codes & {"L1", "L2", "L3"}
         else ["systemctl", "start", "dwh-llm.service"])
     if codes & {"L4", "L5"}:
@@ -187,8 +200,11 @@ def check(wait_minutes: int) -> list[str]:
     bad = run(conn + ["-c", "SELECT count(*) FROM app.user_account"], check=False, env=pg_env)
     if bad.returncode == 0:
         problems.append("dwh_ai_ro can read app.user_account")
-    else:
+    elif "permission denied for schema app" in bad.stderr:
         print("dwh_ai_ro: app.user_account refused (as expected)")
+    else:
+        # Only a refusal by the rights on schema app counts; a failed login proves nothing.
+        problems.append("dwh_ai_ro: app check inconclusive: " + bad.stderr.strip()[-200:])
     return problems
 
 
