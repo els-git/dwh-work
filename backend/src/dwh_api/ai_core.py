@@ -37,13 +37,21 @@ REPORT_SYSTEM = (
     "Если нужных данных нет в описании, верни ```sql\n-- NO_DATA\n```.")
 
 
-def help_prompt(found: SearchResult, question: str, screen_map: str | None = None) -> tuple[str, str]:
+TRANSLATE_SYSTEM = (
+    "Переведи вопрос пользователя о приложении DWH на русский язык. Названия разделов и кнопок приложения "
+    "переводи так, как они звучат по-русски. Верни только перевод одной строкой, без пояснений.")
+
+
+def help_prompt(found: SearchResult, question: str, screen_map: str | None = None,
+                translated: str | None = None) -> tuple[str, str]:
     """System and user messages for a help question; only the sections the user may read are included.
     With a screenshot, screen_map lists every section the user may read (title and its start) so that the
     model can recognise the screen even when the question has few words."""
     context = "\n---\n".join(s.text for s in found.sections) or "(подходящих разделов справки нет)"
     note = ("\nРазделы о вопросе недоступны роли пользователя: о них отвечай «" + DENIED_TEXT + "»."
             if found.denied_titles else "")
+    if translated:
+        question = f"{question}\n(перевод на русский: {translated}; отвечай на языке исходного вопроса)"
     if screen_map is None:
         return HELP_SYSTEM + note, f"Справка:\n{context}\n\nВопрос: {question}"
     return (HELP_SYSTEM + IMAGE_NOTE + note,

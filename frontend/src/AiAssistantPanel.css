@@ -331,3 +331,12 @@
   color: var(--accent);
   cursor: pointer;
 }
+
+.ai-stop {
+  border: 1px solid var(--danger, #d9534f);
+  border-radius: 6px;
+  padding: 6px 14px;
+  background: transparent;
+  color: var(--danger, #d9534f);
+  cursor: pointer;
+}

@@ -76,8 +76,9 @@ def main(argv: list[str] | None = None) -> int:
     os.environ["DWH_AI_QUEUE_SECONDS"] = "5"
     sys.path.insert(0, str(SRC / "backend" / "src"))
     from dwh_api import ai_llm  # noqa: E402
-    from dwh_api.ai_core import describe_report_data, help_prompt, repair_message, report_system, run_checked  # noqa: E402
-    from dwh_api.ai_knowledge import KnowledgeIndex, UserScope  # noqa: E402
+    from dwh_api.ai_core import (TRANSLATE_SYSTEM, describe_report_data, help_prompt, repair_message,  # noqa: E402
+                                  report_system, run_checked)
+    from dwh_api.ai_knowledge import KnowledgeIndex, UserScope, is_russian  # noqa: E402
     from dwh_api.ai_sql_guard import AllowedObject, SqlRejected, check_text, extract_sql, limited  # noqa: E402
     from dwh_api.config import get_api_config  # noqa: E402
     from dwh_api.db import connect_readonly  # noqa: E402
@@ -121,7 +122,11 @@ def main(argv: list[str] | None = None) -> int:
         group = "negative" if item["expect"] in ("DENIED", "NOT_EXECUTED") else item["kind"]
         try:
             if item["kind"] == "help":
-                found = index.search(item["question"], user)
+                translated = None
+                if not is_russian(item["question"]):  # as the application: translate for the search only
+                    translated = ai_llm.chat(settings, TRANSLATE_SYSTEM, item["question"], None, 150).strip() or None
+                    body.append(f"_Перевод для поиска:_ {translated}")
+                found = index.search(f"{item['question']} {translated or ''}", user)
                 numbers = [s.number for s in found.sections]
                 if item["expect"] == "DENIED":
                     verdict = found.only_denied
@@ -129,7 +134,7 @@ def main(argv: list[str] | None = None) -> int:
                 elif found.only_denied or not found.sections:
                     detail = "no allowed section found"
                 else:
-                    system, text = help_prompt(found, item["question"])
+                    system, text = help_prompt(found, item["question"], None, translated)
                     answer = ai_llm.chat(settings, system, text, None, 700)
                     section_ok = any(n in numbers for n in item["sections"])
                     term_ok = any(t.lower() in answer.lower() for t in item["terms"])

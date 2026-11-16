@@ -35,9 +35,9 @@ from psycopg import sql as pgsql
 from pydantic import BaseModel, Field
 
 from dwh_api import ai_llm
-from dwh_api.ai_core import (DENIED_TEXT, MAX_ROWS, NO_HELP_TEXT, describe_report_data, help_prompt,
+from dwh_api.ai_core import (DENIED_TEXT, MAX_ROWS, NO_HELP_TEXT, TRANSLATE_SYSTEM, describe_report_data, help_prompt,
                              repair_message, report_system, run_checked)
-from dwh_api.ai_knowledge import KnowledgeIndex, UserScope
+from dwh_api.ai_knowledge import KnowledgeIndex, UserScope, is_russian
 from dwh_api.ai_sql_guard import AllowedObject, SqlRejected, check_text, extract_sql
 from dwh_api.auth import _load_auth_state
 from dwh_api.config import get_api_config
@@ -61,13 +61,22 @@ def knowledge() -> KnowledgeIndex:
     return _index
 
 
+CLIENT_ID = r"^[A-Za-z0-9-]{8,64}$"
+
+
 class HelpRequest(BaseModel):
     question: str = Field(min_length=1, max_length=4000)
     image: str | None = Field(default=None, description="data:image/png|jpeg|webp;base64,... screenshot (I17-07)")
+    client_id: str | None = Field(default=None, pattern=CLIENT_ID, description="id for the Stop button")
 
 
 class ReportRequest(BaseModel):
     question: str = Field(min_length=1, max_length=4000)
+    client_id: str | None = Field(default=None, pattern=CLIENT_ID, description="id for the Stop button")
+
+
+class CancelRequest(BaseModel):
+    client_id: str = Field(pattern=CLIENT_ID)
 
 
 class ReportObjectSave(BaseModel):
@@ -192,13 +201,43 @@ def average_answer_time() -> tuple[float | None, int]:
     return (round(sum(values) / len(values), 1) if values else None), len(values)
 
 
+# Questions that can be stopped: (session, client id) -> token. Only the session that asked can stop it.
+_running: dict[tuple[str, str], ai_llm.CancelToken] = {}
+_running_lock = threading.Lock()
+
+
+class Stoppable:
+    """Registers the question of one request for the Stop button while it runs."""
+
+    def __init__(self, request: Request, client_id: str | None):
+        self.key = (_session_token_hash(request), client_id) if client_id else None
+        self.token = ai_llm.CancelToken()
+
+    def __enter__(self) -> ai_llm.CancelToken:
+        if self.key:
+            with _running_lock:
+                _running[self.key] = self.token
+        return self.token
+
+    def __exit__(self, *exc: object) -> None:
+        if self.key:
+            with _running_lock:
+                if _running.get(self.key) is self.token:
+                    del _running[self.key]
+
+
 def ask_model(request: Request, request_id: int, settings: ai_llm.LlmSettings, system: str, user: str,
-              image: str | None = None, max_tokens: int = 700) -> str:
+              image: str | None = None, max_tokens: int = 700, cancel: ai_llm.CancelToken | None = None,
+              timed: bool = True) -> str:
     started = time.monotonic()
     try:
-        answer = ai_llm.chat(settings, system, user, image, max_tokens)
-        record_answer_time(time.monotonic() - started)
+        answer = ai_llm.chat(settings, system, user, image, max_tokens, cancel)
+        if timed:
+            record_answer_time(time.monotonic() - started)
         return answer
+    except ai_llm.LlmCancelled as exc:
+        finish(request, request_id, "ERROR", "AI_CANCELLED", message="stopped by the user")
+        raise HTTPException(status_code=409, detail="AI_CANCELLED") from exc
     except ai_llm.LlmBusy as exc:
         finish(request, request_id, "ERROR", "AI_BUSY", message=str(exc))
         raise HTTPException(status_code=429, detail=str(exc)) from exc
@@ -234,22 +273,43 @@ def status(request: Request) -> dict:
 
 # ------------------------------------------------------------------ help
 
+@router.post("/cancel")
+def cancel(payload: CancelRequest, request: Request) -> dict:
+    """The Stop button: stops the own running question of this session (waiting or answering)."""
+    user_scope(request)
+    with _running_lock:
+        token = _running.get((_session_token_hash(request), payload.client_id))
+    if token is not None:
+        token.cancel()
+    return {"stopped": token is not None}
+
+
 @router.post("/help")
 def help_answer(payload: HelpRequest, request: Request) -> dict:
     user = user_scope(request)
     image = check_image(payload.image)
     settings = llm_settings()
     request_id = begin(request, "HELP", payload.question, image is not None, settings)
-    found = knowledge().search(payload.question, user)
-    if found.only_denied and image is None:
-        finish(request, request_id, "DENIED", "AI_SECTION_NOT_ALLOWED", message="; ".join(found.denied_titles)[:4000])
-        return {"request_id": request_id, "status": "DENIED", "answer": DENIED_TEXT, "sections": []}
-    if not found.sections and image is None:
-        finish(request, request_id, "NO_DATA", "AI_HELP_NOT_FOUND")
-        return {"request_id": request_id, "status": "NO_DATA", "answer": NO_HELP_TEXT, "sections": []}
-    screen_map = knowledge().screen_map(user) if image else None
-    system, user_text = help_prompt(found, payload.question, screen_map)
-    answer = ask_model(request, request_id, settings, system, user_text, image)
+    with Stoppable(request, payload.client_id) as token:
+        translated = None
+        if not is_russian(payload.question):
+            # The guide is in Russian: a question in another language is translated for the search only;
+            # the answer is given in the language of the question.
+            translated = ask_model(request, request_id, settings, TRANSLATE_SYSTEM, payload.question,
+                                   max_tokens=150, cancel=token, timed=False).strip()[:1000] or None
+        found = knowledge().search(f"{payload.question} {translated or ''}", user)
+        if found.only_denied and image is None:
+            finish(request, request_id, "DENIED", "AI_SECTION_NOT_ALLOWED",
+                   message="; ".join(found.denied_titles)[:4000])
+            return {"request_id": request_id, "status": "DENIED", "code": "AI_SECTION_NOT_ALLOWED",
+                    "answer": DENIED_TEXT, "sections": []}
+        if not found.sections and image is None:
+            finish(request, request_id, "NO_DATA", "AI_HELP_NOT_FOUND")
+            return {"request_id": request_id, "status": "NO_DATA", "code": "AI_HELP_NOT_FOUND",
+                    "answer": NO_HELP_TEXT, "sections": []}
+        screen_map = knowledge().screen_map(user) if image else None
+        system, user_text = help_prompt(found, payload.question, screen_map, translated)
+        answer = ask_model(request, request_id, settings, system, user_text, image, cancel=token)
     finish(request, request_id, "OK", None, message=", ".join(s.number for s in found.sections)[:4000])
     return {"request_id": request_id, "status": "OK", "answer": answer,
             "sections": [{"number": s.number, "title": s.title} for s in found.sections]}
@@ -293,11 +353,19 @@ def report(payload: ReportRequest, request: Request) -> dict:
     allowed, denied, context, dm_relations = report_context(request)
     if not allowed:
         finish(request, request_id, "DENIED", "AI_OBJECT_NOT_ALLOWED", message="no reporting object for the role")
-        return {"request_id": request_id, "status": "DENIED", "message": DENIED_TEXT}
-    user_text = payload.question
+        return {"request_id": request_id, "status": "DENIED", "code": "AI_OBJECT_NOT_ALLOWED", "message": DENIED_TEXT}
+    with Stoppable(request, payload.client_id) as token:
+        return report_attempts(request, request_id, settings, payload.question, allowed, context, dm_relations, token)
+
+
+def report_attempts(request: Request, request_id: int, settings: ai_llm.LlmSettings, question: str,
+                    allowed: list[AllowedObject], context: str, dm_relations: set[str],
+                    token: ai_llm.CancelToken) -> dict:
+    user_text = question
     started = time.monotonic()
     for attempt in (1, 2):
-        answer = ask_model(request, request_id, settings, report_system(context), user_text, max_tokens=600)
+        answer = ask_model(request, request_id, settings, report_system(context), user_text, max_tokens=600,
+                           cancel=token)
         sql_text = extract_sql(answer)
         try:
             statement, object_ids = check_text(sql_text, allowed, dm_relations)
@@ -319,7 +387,7 @@ def report(payload: ReportRequest, request: Request) -> dict:
             message = _db_message(exc)
             if attempt == 1:
                 # One self-repair: the model gets its query and the PostgreSQL error, the new query is checked again.
-                user_text = repair_message(payload.question, statement, message)
+                user_text = repair_message(question, statement, message)
                 continue
             finish(request, request_id, "ERROR", "AI_SQL_ERROR", sql_text=statement, object_ids=object_ids,
                    message=message)

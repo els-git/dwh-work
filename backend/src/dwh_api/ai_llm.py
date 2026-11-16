@@ -6,12 +6,17 @@ Settings (/etc/dwh/dwh.env on the server):
   DWH_AI_TIMEOUT_SECONDS  one answer, default 300
 The model on a CPU answers one question at a time: a second question waits up to DWH_AI_QUEUE_SECONDS (default 120)
 and is then refused as busy. An image (I17-07) is passed in memory as a data URL and never stored.
+The answer is read as a stream: a question stopped by the user (CancelToken.cancel, the "Stop" button) closes the
+connection, llama-server stops generating, and the model is free for the next question at once.
 """
 from __future__ import annotations
 
+import http.client
 import json
 import os
+import socket
 import threading
+import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -27,6 +32,47 @@ class LlmUnavailable(RuntimeError):
 
 class LlmBusy(RuntimeError):
     pass
+
+
+class LlmCancelled(RuntimeError):
+    pass
+
+
+class CancelToken:
+    """Stops one question: while it waits for the model or while the model answers."""
+
+    def __init__(self) -> None:
+        self._event = threading.Event()
+        self._lock = threading.Lock()
+        self._socket: socket.socket | None = None
+
+    @property
+    def cancelled(self) -> bool:
+        return self._event.is_set()
+
+    def attach(self, sock: socket.socket | None) -> None:
+        # The socket itself is kept: http.client forgets it once the answer has started.
+        with self._lock:
+            self._socket = sock
+            if sock is not None and self._event.is_set():
+                _shutdown(sock)
+
+    def cancel(self) -> None:
+        with self._lock:
+            self._event.set()
+            if self._socket is not None:
+                _shutdown(self._socket)
+
+    def check(self) -> None:
+        if self._event.is_set():
+            raise LlmCancelled("stopped by the user")
+
+
+def _shutdown(sock: socket.socket) -> None:
+    try:
+        sock.shutdown(socket.SHUT_RDWR)
+    except OSError:
+        pass
 
 
 @dataclass(frozen=True)
@@ -61,25 +107,58 @@ def is_ready(settings: LlmSettings) -> bool:
         return False
 
 
+def _read_answer(response: http.client.HTTPResponse) -> str:
+    if "text/event-stream" not in (response.getheader("Content-Type") or ""):
+        data = json.loads(response.read())
+        return (data["choices"][0]["message"].get("content") or "").strip()
+    parts: list[str] = []
+    for raw in response:
+        line = raw.decode("utf-8", "replace").strip()
+        if not line.startswith("data:"):
+            continue
+        payload = line[5:].strip()
+        if payload == "[DONE]":
+            break
+        for choice in json.loads(payload).get("choices") or []:
+            parts.append((choice.get("delta") or {}).get("content") or "")
+    return "".join(parts).strip()
+
+
 def chat(settings: LlmSettings, system: str, user: str, image_data_url: str | None = None,
-         max_tokens: int = 700) -> str:
+         max_tokens: int = 700, cancel: CancelToken | None = None) -> str:
     content: object = user
     if image_data_url:
         content = [{"type": "text", "text": user}, {"type": "image_url", "image_url": {"url": image_data_url}}]
     body = json.dumps({"messages": [{"role": "system", "content": system}, {"role": "user", "content": content}],
-                       "temperature": 0.1, "max_tokens": max_tokens}).encode()
-    request = urllib.request.Request(settings.url + "/v1/chat/completions", data=body,
-                                     headers={"Content-Type": "application/json"})
-    if not _LOCK.acquire(timeout=settings.queue_seconds):
-        raise LlmBusy("the assistant is answering another question; try again later")
+                       "temperature": 0.1, "max_tokens": max_tokens, "stream": True}).encode()
+    parsed = urlparse(settings.url)
+    token = cancel or CancelToken()
+    deadline = time.monotonic() + settings.queue_seconds
+    while not _LOCK.acquire(timeout=min(0.5, max(0.0, deadline - time.monotonic()))):
+        token.check()
+        if time.monotonic() >= deadline:
+            raise LlmBusy("the assistant is answering another question; try again later")
+    connection = http.client.HTTPConnection(parsed.hostname, parsed.port or 80, timeout=settings.timeout)
     try:
-        with _open(request, settings.timeout) as response:
-            data = json.loads(response.read())
-    except (urllib.error.URLError, OSError, ValueError) as exc:
+        token.check()
+        connection.connect()
+        token.attach(connection.sock)
+        connection.request("POST", "/v1/chat/completions", body=body, headers={"Content-Type": "application/json"})
+        response = connection.getresponse()
+        if response.status != 200:
+            raise LlmUnavailable(f"the model service answered {response.status}")
+        answer = _read_answer(response)
+        token.check()
+        return answer
+    except LlmCancelled:
+        raise
+    except (OSError, ValueError, http.client.HTTPException) as exc:
+        if token.cancelled:
+            raise LlmCancelled("stopped by the user") from exc
         raise LlmUnavailable("the model service does not answer") from exc
-    finally:
-        _LOCK.release()
-    try:
-        return (data["choices"][0]["message"].get("content") or "").strip()
     except (KeyError, IndexError, TypeError) as exc:
         raise LlmUnavailable("unexpected answer of the model service") from exc
+    finally:
+        token.attach(None)
+        connection.close()
+        _LOCK.release()

@@ -10,10 +10,13 @@ import {
 import { useTranslation } from 'react-i18next'
 
 import {
+  AiHttpError,
   askAiHelp,
   askAiReport,
+  cancelAiQuestion,
   getAiStatus,
   type AiCell,
+  type AiHelpAnswer,
   type AiReportAnswer,
   type AiStatus,
 } from './aiApi'
@@ -117,6 +120,21 @@ function renderMarkdown(text: string): ReactNode {
 }
 
 
+// Wall clock for the answer timer (outside the component: only event handlers and timers read it).
+function clockMs(): number {
+  return Date.now()
+}
+
+
+function newClientId(): string {
+  try {
+    return crypto.randomUUID()
+  } catch {
+    return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`
+  }
+}
+
+
 function cellText(value: AiCell): string {
   return value === null ? '' : String(value)
 }
@@ -168,6 +186,7 @@ function AiAssistantPanel() {
   const [now, setNow] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const askSeq = useRef(0)
+  const running = useRef<{ clientId: string, abort: AbortController } | null>(null)
   const messageId = useRef(0)
   const listRef = useRef<HTMLDivElement | null>(null)
   const fileRef = useRef<HTMLInputElement | null>(null)
@@ -202,7 +221,7 @@ function AiAssistantPanel() {
     if (!busy) {
       return
     }
-    const timer = window.setInterval(() => setNow(Date.now()), 1000)
+    const timer = window.setInterval(() => setNow(clockMs()), 1000)
     return () => window.clearInterval(timer)
   }, [busy])
 
@@ -260,35 +279,37 @@ function AiAssistantPanel() {
     setQuestion('')
     setImage(null)
     setError(null)
-    const startedAt = Date.now()
+    const startedAt = clockMs()
     setBusySince(startedAt)
     setNow(startedAt)
     setBusy(true)
-    const spent = () => Math.max(1, Math.round((Date.now() - startedAt) / 1000))
+    const spent = () => Math.max(1, Math.round((clockMs() - startedAt) / 1000))
+    const clientId = newClientId()
+    const abort = new AbortController()
+    running.current = { clientId, abort }
     try {
       if (mode === 'help') {
-        const answer = await askAiHelp(text, sentImage)
+        const answer = await askAiHelp(text, sentImage, clientId, abort.signal)
         if (seq !== askSeq.current) {
           return
         }
-        push({ role: 'assistant', text: answer.answer, status: answer.status,
+        push({ role: 'assistant', text: helpText(answer), status: answer.status,
                sections: answer.sections.map(s => s.title), seconds: spent() })
       } else {
-        const answer = await askAiReport(text)
+        const answer = await askAiReport(text, clientId, abort.signal)
         if (seq !== askSeq.current) {
           return
         }
-        const summary = answer.status === 'OK'
-          ? t('ai.reportRows', { count: answer.rows?.length ?? 0 })
-          : answer.message ?? answer.status
-        push({ role: 'assistant', text: summary, status: answer.status, report: answer, seconds: spent() })
+        push({ role: 'assistant', text: reportText(answer), status: answer.status, report: answer, seconds: spent() })
       }
     } catch (exc) {
       if (seq === askSeq.current) {
-        push({ role: 'assistant', text: exc instanceof Error ? exc.message : String(exc), status: 'ERROR',
-               seconds: spent() })
+        push({ role: 'assistant', text: errorText(exc), status: 'ERROR', seconds: spent() })
       }
     } finally {
+      if (running.current?.clientId === clientId) {
+        running.current = null
+      }
       if (seq === askSeq.current) {
         setBusy(false)
         // The average answer time changes with every answer: read it again.
@@ -301,6 +322,58 @@ function AiAssistantPanel() {
           .catch(() => undefined)
       }
     }
+  }
+
+  // Fixed answers are shown in the language of the interface by their code; the model's own text as it is.
+  function helpText(answer: AiHelpAnswer): string {
+    if (answer.status === 'DENIED') {
+      return t('ai.denied')
+    }
+    return answer.status === 'NO_DATA' ? t('ai.noHelp') : answer.answer
+  }
+
+  function reportText(answer: AiReportAnswer): string {
+    switch (answer.status) {
+      case 'OK':
+        return t('ai.reportRows', { count: answer.rows?.length ?? 0 })
+      case 'DENIED':
+        return t('ai.denied')
+      case 'NO_DATA':
+        return t('ai.noData')
+      case 'REFUSED':
+        return t('ai.refused', { reason: answer.message ?? answer.code ?? '' })
+      default:
+        return t('ai.sqlError', { reason: answer.message ?? answer.code ?? '' })
+    }
+  }
+
+  function errorText(exc: unknown): string {
+    if (exc instanceof DOMException && exc.name === 'AbortError') {
+      return t('ai.stopped')
+    }
+    if (exc instanceof AiHttpError) {
+      if (exc.status === 409) {
+        return t('ai.stopped')
+      }
+      if (exc.status === 429) {
+        return t('ai.busy')
+      }
+      if (exc.status === 503) {
+        return t('ai.unavailable')
+      }
+    }
+    return exc instanceof Error ? exc.message : String(exc)
+  }
+
+  function stop() {
+    const current = running.current
+    if (!current) {
+      return
+    }
+    // First the server stops the model, then the page stops waiting: the next question is not refused as busy.
+    void cancelAiQuestion(current.clientId)
+      .catch(() => undefined)
+      .finally(() => current.abort.abort())
   }
 
   function onKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
@@ -457,9 +530,17 @@ function AiAssistantPanel() {
                 </>
               )
             : null}
-          <button type="button" className="ai-send" disabled={busy || !question.trim()} onClick={() => void send()}>
-            {t('ai.send')}
-          </button>
+          {busy
+            ? (
+                <button type="button" className="ai-stop" onClick={stop}>
+                  {t('ai.stop')}
+                </button>
+              )
+            : (
+                <button type="button" className="ai-send" disabled={!question.trim()} onClick={() => void send()}>
+                  {t('ai.send')}
+                </button>
+              )}
         </div>
         <small className="ai-note">{t('ai.note')}</small>
       </footer>

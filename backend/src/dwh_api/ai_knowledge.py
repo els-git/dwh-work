@@ -9,7 +9,8 @@ Rules are joined with ';'. A subsection without its own marker inherits the mark
 
 A section the user may not read is never given to the model. search() also says whether the best matching
 sections were closed to the user, so the assistant can answer "not available to your role" without showing them.
-Matching is by word stems (first 6 letters), as in the probe of step 2: no external search engine is needed.
+Matching is by word stems: Russian endings are cut (роли, ролям, ролей -> рол), then at most 6 letters are kept;
+no external search engine is needed. A question in another language is translated by the model first (ai_assistant).
 """
 from __future__ import annotations
 
@@ -24,9 +25,16 @@ MARKER_RE = re.compile(r"^<!-- access: (.+) -->\s*$")
 HEADING_RE = re.compile(r"^(#{2,3}) (.+)$")
 WORD_RE = re.compile(r"[0-9A-Za-zА-Яа-яЁёƏəĞğİıÖöŞşÜüÇç_]{3,}")
 LEVELS = {"ADMIN": ("ADMIN", "SUPERADMIN"), "SUPERADMIN": ("SUPERADMIN",)}
-# Frequent words that say nothing about the subject of a question.
-STOP = {"как", "что", "где", "для", "это", "или", "при", "все", "так", "его", "она", "они", "чем", "есл",
-        "the", "and", "how", "what", "where", "можно", "нужно", "какой", "какие", "почему", "сделат"}
+# Frequent words that say nothing about the subject of a question (compared after stemming).
+STOP_WORDS = ("как", "что", "где", "для", "это", "или", "при", "все", "так", "его", "она", "они", "чем", "если",
+              "the", "and", "how", "what", "where", "можно", "нужно", "какой", "какие", "почему", "сделать",
+              "дай", "мне", "про", "расскажи", "покажи", "информация", "скажи")
+# Russian endings, longest first; the stem keeps at least 3 letters.
+ENDINGS = tuple(sorted((
+    "иями", "ями", "ами", "иях", "ием", "ией", "ии", "ого", "его", "ому", "ему", "ыми", "ими", "ях", "ах", "ов", "ев",
+    "ей", "ой", "ий", "ый", "ая", "яя", "ое", "ее", "ые", "ие", "ую", "юю", "ию", "ия", "ам", "ям", "ом", "ем",
+    "ью", "ть", "а", "я", "о", "е", "ы", "и", "у", "ю", "ь", "й"), key=len, reverse=True))
+CYRILLIC_RE = re.compile(r"[А-Яа-яЁё]")
 
 
 class GuideError(ValueError):
@@ -98,8 +106,27 @@ class SearchResult:
         return not self.sections and bool(self.denied_titles)
 
 
+def stem(word: str) -> str:
+    word = word.lower().replace("ё", "е")
+    if CYRILLIC_RE.search(word):
+        for ending in ENDINGS:
+            if word.endswith(ending) and len(word) - len(ending) >= 3:
+                word = word[: -len(ending)]
+                break
+    return word[:6]
+
+
+STOP = frozenset(stem(w) for w in STOP_WORDS)
+
+
 def stems(text: str) -> frozenset[str]:
-    return frozenset(w.lower()[:6] for w in WORD_RE.findall(text) if w.lower()[:6] not in STOP)
+    return frozenset(s for s in (stem(w) for w in WORD_RE.findall(text)) if s not in STOP)
+
+
+def is_russian(text: str) -> bool:
+    """The question is in Russian when Cyrillic letters are at least half of all letters."""
+    letters = [c for c in text if c.isalpha()]
+    return bool(letters) and sum(1 for c in letters if CYRILLIC_RE.match(c)) * 2 >= len(letters)
 
 
 def parse_guide(text: str) -> list[Section]:
