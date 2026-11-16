@@ -21,7 +21,9 @@ import base64
 import binascii
 import os
 import re
+import threading
 import time
+from collections import deque
 from contextlib import closing
 from typing import Any, Literal
 from uuid import uuid4
@@ -172,10 +174,31 @@ def llm_settings() -> ai_llm.LlmSettings:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
+# Duration of the last model answers (seconds): the chat shows their average while it waits. Kept in the
+# memory of the API process (one worker); after a restart the average is empty until the first answers.
+RECENT_ANSWERS = 10
+_recent_seconds: deque[float] = deque(maxlen=RECENT_ANSWERS)
+_recent_lock = threading.Lock()
+
+
+def record_answer_time(seconds: float) -> None:
+    with _recent_lock:
+        _recent_seconds.append(seconds)
+
+
+def average_answer_time() -> tuple[float | None, int]:
+    with _recent_lock:
+        values = list(_recent_seconds)
+    return (round(sum(values) / len(values), 1) if values else None), len(values)
+
+
 def ask_model(request: Request, request_id: int, settings: ai_llm.LlmSettings, system: str, user: str,
               image: str | None = None, max_tokens: int = 700) -> str:
+    started = time.monotonic()
     try:
-        return ai_llm.chat(settings, system, user, image, max_tokens)
+        answer = ai_llm.chat(settings, system, user, image, max_tokens)
+        record_answer_time(time.monotonic() - started)
+        return answer
     except ai_llm.LlmBusy as exc:
         finish(request, request_id, "ERROR", "AI_BUSY", message=str(exc))
         raise HTTPException(status_code=429, detail=str(exc)) from exc
@@ -202,7 +225,9 @@ def status(request: Request) -> dict:
         ready = ai_llm.is_ready(ai_llm.LlmSettings.from_env())
     except ai_llm.LlmUnavailable:
         ready = False
+    average, count = average_answer_time()
     return {"model_ready": ready, "report_configured": bool(os.environ.get("DWH_AI_DB_PASSWORD", "").strip()),
+            "average_answer_seconds": average, "average_answer_count": count,
             "can_help": "AI_ASSISTANT_USE" in user.permissions, "can_report": "AI_REPORT_RUN" in user.permissions,
             "can_admin": "AI_ADMIN_MANAGE" in user.permissions}
 

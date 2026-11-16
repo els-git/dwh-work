@@ -291,6 +291,14 @@ function AiAssistantPanel() {
     } finally {
       if (seq === askSeq.current) {
         setBusy(false)
+        // The average answer time changes with every answer: read it again.
+        getAiStatus()
+          .then(value => {
+            if (seq === askSeq.current) {
+              setStatus(value)
+            }
+          })
+          .catch(() => undefined)
       }
     }
   }
@@ -399,7 +407,10 @@ function AiAssistantPanel() {
         {busy
           ? (
               <div className="ai-message ai-assistant ai-busy">
-                {t('ai.thinking')} · {t('ai.elapsed', { seconds: Math.max(0, Math.round((now - busySince) / 1000)) })}
+                {status?.average_answer_seconds
+                  ? t('ai.thinkingAverage', { minutes: Math.max(1, Math.round(status.average_answer_seconds / 60)) })
+                  : t('ai.thinking')}
+                {' · '}{t('ai.elapsed', { seconds: Math.max(0, Math.round((now - busySince) / 1000)) })}
               </div>
             )
           : null}

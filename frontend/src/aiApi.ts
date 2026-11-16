@@ -7,6 +7,8 @@ export interface AiStatus {
   can_help: boolean
   can_report: boolean
   can_admin: boolean
+  average_answer_seconds: number | null
+  average_answer_count: number
 }
 
 export interface AiHelpAnswer {
