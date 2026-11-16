@@ -27,6 +27,7 @@ export interface AiReportAnswer {
   columns?: string[]
   rows?: Record<string, AiCell>[]
   truncated?: boolean
+  repaired?: boolean
 }
 
 export interface AiReportObject {

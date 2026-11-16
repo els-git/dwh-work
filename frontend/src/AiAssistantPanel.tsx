@@ -1,9 +1,11 @@
 import {
+  Fragment,
   useEffect,
   useRef,
   useState,
   type ClipboardEvent,
   type KeyboardEvent,
+  type ReactNode,
 } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -32,6 +34,7 @@ interface ChatMessage {
   status?: string
   sections?: string[]
   report?: AiReportAnswer
+  seconds?: number
 }
 
 const IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp']
@@ -70,6 +73,50 @@ async function captureScreen(): Promise<string> {
 }
 
 
+// The model writes simple Markdown; it is shown as text with bold, code and list bullets (no HTML from the model).
+function cleanLatex(text: string): string {
+  return text
+    .replace(/\$\s*\\(?:rightarrow|to|longrightarrow)\s*\$/g, '→')
+    .replace(/\$\s*\\leftarrow\s*\$/g, '←')
+    .replace(/\$\s*\\Rightarrow\s*\$/g, '⇒')
+    .replace(/\\(?:rightarrow|to)\b/g, '→')
+}
+
+
+function renderInline(text: string): ReactNode[] {
+  return text.split(/(\*\*[^*]+\*\*|`[^`]+`)/g).filter(part => part !== '').map((part, index) => {
+    if (part.length > 4 && part.startsWith('**') && part.endsWith('**')) {
+      return <strong key={index}>{part.slice(2, -2)}</strong>
+    }
+    if (part.length > 2 && part.startsWith('`') && part.endsWith('`')) {
+      return <code key={index}>{part.slice(1, -1)}</code>
+    }
+    return <Fragment key={index}>{part}</Fragment>
+  })
+}
+
+
+function renderMarkdown(text: string): ReactNode {
+  return cleanLatex(text).split('\n').map((line, index) => {
+    const heading = /^#{1,4}\s+(.*)$/.exec(line)
+    if (heading) {
+      return <div key={index} className="ai-line"><strong>{renderInline(heading[1])}</strong></div>
+    }
+    const bullet = /^(\s*)[*-]\s+(.*)$/.exec(line)
+    if (bullet) {
+      return (
+        <div key={index} className="ai-line" style={{ paddingLeft: `${Math.min(bullet[1].length, 8) * 4 + 4}px` }}>
+          • {renderInline(bullet[2])}
+        </div>
+      )
+    }
+    return line.trim() === ''
+      ? <div key={index} className="ai-gap" />
+      : <div key={index} className="ai-line">{renderInline(line)}</div>
+  })
+}
+
+
 function cellText(value: AiCell): string {
   return value === null ? '' : String(value)
 }
@@ -101,6 +148,8 @@ function AiAssistantPanel() {
   const [image, setImage] = useState<string | null>(null)
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [busy, setBusy] = useState(false)
+  const [busySince, setBusySince] = useState(0)
+  const [now, setNow] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const askSeq = useRef(0)
   const messageId = useRef(0)
@@ -131,6 +180,15 @@ function AiAssistantPanel() {
   useEffect(() => {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight })
   }, [messages, busy])
+
+  // Seconds counter while the model is answering.
+  useEffect(() => {
+    if (!busy) {
+      return
+    }
+    const timer = window.setInterval(() => setNow(Date.now()), 1000)
+    return () => window.clearInterval(timer)
+  }, [busy])
 
   function push(message: Omit<ChatMessage, 'id'>) {
     messageId.current += 1
@@ -186,7 +244,11 @@ function AiAssistantPanel() {
     setQuestion('')
     setImage(null)
     setError(null)
+    const startedAt = Date.now()
+    setBusySince(startedAt)
+    setNow(startedAt)
     setBusy(true)
+    const spent = () => Math.max(1, Math.round((Date.now() - startedAt) / 1000))
     try {
       if (mode === 'help') {
         const answer = await askAiHelp(text, sentImage)
@@ -194,7 +256,7 @@ function AiAssistantPanel() {
           return
         }
         push({ role: 'assistant', text: answer.answer, status: answer.status,
-               sections: answer.sections.map(s => s.title) })
+               sections: answer.sections.map(s => s.title), seconds: spent() })
       } else {
         const answer = await askAiReport(text)
         if (seq !== askSeq.current) {
@@ -203,11 +265,12 @@ function AiAssistantPanel() {
         const summary = answer.status === 'OK'
           ? t('ai.reportRows', { count: answer.rows?.length ?? 0 })
           : answer.message ?? answer.status
-        push({ role: 'assistant', text: summary, status: answer.status, report: answer })
+        push({ role: 'assistant', text: summary, status: answer.status, report: answer, seconds: spent() })
       }
     } catch (exc) {
       if (seq === askSeq.current) {
-        push({ role: 'assistant', text: exc instanceof Error ? exc.message : String(exc), status: 'ERROR' })
+        push({ role: 'assistant', text: exc instanceof Error ? exc.message : String(exc), status: 'ERROR',
+               seconds: spent() })
       }
     } finally {
       if (seq === askSeq.current) {
@@ -304,14 +367,22 @@ function AiAssistantPanel() {
         {messages.map(message => (
           <div key={message.id} className={`ai-message ai-${message.role} ai-status-${(message.status ?? '').toLowerCase()}`}>
             {message.image ? <img className="ai-thumb" src={message.image} alt={t('ai.screenshot')} /> : null}
-            <div className="ai-text">{message.text}</div>
+            <div className="ai-text">{message.role === 'assistant' ? renderMarkdown(message.text) : message.text}</div>
             {message.sections && message.sections.length > 0
               ? <div className="ai-sources">{t('ai.sources')}: {message.sections.join('; ')}</div>
               : null}
             {message.report ? renderReport(message.report) : null}
+            {message.report?.repaired ? <div className="ai-sources">{t('ai.repaired')}</div> : null}
+            {message.seconds ? <div className="ai-time">{t('ai.answerTime', { seconds: message.seconds })}</div> : null}
           </div>
         ))}
-        {busy ? <div className="ai-message ai-assistant ai-busy">{t('ai.thinking')}</div> : null}
+        {busy
+          ? (
+              <div className="ai-message ai-assistant ai-busy">
+                {t('ai.thinking')} · {t('ai.elapsed', { seconds: Math.max(0, Math.round((now - busySince) / 1000)) })}
+              </div>
+            )
+          : null}
       </div>
 
       {error ? <div className="ai-error">{error}</div> : null}
