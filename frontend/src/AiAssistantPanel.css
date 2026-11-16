@@ -46,6 +46,27 @@
   flex: 1;
 }
 
+.ai-panel-wide {
+  top: 12px;
+  left: 12px;
+  right: 12px;
+  bottom: 12px;
+  width: auto;
+}
+
+.ai-panel-wide .ai-table-wrapper {
+  max-height: 60vh;
+}
+
+.ai-expand {
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+
 .ai-close {
   border: none;
   background: transparent;
