@@ -346,15 +346,16 @@ def report(payload: ReportRequest, request: Request) -> dict:
     except SqlRejected as exc:
         outcome = {"AI_OBJECT_NOT_ALLOWED": "DENIED", "AI_NO_DATA": "NO_DATA"}.get(exc.code, "REFUSED")
         finish(request, request_id, outcome, exc.code, sql_text=sql_text[:20000], message=str(exc))
-        text = DENIED_TEXT if outcome == "DENIED" else str(exc)
-        return {"request_id": request_id, "status": outcome, "code": exc.code, "message": text, "sql": sql_text}
+        if outcome == "DENIED":
+            # The SQL may name a closed object: it stays in the journal for the administrator only.
+            return {"request_id": request_id, "status": outcome, "code": exc.code, "message": DENIED_TEXT}
+        return {"request_id": request_id, "status": outcome, "code": exc.code, "message": str(exc), "sql": sql_text}
     started = time.monotonic()
     try:
         columns, rows, truncated = run_report_sql(statement, allowed)
     except SqlRejected as exc:
         finish(request, request_id, "DENIED", exc.code, sql_text=statement, object_ids=object_ids, message=str(exc))
-        return {"request_id": request_id, "status": "DENIED", "code": exc.code, "message": DENIED_TEXT,
-                "sql": statement}
+        return {"request_id": request_id, "status": "DENIED", "code": exc.code, "message": DENIED_TEXT}
     except psycopg.Error as exc:
         message = _db_message(exc)
         finish(request, request_id, "ERROR", "AI_SQL_ERROR", sql_text=statement, object_ids=object_ids,

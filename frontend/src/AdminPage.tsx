@@ -7,6 +7,7 @@ import AdminUsersPage from './AdminUsersPage'
 import AdminRolesPage from './AdminRolesPage'
 import AdminAccessPage from './AdminAccessPage'
 import AdminIntegrationsPage from './AdminIntegrationsPage'
+import AiAdminPanel from './AiAdminPanel'
 
 import './AdminPage.css'
 
@@ -17,6 +18,7 @@ type AdminSection =
   | 'roles'
   | 'access'
   | 'integrations'
+  | 'ai'
 
 
 interface AdminSectionDefinition {
@@ -62,6 +64,13 @@ const adminSections: AdminSectionDefinition[] = [
     permission: 'ADMIN_INTEGRATION_MANAGE',
     description:
       'Source systems, source objects and integration configuration.',
+  },
+  {
+    key: 'ai',
+    labelKey: 'adminTabs.ai',
+    permission: 'AI_ADMIN_MANAGE',
+    description:
+      'AI assistant: reporting objects, reference columns, terms, examples, journal.',
   },
 ]
 
@@ -145,6 +154,15 @@ function AdminPage() {
     ) {
       return (
         <AdminIntegrationsPage />
+      )
+    }
+
+    if (
+      activeDefinition.key
+      === 'ai'
+    ) {
+      return (
+        <AiAdminPanel />
       )
     }
 

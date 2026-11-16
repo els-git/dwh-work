@@ -38,6 +38,7 @@ import AdminPage from './AdminPage'
 import AdminIntegrationHistory from './AdminIntegrationHistory'
 import AdminIntegrationRunControl from './AdminIntegrationRunControl'
 import LoadsObjectsPanel from './LoadsObjectsPanel'
+import AiAssistantPanel from './AiAssistantPanel'
 
 
 type PageKey =
@@ -186,6 +187,9 @@ function App() {
       )
       || hasPermission(
         'ADMIN_INTEGRATION_MANAGE',
+      )
+      || hasPermission(
+        'AI_ADMIN_MANAGE',
       )
     )
 
@@ -2993,6 +2997,15 @@ function App() {
               : renderLoadsPage()
         }
       </main>
+
+      {
+        // I17: the assistant is available on every screen to users with AI_ASSISTANT_USE.
+        hasPermission(
+          'AI_ASSISTANT_USE',
+        )
+          ? <AiAssistantPanel />
+          : null
+      }
     </div>
   )
 }
