@@ -1,0 +1,74 @@
+.saved-reports {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.saved-reports-grid {
+  display: grid;
+  grid-template-columns: minmax(200px, 260px) 1fr;
+  gap: 16px;
+}
+
+@media (max-width: 800px) {
+  .saved-reports-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.saved-reports-folders {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.saved-folder {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.saved-folder.active {
+  border-color: var(--accent);
+}
+
+.saved-folder small,
+.saved-closed {
+  color: var(--text-muted);
+}
+
+.saved-reports-new {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.saved-reports-folder-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.saved-reports-result {
+  margin-top: 16px;
+}
+
+.saved-result-table {
+  max-height: 60vh;
+  overflow: auto;
+}
+
+.saved-sql {
+  white-space: pre-wrap;
+  font-size: 12px;
+}

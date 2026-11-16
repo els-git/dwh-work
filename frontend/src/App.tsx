@@ -39,6 +39,7 @@ import AdminIntegrationHistory from './AdminIntegrationHistory'
 import AdminIntegrationRunControl from './AdminIntegrationRunControl'
 import LoadsObjectsPanel from './LoadsObjectsPanel'
 import AiAssistantPanel from './AiAssistantPanel'
+import SavedReportsPanel from './SavedReportsPanel'
 
 
 type PageKey =
@@ -256,6 +257,9 @@ function App() {
     reportingSearchIndex,
     setReportingSearchIndex,
   ] = useState(0)
+
+  // I17-09: "Reporting" tabs: the retail overview and the saved reports of the assistant.
+  const [reportingTab, setReportingTab] = useState<'retail' | 'saved'>('retail')
 
   const [
     highlightedReport,
@@ -2991,7 +2995,21 @@ function App() {
       >
         {
           activePage === 'reporting'
-            ? renderReportingPage()
+            ? (
+              <>
+                <div className="tabs reporting-tabs">
+                  <button type="button" className={reportingTab === 'retail' ? 'tab active' : 'tab'}
+                          onClick={() => setReportingTab('retail')}>
+                    {t('savedReports.retailTab')}
+                  </button>
+                  <button type="button" className={reportingTab === 'saved' ? 'tab active' : 'tab'}
+                          onClick={() => setReportingTab('saved')}>
+                    {t('savedReports.tab')}
+                  </button>
+                </div>
+                {reportingTab === 'saved' ? <SavedReportsPanel /> : renderReportingPage()}
+              </>
+            )
             : activePage === 'administration'
               ? <AdminPage />
               : renderLoadsPage()
