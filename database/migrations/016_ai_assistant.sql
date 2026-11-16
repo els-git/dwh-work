@@ -31,9 +31,11 @@ BEGIN
   END IF;
   IF to_regnamespace('dm') IS NULL THEN RAISE EXCEPTION 'STOP: schema dm not found'; END IF;
   IF to_regclass('meta.ai_report_object') IS NOT NULL THEN RAISE EXCEPTION 'STOP: 016 is already applied'; END IF;
+  -- AI_* may exist only deactivated in group AI: left by the rollback script (dwh forbids deleting permissions).
   IF EXISTS (SELECT 1 FROM app.permission
-              WHERE permission_code IN ('AI_ASSISTANT_USE', 'AI_REPORT_RUN', 'AI_ADMIN_MANAGE')) THEN
-    RAISE EXCEPTION 'STOP: AI_* permissions already exist';
+              WHERE permission_code IN ('AI_ASSISTANT_USE', 'AI_REPORT_RUN', 'AI_ADMIN_MANAGE')
+                AND (is_active OR permission_group <> 'AI')) THEN
+    RAISE EXCEPTION 'STOP: active AI_* permissions already exist';
   END IF;
   IF NOT EXISTS (SELECT 1 FROM app.permission WHERE permission_code = 'REPORT_VIEW' AND is_active) THEN
     RAISE EXCEPTION 'STOP: permission REPORT_VIEW not found';
@@ -72,6 +74,12 @@ BEGIN
       (2, 'AI_REPORT_RUN', 'AI assistant: report from a description'),
       (3, 'AI_ADMIN_MANAGE', 'AI assistant: administration')) v(n, code, name) ORDER BY n
   LOOP
+    UPDATE app.permission SET is_active = true, permission_name = a.name, is_assignable = true
+     WHERE permission_code = a.code AND permission_group = 'AI' AND NOT is_active;
+    IF FOUND THEN
+      RAISE NOTICE 'PERMISSION_REACTIVATED %', a.code;
+      CONTINUE;
+    END IF;
     IF v_auto THEN
       INSERT INTO app.permission (permission_code, permission_name, permission_group, is_assignable, is_active)
       VALUES (a.code, a.name, 'AI', true, true);

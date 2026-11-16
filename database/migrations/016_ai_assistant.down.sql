@@ -1,4 +1,5 @@
--- I17 rollback of 016: remove the AI assistant tables, functions, permissions and the grants of dwh_ai_ro.
+-- I17 rollback of 016: remove the AI assistant tables, functions and the grants of dwh_ai_ro;
+-- the AI_* permissions are deactivated (not deleted).
 -- Refuses and changes nothing if removal would destroy data: requests in the log, configuration changed by
 -- an administrator, or an AI_* permission given to a role.
 -- The role dwh_ai_ro itself is kept (roles are shared by the databases of the server); it loses every
@@ -38,7 +39,10 @@ DROP TABLE meta.ai_example;
 DROP TABLE meta.ai_glossary;
 DROP TABLE meta.ai_value_column;
 DROP TABLE meta.ai_report_object;
-DELETE FROM app.permission WHERE permission_code IN ('AI_ASSISTANT_USE', 'AI_REPORT_RUN', 'AI_ADMIN_MANAGE');
+-- dwh forbids deleting permissions (trigger app.prevent_identity_hard_delete): deactivate them instead.
+-- Re-applying 016 activates them again.
+UPDATE app.permission SET is_active = false
+ WHERE permission_code IN ('AI_ASSISTANT_USE', 'AI_REPORT_RUN', 'AI_ADMIN_MANAGE');
 DO $dmdef$
 BEGIN
   EXECUTE format('ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA dm REVOKE SELECT ON TABLES FROM dwh_ai_ro',

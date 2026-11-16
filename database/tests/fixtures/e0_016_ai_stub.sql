@@ -62,6 +62,14 @@ CREATE FUNCTION app.auth_get_permissions(p_user_id bigint)
   ORDER BY permission_code;
 $function$;
 GRANT EXECUTE ON FUNCTION app.auth_get_permissions(bigint) TO dwh_app;
+-- dwh forbids deleting permissions (E1 13.11.2026: trigger function app.prevent_identity_hard_delete, same message).
+CREATE FUNCTION app.prevent_identity_hard_delete() RETURNS trigger LANGUAGE plpgsql AS $function$
+BEGIN
+  RAISE EXCEPTION 'Hard delete is not allowed for %. Use deactivation instead.', TG_TABLE_NAME;
+END;
+$function$;
+CREATE TRIGGER trg_permission_no_delete BEFORE DELETE ON app.permission
+  FOR EACH ROW EXECUTE FUNCTION app.prevent_identity_hard_delete();
 INSERT INTO app.user_account (username, account_level) VALUES ('admin', 'SUPERADMIN'), ('user', 'USER');
 INSERT INTO app.permission (permission_id, permission_code, permission_name, permission_group) VALUES
   (1, 'ADMIN_INTEGRATION_MANAGE', 'Integration administration', 'ADMIN'),
