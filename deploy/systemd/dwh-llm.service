@@ -1,0 +1,29 @@
+# I17: local AI model of the DWH assistant (llama.cpp llama-server), 127.0.0.1:8081 only, no network.
+# Installed by tools/server/dwh_ai_setup.py (not by dwh_update.py: loading the model takes minutes,
+# it must not restart with every release). Model and threads: /etc/dwh/llm.env.
+[Unit]
+Description=DWH local AI model (llama-server, 127.0.0.1 only)
+After=network.target
+
+[Service]
+Type=simple
+DynamicUser=yes
+EnvironmentFile=/etc/dwh/llm.env
+# systemd does not expand a variable in the program path: the shell does, then exec replaces it.
+ExecStart=/bin/sh -c 'exec "$LLM_BIN" -m "$LLM_MODEL" --mmproj "$LLM_MMPROJ" --host 127.0.0.1 --port 8081 -t "$LLM_THREADS" --numa distribute --reasoning-budget 0 -c "$LLM_CONTEXT" --jinja'
+Restart=on-failure
+RestartSec=10
+MemoryMax=26G
+CPUWeight=50
+IPAddressDeny=any
+IPAddressAllow=localhost
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+
+[Install]
+WantedBy=multi-user.target

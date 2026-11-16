@@ -50,11 +50,20 @@ def memory_gb() -> int:
     return 1
 
 
-def pg_conf_text(mem_gb: int) -> str:
-    shared = max(1, mem_gb // 4)
-    cache = max(1, mem_gb * 5 // 8)
+LLM_ENV = Path("/etc/dwh/llm.env")
+
+
+def pg_conf_text(mem_gb: int, llm: bool | None = None) -> str:
+    """PostgreSQL memory settings. With the local AI model (I17, /etc/dwh/llm.env present) the model keeps
+    ~20 GB, so PostgreSQL gets a small cache (the database is small)."""
+    if llm is None:
+        llm = LLM_ENV.is_file()
+    if llm:
+        shared, cache = 2, max(1, min(6, mem_gb // 5))
+    else:
+        shared, cache = max(1, mem_gb // 4), max(1, mem_gb * 5 // 8)
     return ("# I16: DWH settings (tools/server/dwh_prepare_server.py), by the memory of the server: "
-            f"{mem_gb} GB\n"
+            f"{mem_gb} GB" + (", local AI model on this server (I17)" if llm else "") + "\n"
             f"shared_buffers = '{shared}GB'\n"
             f"effective_cache_size = '{cache}GB'\n"
             "work_mem = '32MB'\n"

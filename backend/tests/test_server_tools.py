@@ -21,6 +21,7 @@ import dwh_backup  # noqa: E402
 import dwh_prepare_server as prep  # noqa: E402
 import dwh_import_db as imp  # noqa: E402
 import dwh_sql_package as sqlpkg  # noqa: E402
+import dwh_ai_setup as aisetup  # noqa: E402
 import dwh_task  # noqa: E402
 import dwh_update as up  # noqa: E402
 
@@ -220,12 +221,16 @@ class DispatcherServiceTests(unittest.TestCase):
 
 class PrepareServerTests(unittest.TestCase):
     def test_postgres_memory_by_server_size(self):
-        text16 = prep.pg_conf_text(16)
+        text16 = prep.pg_conf_text(16, llm=False)
         self.assertIn("shared_buffers = '4GB'", text16)
         self.assertIn("effective_cache_size = '10GB'", text16)
         self.assertIn("timezone = 'Asia/Baku'", text16)
         self.assertIn("listen_addresses = 'localhost'", text16)
-        self.assertIn("shared_buffers = '8GB'", prep.pg_conf_text(32))
+        self.assertIn("shared_buffers = '8GB'", prep.pg_conf_text(32, llm=False))
+        with_llm = prep.pg_conf_text(31, llm=True)
+        self.assertIn("shared_buffers = '2GB'", with_llm)
+        self.assertIn("effective_cache_size = '6GB'", with_llm)
+        self.assertIn("local AI model", with_llm)
 
     def test_without_apply_nothing_runs(self):
         executed = []
@@ -322,6 +327,51 @@ class SqlPackageTests(Temp):
             sqlpkg.check_result(run, "c", ok, 3)
         with self.assertRaises(sqlpkg.Stop):
             sqlpkg.check_result(run, "c", subprocess.CompletedProcess([], 3, "a|PASS\nb|PASS\n", "boom"), 2)
+
+
+class AiSetupTests(Temp):
+    def args(self, **kw):
+        values = dict(bin="/opt/b/llama-server", model_dir="/var/lib/m", model_file="m.gguf", mmproj="p.gguf",
+                      label="gemma", threads=8, context=16384, rotate_password=False)
+        values.update(kw)
+        return mock.Mock(**values)
+
+    def test_env_with_keeps_other_lines(self):
+        text = "# head\nDWH_DB_HOST=127.0.0.1\nDWH_APP_PASSWORD=x\nDWH_AI_MODEL_LABEL=old\n"
+        out = aisetup.env_with(text, {"DWH_AI_MODEL_LABEL": "gemma", "DWH_AI_DB_PASSWORD": "p"})
+        self.assertEqual(out.splitlines()[:4], ["# head", "DWH_DB_HOST=127.0.0.1", "DWH_APP_PASSWORD=x",
+                                                "DWH_AI_MODEL_LABEL=gemma"])
+        self.assertIn("DWH_AI_DB_PASSWORD=p", out)
+        self.assertEqual(aisetup.read_env_text(out)["DWH_AI_DB_PASSWORD"], "p")
+
+    def test_llm_env_and_unit(self):
+        text = aisetup.llm_env_text(self.args())
+        self.assertIn("LLM_MODEL=/var/lib/m/m.gguf", text)
+        self.assertIn("LLM_MMPROJ=/var/lib/m/p.gguf", text)
+        unit = aisetup.UNIT_SRC.read_text()
+        for name in ("LLM_BIN", "LLM_MODEL", "LLM_MMPROJ", "LLM_THREADS", "LLM_CONTEXT"):
+            self.assertIn('"$' + name + '"', unit)
+        self.assertIn("--host 127.0.0.1", unit)
+        self.assertIn("IPAddressDeny=any", unit)
+        self.assertNotIn("dwh-llm.service", up.UNITS)
+
+    def test_plan(self):
+        root = Path(self.tmp.name)
+        env = root / "dwh.env"
+        env.write_text("DWH_APP_PASSWORD=x\n")
+        patches = {"LLM_ENV": root / "llm.env", "UNIT_DST": root / "dwh-llm.service", "SYSCTL": root / "90.conf",
+                   "DWH_ENV": env}
+        with mock.patch.multiple(aisetup, **patches), mock.patch.object(prep, "PG_CONF", root / "dwh.conf"), \
+                mock.patch.object(prep, "memory_gb", return_value=31):
+            codes = [c for c, _ in aisetup.plan(self.args())]
+            self.assertEqual(codes, ["L1", "L2", "L3", "L4", "L5"])
+            (root / "llm.env").write_text(aisetup.llm_env_text(self.args()))
+            (root / "dwh-llm.service").write_text(aisetup.UNIT_SRC.read_text())
+            (root / "90.conf").write_text(aisetup.SYSCTL_TEXT)
+            (root / "dwh.conf").write_text(prep.pg_conf_text(31, llm=True))
+            env.write_text("DWH_AI_DB_PASSWORD=p\nDWH_AI_LLM_URL=http://127.0.0.1:8081\nDWH_AI_MODEL_LABEL=gemma\n")
+            self.assertEqual(aisetup.plan(self.args()), [])
+            self.assertEqual([c for c, _ in aisetup.plan(self.args(rotate_password=True))], ["L5"])
 
 
 if __name__ == "__main__":
