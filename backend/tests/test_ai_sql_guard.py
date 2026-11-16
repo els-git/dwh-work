@@ -23,7 +23,10 @@ class TextTests(unittest.TestCase):
     def test_good_queries(self):
         for sql in ("SELECT sales_channel_name_ru, count(*) FROM dm.v_retail_application_current GROUP BY 1",
                     "with c as (select * from dm.v_retail_application_current) select count(*) from c;",
-                    "SELECT count(*) FROM v_retail_application_current WHERE status_name_ru = 'Одобрено; ok'"):
+                    "SELECT count(*) FROM v_retail_application_current WHERE status_name_ru = 'Одобрено; ok'",
+                    # acceptance R04 (16.11.2026): the model named the view alias "dm"
+                    "SELECT dm.branch_name_ru, count(dm.application_id) FROM dm.v_retail_application_current dm "
+                    "GROUP BY dm.branch_name_ru"):
             self.assertEqual(code(sql), "OK", sql)
         statement, ids = check_text("SELECT 1 FROM dm.v_retail_application_current;", [CUR], DM)
         self.assertEqual(ids, [1])
@@ -41,6 +44,7 @@ class TextTests(unittest.TestCase):
             "SELECT * FROM dm.salary_project": "AI_OBJECT_NOT_ALLOWED",
             "SELECT * FROM salary_project": "AI_OBJECT_NOT_ALLOWED",
             "SELECT * FROM dm.retail_application_history": "AI_OBJECT_NOT_ALLOWED",
+            "SELECT dm.salary FROM dm.salary_project dm": "AI_OBJECT_NOT_ALLOWED",
             "SELECT * FROM app.user_account": "AI_OBJECT_NOT_ALLOWED",
             "SELECT * FROM pg_catalog.pg_authid": "AI_SQL_FORBIDDEN",
             "SELECT pg_sleep(100) FROM dm.v_retail_application_current": "AI_SQL_FORBIDDEN",

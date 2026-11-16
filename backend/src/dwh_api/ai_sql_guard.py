@@ -87,6 +87,10 @@ def check_text(sql: str, allowed: Iterable[AllowedObject], dm_relations: Iterabl
     for schema, name in QUALIFIED_RE.findall(bare):
         schema = schema.lower()
         if schema == "dm":
+            if name.lower() not in dm_names:
+                # Not a relation of dm: a column of a table alias that happens to be called "dm"
+                # (FROM dm.v_x dm ... dm.column). Relations actually read are checked by the plan.
+                continue
             obj = allowed_by_name.get(name.lower())
             if obj is None:
                 raise SqlRejected("AI_OBJECT_NOT_ALLOWED", f"dm.{name} is not available to the user's role")
