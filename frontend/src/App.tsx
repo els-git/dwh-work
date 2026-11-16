@@ -2837,7 +2837,7 @@ function App() {
       <aside className="sidebar">
         <div className="brand">
           <div className="brand-mark">
-            DWH
+            <img className="brand-logo" src="/asgar-systems-mark.svg" alt="ASGAR Systems" />
           </div>
 
           <div>

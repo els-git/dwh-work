@@ -333,7 +333,7 @@ export default function AuthGate({
     return (
       <div className="auth-startup-screen">
         <div className="auth-startup-mark">
-          DWH
+          <img className="brand-logo" src="/asgar-systems-mark.svg" alt="ASGAR Systems" />
         </div>
 
         <p>
@@ -353,7 +353,7 @@ export default function AuthGate({
         <div className="auth-login-card">
           <div className="auth-login-brand">
             <div className="auth-login-mark">
-              DWH
+              <img className="brand-logo" src="/asgar-systems-mark.svg" alt="ASGAR Systems" />
             </div>
 
             <div>
@@ -465,7 +465,7 @@ export default function AuthGate({
         <div className="auth-login-card">
           <div className="auth-login-brand">
             <div className="auth-login-mark">
-              DWH
+              <img className="brand-logo" src="/asgar-systems-mark.svg" alt="ASGAR Systems" />
             </div>
 
             <div>
