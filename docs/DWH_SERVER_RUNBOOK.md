@@ -134,6 +134,52 @@ sudo python3 /opt/dwh/releases/<новый выпуск>/src/tools/server/dwh_up
 ```
 Переключает `/opt/dwh/current`, ставит файлы служб того выпуска, перезапускает службы и проверяет `/api/health`. Результат — `ROLLBACK_RESULT: PASS`; если выпуск не запустился, возвращается текущий и выводится `FAIL`. База не меняется: копия перед каждым обновлением лежит в `/backup/dwh` с меткой `pre-update-<версия>`.
 
+## 4b. ИИ-помощник: служба модели (I17)
+
+Модель — служба `dwh-llm`:
+- llama.cpp `llama-server`, слушает только `127.0.0.1:8081`, сетевые соединения кроме localhost запрещены;
+- пользователь создаётся systemd на время работы;
+- до 26 ГБ памяти; загрузка после запуска — до 15 минут.
+
+Обновление выпуска её не перезапускает. Настройки модели — в `/etc/dwh/llm.env`.
+
+Установка и проверка — `tools/server/dwh_ai_setup.py`:
+- `/etc/dwh/llm.env` и служба `dwh-llm`;
+- `kernel.numa_balancing = 0`;
+- память PostgreSQL рядом с моделью (`shared_buffers` 2 ГБ), с перезапуском PostgreSQL;
+- случайный пароль `dwh_ai_ro` — только в `/etc/dwh/dwh.env`, на экран не выводится;
+- перезапуск `dwh-api`, `dwh-dispatcher`.
+
+Без `--apply` инструмент только показывает план:
+```bash
+sudo python3 /opt/dwh/current/src/tools/server/dwh_ai_setup.py
+```
+```bash
+sudo python3 /opt/dwh/current/src/tools/server/dwh_ai_setup.py --apply
+```
+Итог — `AI_SETUP_RESULT: PASS`: модель отвечает, `dwh_ai_ro` входит только на чтение и видит только `dm`.
+
+Проверка без изменений:
+```bash
+sudo python3 /opt/dwh/current/src/tools/server/dwh_ai_setup.py --check
+```
+Состояние и журнал службы:
+```bash
+systemctl status dwh-llm
+```
+```bash
+sudo journalctl -u dwh-llm -n 50 --no-pager
+```
+
+Смена модели:
+1. Изменить `LLM_MODEL` / `LLM_MMPROJ` в `/etc/dwh/llm.env`, затем:
+   ```bash
+   sudo systemctl restart dwh-llm
+   ```
+2. Название модели для журнала — `DWH_AI_MODEL_LABEL` в `/etc/dwh/dwh.env`.
+
+Новый пароль `dwh_ai_ro`: `dwh_ai_setup.py --apply --rotate-password`.
+
 ## 5. Проверки и задачи
 
 - Сеть (шаг 5), только чтение:
