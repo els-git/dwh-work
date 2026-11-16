@@ -167,7 +167,7 @@ def stage_e1(run: Run, package: dict, paths: dict[str, Path]) -> None:
                  run.psql_file(copy, paths["previous_check"], "dwh_app", read_only=True),
                  package["previous_check"]["expected"])
     result = run.psql_file(copy, paths["test"], package["owner"])
-    passed = len(re.findall(r"PASS X\d+", result.stderr))
+    passed = len(re.findall(r"PASS [A-Z]\d+", result.stderr))
     run.log(f"{copy}: test {package['number']}: {passed} PASS lines")
     if result.returncode != 0 or "ALL_TESTS_PASS" not in result.stdout:
         failed = [line for line in result.stderr.splitlines() if "FAIL" in line or "ERROR" in line]
