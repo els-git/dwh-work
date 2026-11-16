@@ -142,6 +142,22 @@ function downloadCsv(answer: AiReportAnswer) {
 function AiAssistantPanel() {
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
+  const [wide, setWide] = useState(() => {
+    try {
+      return window.localStorage.getItem('dwh.ai.wide') === '1'
+    } catch {
+      return false
+    }
+  })
+  const toggleWide = () => {
+    const next = !wide
+    setWide(next)
+    try {
+      window.localStorage.setItem('dwh.ai.wide', next ? '1' : '0')
+    } catch {
+      // The choice is only a convenience: without storage it lasts until the page is reloaded.
+    }
+  }
   const [status, setStatus] = useState<AiStatus | null>(null)
   const [mode, setMode] = useState<Mode>('help')
   const [question, setQuestion] = useState('')
@@ -340,12 +356,16 @@ function AiAssistantPanel() {
   }
 
   return (
-    <aside className="ai-panel" aria-label={t('ai.title')}>
+    <aside className={wide ? 'ai-panel ai-panel-wide' : 'ai-panel'} aria-label={t('ai.title')}>
       <header className="ai-header">
         <strong>{t('ai.title')}</strong>
         <span className={status?.model_ready ? 'badge badge-success' : 'badge badge-warning'}>
           {status === null ? '…' : status.model_ready ? t('ai.modelReady') : t('ai.modelNotReady')}
         </span>
+        <button type="button" className="ai-expand" onClick={toggleWide}
+                title={wide ? t('ai.collapse') : t('ai.expand')} aria-label={wide ? t('ai.collapse') : t('ai.expand')}>
+          {wide ? '⤡' : '⤢'}
+        </button>
         <button type="button" className="ai-close" onClick={() => setOpen(false)} aria-label={t('ai.close')}>×</button>
       </header>
 
