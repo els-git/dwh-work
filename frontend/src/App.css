@@ -3344,3 +3344,19 @@
   outline: 2px solid #f2841f;
   outline-offset: 2px;
 }
+
+/* ASGAR Systems mark (16.11.2026): the SVG has its own dark tile, so the boxes around it are transparent. */
+.brand-mark,
+.auth-login-mark,
+.auth-startup-mark {
+  border: none;
+  background: transparent;
+  padding: 0;
+  overflow: hidden;
+}
+
+.brand-logo {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
