@@ -10,11 +10,11 @@
     },
     "migration": {
       "path": "database/migrations/016_ai_assistant.sql",
-      "sha256": "A7106A17565DE9F436CD2A34F22DC2BED681EEDF23644C03B3A8AA54225E8654"
+      "sha256": "D33DB9B038BA2216F2782DCE872AFCF86FC91BA0968027E27875168C5E66EB7E"
     },
     "down": {
       "path": "database/migrations/016_ai_assistant.down.sql",
-      "sha256": "E7853D3DDF6239934D0463E14ECAC5164403A91ED6048E3E32AE9229C50CDD20"
+      "sha256": "D4A1B1F0085A9716D7159315DFB822D686799121EC29E1BED70F886DFA75A0EE"
     },
     "check": {
       "path": "database/checks/016_ai_assistant_check.sql",
