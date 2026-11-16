@@ -60,5 +60,35 @@
       "label": "016",
       "expected": 10
     }
+  },
+  "018": {
+    "number": "018",
+    "owner": "dwh_admin",
+    "marker": "meta.dm_mart",
+    "copy_db": "dwh_i19_018_test",
+    "check_expected": 9,
+    "added_rows": {},
+    "migration": {
+      "path": "database/migrations/018_dm_builder.sql",
+      "sha256": "371E010E9154A8DF1CCBB92EEA81B5F872E2C4785835C5555D4922C8AA2D80F5"
+    },
+    "down": {
+      "path": "database/migrations/018_dm_builder.down.sql",
+      "sha256": "F1E83A2208DA8611A8DF4FA70B4E2CFE7322CA3C278F8DD59E845CCF47C96A03"
+    },
+    "check": {
+      "path": "database/checks/018_dm_builder_check.sql",
+      "sha256": "93602A24007E08D884B49B4BF2009C601A1D50F746F3189FA37EE994CD9F40D9"
+    },
+    "test": {
+      "path": "database/tests/018_dm_builder_test.sql",
+      "sha256": "46B8BD488662E2D2C7A997C56E67B4879D75AE48128433E335EEEC4A129673A5"
+    },
+    "previous_check": {
+      "path": "database/checks/017_ai_saved_reports_check.sql",
+      "sha256": "5DA8A570EF9DB37D8F8219CB6C6E571DFD70BD429B81D3C09389BD09203ADEB8",
+      "label": "017",
+      "expected": 8
+    }
   }
 }
