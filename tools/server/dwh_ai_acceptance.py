@@ -76,7 +76,7 @@ def main(argv: list[str] | None = None) -> int:
     os.environ["DWH_AI_QUEUE_SECONDS"] = "5"
     sys.path.insert(0, str(SRC / "backend" / "src"))
     from dwh_api import ai_llm  # noqa: E402
-    from dwh_api.ai_core import describe_report_data, help_prompt, report_system, run_checked  # noqa: E402
+    from dwh_api.ai_core import describe_report_data, help_prompt, repair_message, report_system, run_checked  # noqa: E402
     from dwh_api.ai_knowledge import KnowledgeIndex, UserScope  # noqa: E402
     from dwh_api.ai_sql_guard import AllowedObject, SqlRejected, check_text, extract_sql, limited  # noqa: E402
     from dwh_api.config import get_api_config  # noqa: E402
@@ -149,33 +149,44 @@ def main(argv: list[str] | None = None) -> int:
                         description, dm_relations = describe_report_data(
                             cur, cur, allowed, {int(w["object_id"]): w for w in allowed_rows}, denied)
                     conn.rollback()
-                    answer = ai_llm.chat(settings, report_system(description), item["question"], None, 600)
-                    sql_text = extract_sql(answer)
-                    body = ["```sql", sql_text, "```"]
-                    try:
-                        statement, _ = check_text(sql_text, allowed, dm_relations)
-                    except SqlRejected as exc:
-                        outcome = {"AI_OBJECT_NOT_ALLOWED": "DENIED", "AI_NO_DATA": "NO_DATA"}.get(exc.code, "REFUSED")
-                        verdict = item["expect"] in ("NOT_EXECUTED", "DENIED")
-                        detail = f"{outcome} {exc.code}"
-                    else:
+                    user_text = item["question"]
+                    for attempt in (1, 2):  # as the application: one self-repair after a PostgreSQL error
+                        answer = ai_llm.chat(settings, report_system(description), user_text, None, 600)
+                        sql_text = extract_sql(answer)
+                        body += ["```sql", sql_text, "```"]
+                        try:
+                            statement, _ = check_text(sql_text, allowed, dm_relations)
+                        except SqlRejected as exc:
+                            outcome = {"AI_OBJECT_NOT_ALLOWED": "DENIED", "AI_NO_DATA": "NO_DATA"}.get(exc.code, "REFUSED")
+                            verdict = item["expect"] in ("NOT_EXECUTED", "DENIED")
+                            detail = f"{outcome} {exc.code}"
+                            break
                         if item["expect"] != "OK":
                             detail = "EXECUTABLE although the question must not be executed"
-                        else:
-                            with conn.cursor() as cur:
-                                try:
-                                    _, rows, _ = run_checked(cur, statement, allowed)
-                                except SqlRejected as exc:
-                                    detail = f"plan check refused: {exc}"
-                                    rows = None
+                            break
+                        with conn.cursor() as cur:
+                            try:
+                                _, rows, _ = run_checked(cur, statement, allowed)
+                            except SqlRejected as exc:
                                 conn.rollback()
-                                if rows is not None:
-                                    cur.execute(limited(item["reference_sql"], 1000))
-                                    expected = [dict(r) for r in cur.fetchall()]
-                                    conn.rollback()
-                                    verdict = rows_key(rows) == rows_key(expected)
-                                    detail = (f"rows {len(rows)} vs reference {len(expected)}: "
-                                              + ("match" if verdict else "DIFFERENT"))
+                                detail = f"plan check refused: {exc}"
+                                break
+                            except Exception as exc:  # noqa: BLE001 - PostgreSQL error: repair once
+                                conn.rollback()
+                                error = getattr(getattr(exc, "diag", None), "message_primary", None) or str(exc)
+                                if attempt == 1:
+                                    user_text = repair_message(item["question"], statement, error)
+                                    continue
+                                detail = f"ERROR after repair: {error[:300]}"
+                                break
+                            conn.rollback()
+                            cur.execute(limited(item["reference_sql"], 1000))
+                            expected = [dict(r) for r in cur.fetchall()]
+                            conn.rollback()
+                        verdict = rows_key(rows) == rows_key(expected)
+                        detail = (f"rows {len(rows)} vs reference {len(expected)}: "
+                                  + ("match" if verdict else "DIFFERENT") + (" (repaired)" if attempt == 2 else ""))
+                        break
         except ai_llm.LlmUnavailable as exc:
             conn.rollback()
             detail = f"MODEL ERROR {exc}"

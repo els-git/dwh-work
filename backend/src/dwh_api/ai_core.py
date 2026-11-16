@@ -15,13 +15,21 @@ NO_HELP_TEXT = "В справке нет ответа на этот вопрос
 MAX_ROWS = 1000
 
 HELP_SYSTEM = (
-    "Ты помощник по приложению DWH. Отвечай кратко, на языке вопроса, только по приведённым разделам справки "
-    "и по снимку экрана, если он приложен. Называй экран, вкладку и кнопки так, как в справке. "
-    "Если ответа в справке нет, так и скажи. Никогда не выдумывай пароли, адреса и данные.")
+    "Ты помощник по приложению DWH. Отвечай на языке вопроса, только по приведённым разделам справки "
+    "и по снимку экрана, если он приложен. Отвечай по существу, но полно: шаги по порядку, где это находится "
+    "(раздел, вкладка, кнопка — так, как в справке), что важно учесть. Если ответа в справке нет, так и скажи. "
+    "Никогда не выдумывай пароли, адреса и данные. Оформление: обычный текст, можно **жирный** и списки; "
+    "без LaTeX и формул, стрелку пиши символом →.")
+IMAGE_NOTE = (
+    "\nК вопросу приложен снимок экрана приложения DWH. Определи по снимку и карте разделов, какой это экран. "
+    "Затем расскажи развёрнуто: что на нём показано (заголовок, показатели, вкладки, таблицы, кнопки — их смысл), "
+    "что пользователь может здесь сделать (действия, фильтры, выгрузка), куда можно перейти дальше и в каком "
+    "разделе справки об этом подробнее. Цифры со снимка не пересказывай, если о них не спрашивают.")
 REPORT_SYSTEM = (
     "Ты пишешь SQL для PostgreSQL 17 по описанию отчёта. Можно использовать только объекты и колонки из описания "
     "ниже, имена объектов всегда со схемой (dm.имя), только один SELECT, без комментариев. "
     "Значения справочников бери только из перечисленных. "
+    "Колонки пиши без префикса; если даёшь объекту псевдоним, обращайся к колонкам только через него. "
     "Слова «по <признаку>» (по продуктам, по каналам, по филиалам) означают группировку GROUP BY по колонке "
     "этого признака, и она выводится в результате. "
     "Верни один запрос в блоке ```sql```, без пояснений. "
@@ -29,12 +37,23 @@ REPORT_SYSTEM = (
     "Если нужных данных нет в описании, верни ```sql\n-- NO_DATA\n```.")
 
 
-def help_prompt(found: SearchResult, question: str) -> tuple[str, str]:
-    """System and user messages for a help question; only the sections the user may read are included."""
+def help_prompt(found: SearchResult, question: str, screen_map: str | None = None) -> tuple[str, str]:
+    """System and user messages for a help question; only the sections the user may read are included.
+    With a screenshot, screen_map lists every section the user may read (title and its start) so that the
+    model can recognise the screen even when the question has few words."""
     context = "\n---\n".join(s.text for s in found.sections) or "(подходящих разделов справки нет)"
     note = ("\nРазделы о вопросе недоступны роли пользователя: о них отвечай «" + DENIED_TEXT + "»."
             if found.denied_titles else "")
-    return HELP_SYSTEM + note, f"Справка:\n{context}\n\nВопрос: {question}"
+    if screen_map is None:
+        return HELP_SYSTEM + note, f"Справка:\n{context}\n\nВопрос: {question}"
+    return (HELP_SYSTEM + IMAGE_NOTE + note,
+            f"Карта разделов справки:\n{screen_map}\n\nПодробно:\n{context}\n\nВопрос: {question}")
+
+
+def repair_message(question: str, sql: str, error: str) -> str:
+    """Second request after a PostgreSQL error: the model sees its query and the error (no data)."""
+    return (f"{question}\n\nПредыдущий запрос не выполнился.\n```sql\n{sql}\n```\n"
+            f"Ошибка PostgreSQL: {error}\nИсправь запрос по тем же правилам.")
 
 
 def report_system(description: str) -> str:

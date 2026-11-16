@@ -136,6 +136,28 @@
   white-space: pre-wrap;
 }
 
+.ai-text code {
+  padding: 0 4px;
+  border-radius: 3px;
+  background: var(--bg-main);
+  font-size: 12px;
+}
+
+.ai-line {
+  margin: 1px 0;
+}
+
+.ai-gap {
+  height: 6px;
+}
+
+.ai-time {
+  margin-top: 6px;
+  color: var(--text-muted);
+  font-size: 11px;
+  text-align: right;
+}
+
 .ai-sources {
   margin-top: 6px;
   color: var(--text-muted);

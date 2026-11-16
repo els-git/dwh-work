@@ -34,7 +34,7 @@ from pydantic import BaseModel, Field
 
 from dwh_api import ai_llm
 from dwh_api.ai_core import (DENIED_TEXT, MAX_ROWS, NO_HELP_TEXT, describe_report_data, help_prompt,
-                             report_system, run_checked)
+                             repair_message, report_system, run_checked)
 from dwh_api.ai_knowledge import KnowledgeIndex, UserScope
 from dwh_api.ai_sql_guard import AllowedObject, SqlRejected, check_text, extract_sql
 from dwh_api.auth import _load_auth_state
@@ -222,7 +222,8 @@ def help_answer(payload: HelpRequest, request: Request) -> dict:
     if not found.sections and image is None:
         finish(request, request_id, "NO_DATA", "AI_HELP_NOT_FOUND")
         return {"request_id": request_id, "status": "NO_DATA", "answer": NO_HELP_TEXT, "sections": []}
-    system, user_text = help_prompt(found, payload.question)
+    screen_map = knowledge().screen_map(user) if image else None
+    system, user_text = help_prompt(found, payload.question, screen_map)
     answer = ask_model(request, request_id, settings, system, user_text, image)
     finish(request, request_id, "OK", None, message=", ".join(s.number for s in found.sections)[:4000])
     return {"request_id": request_id, "status": "OK", "answer": answer,
@@ -268,35 +269,44 @@ def report(payload: ReportRequest, request: Request) -> dict:
     if not allowed:
         finish(request, request_id, "DENIED", "AI_OBJECT_NOT_ALLOWED", message="no reporting object for the role")
         return {"request_id": request_id, "status": "DENIED", "message": DENIED_TEXT}
-    answer = ask_model(request, request_id, settings, report_system(context),
-                       payload.question, max_tokens=600)
-    sql_text = extract_sql(answer)
-    try:
-        statement, object_ids = check_text(sql_text, allowed, dm_relations)
-    except SqlRejected as exc:
-        outcome = {"AI_OBJECT_NOT_ALLOWED": "DENIED", "AI_NO_DATA": "NO_DATA"}.get(exc.code, "REFUSED")
-        finish(request, request_id, outcome, exc.code, sql_text=sql_text[:20000], message=str(exc))
-        if outcome == "DENIED":
-            # The SQL may name a closed object: it stays in the journal for the administrator only.
-            return {"request_id": request_id, "status": outcome, "code": exc.code, "message": DENIED_TEXT}
-        return {"request_id": request_id, "status": outcome, "code": exc.code, "message": str(exc), "sql": sql_text}
+    user_text = payload.question
     started = time.monotonic()
-    try:
-        columns, rows, truncated = run_report_sql(statement, allowed)
-    except SqlRejected as exc:
-        finish(request, request_id, "DENIED", exc.code, sql_text=statement, object_ids=object_ids, message=str(exc))
-        return {"request_id": request_id, "status": "DENIED", "code": exc.code, "message": DENIED_TEXT}
-    except psycopg.Error as exc:
-        message = _db_message(exc)
-        finish(request, request_id, "ERROR", "AI_SQL_ERROR", sql_text=statement, object_ids=object_ids,
-               message=message)
-        return {"request_id": request_id, "status": "ERROR", "code": "AI_SQL_ERROR", "message": message,
-                "sql": statement}
-    finish(request, request_id, "OK", "AI_REPORT_TRUNCATED" if truncated else None, sql_text=statement,
-           object_ids=object_ids, rows=len(rows))
-    return {"request_id": request_id, "status": "OK", "sql": statement, "columns": columns,
-            "rows": jsonable_encoder(rows), "truncated": truncated,
-            "seconds": round(time.monotonic() - started, 2)}
+    for attempt in (1, 2):
+        answer = ask_model(request, request_id, settings, report_system(context), user_text, max_tokens=600)
+        sql_text = extract_sql(answer)
+        try:
+            statement, object_ids = check_text(sql_text, allowed, dm_relations)
+        except SqlRejected as exc:
+            outcome = {"AI_OBJECT_NOT_ALLOWED": "DENIED", "AI_NO_DATA": "NO_DATA"}.get(exc.code, "REFUSED")
+            finish(request, request_id, outcome, exc.code, sql_text=sql_text[:20000], message=str(exc))
+            if outcome == "DENIED":
+                # The SQL may name a closed object: it stays in the journal for the administrator only.
+                return {"request_id": request_id, "status": outcome, "code": exc.code, "message": DENIED_TEXT}
+            return {"request_id": request_id, "status": outcome, "code": exc.code, "message": str(exc),
+                    "sql": sql_text}
+        try:
+            columns, rows, truncated = run_report_sql(statement, allowed)
+        except SqlRejected as exc:
+            finish(request, request_id, "DENIED", exc.code, sql_text=statement, object_ids=object_ids,
+                   message=str(exc))
+            return {"request_id": request_id, "status": "DENIED", "code": exc.code, "message": DENIED_TEXT}
+        except psycopg.Error as exc:
+            message = _db_message(exc)
+            if attempt == 1:
+                # One self-repair: the model gets its query and the PostgreSQL error, the new query is checked again.
+                user_text = repair_message(payload.question, statement, message)
+                continue
+            finish(request, request_id, "ERROR", "AI_SQL_ERROR", sql_text=statement, object_ids=object_ids,
+                   message=message)
+            return {"request_id": request_id, "status": "ERROR", "code": "AI_SQL_ERROR", "message": message,
+                    "sql": statement}
+        code = "AI_REPORT_TRUNCATED" if truncated else ("AI_REPORT_REPAIRED" if attempt == 2 else None)
+        finish(request, request_id, "OK", code, sql_text=statement, object_ids=object_ids, rows=len(rows),
+               message="SQL repaired after a PostgreSQL error" if attempt == 2 else None)
+        return {"request_id": request_id, "status": "OK", "sql": statement, "columns": columns,
+                "rows": jsonable_encoder(rows), "truncated": truncated, "repaired": attempt == 2,
+                "seconds": round(time.monotonic() - started, 2)}
+    raise HTTPException(status_code=500, detail="report attempts exhausted")
 
 
 # ------------------------------------------------------------------ administration (checked in the database)

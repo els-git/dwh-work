@@ -158,6 +158,15 @@ class KnowledgeIndex:
     def from_file(cls, path: Path = GUIDE_PATH) -> "KnowledgeIndex":
         return cls(parse_guide(path.read_text(encoding="utf-8")))
 
+    def screen_map(self, user: UserScope, chars: int = 160) -> str:
+        """Every section the user may read: title and the start of its text (for questions with a screenshot)."""
+        lines = []
+        for section in self.sections:
+            if section.access.allows(user):
+                body = " ".join(section.text.split("\n", 1)[1:]).replace("\n", " ").strip()
+                lines.append(f"- {section.title}: {body[:chars]}")
+        return "\n".join(lines)
+
     def search(self, question: str, user: UserScope, top: int = 4) -> SearchResult:
         wanted = stems(question)
         scored = sorted(((self.score(wanted, s), s) for s in self.sections), key=lambda x: x[0], reverse=True)

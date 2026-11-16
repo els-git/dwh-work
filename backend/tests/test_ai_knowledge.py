@@ -88,3 +88,33 @@ class SearchTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ScreenshotPromptTests(unittest.TestCase):
+    """Step 9: with a screenshot the model gets a map of every section the role may read."""
+
+    GUIDE = ("## 1. Загрузки\n<!-- access: permissions=ETL_VIEW -->\nВкладки Объекты и Запуски.\n"
+             "## 2. Администрирование\n<!-- access: level=ADMIN -->\nПользователи и роли.\n")
+
+    def test_screen_map_has_only_allowed_sections(self):
+        index = KnowledgeIndex(parse_guide(self.GUIDE))
+        text = index.screen_map(AUDIT)
+        self.assertIn("Загрузки", text)
+        self.assertIn("Вкладки Объекты", text)
+        self.assertNotIn("Администрирование", text)
+        self.assertNotIn("Пользователи", text)
+
+    def test_help_prompt_with_and_without_map(self):
+        from dwh_api.ai_core import IMAGE_NOTE, help_prompt, repair_message
+        index = KnowledgeIndex(parse_guide(self.GUIDE))
+        found = index.search("вкладки объекты", AUDIT)
+        system, text = help_prompt(found, "что тут?")
+        self.assertNotIn(IMAGE_NOTE, system)
+        self.assertNotIn("Карта разделов", text)
+        system, text = help_prompt(found, "что тут?", index.screen_map(AUDIT))
+        self.assertIn(IMAGE_NOTE, system)
+        self.assertIn("Карта разделов справки", text)
+        self.assertNotIn("Пользователи", text)
+        repair = repair_message("итог", "SELECT dm.x FROM dm.v_a a", 'missing FROM-clause entry for table "dm"')
+        self.assertIn("missing FROM-clause", repair)
+        self.assertIn("SELECT dm.x", repair)
