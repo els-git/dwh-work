@@ -33,9 +33,10 @@ from psycopg import sql as pgsql
 from pydantic import BaseModel, Field
 
 from dwh_api import ai_llm
+from dwh_api.ai_core import (DENIED_TEXT, MAX_ROWS, NO_HELP_TEXT, describe_report_data, help_prompt,
+                             report_system, run_checked)
 from dwh_api.ai_knowledge import KnowledgeIndex, UserScope
-from dwh_api.ai_sql_guard import (AllowedObject, SqlRejected, allowed_closure, check_plan, check_text, extract_sql,
-                                  limited)
+from dwh_api.ai_sql_guard import AllowedObject, SqlRejected, check_text, extract_sql
 from dwh_api.auth import _load_auth_state
 from dwh_api.config import get_api_config
 from dwh_api.db import connect_ai_readonly as db_connect_ai_readonly, connect_control, connect_readonly
@@ -44,23 +45,9 @@ from dwh_api.integration_admin import _db_message, _raise_database_error, _sessi
 config = get_api_config()
 router = APIRouter(prefix="/api/ai", tags=["AI assistant"])
 
-DENIED_TEXT = "Текущей роли эта информация недоступна."
-NO_HELP_TEXT = "В справке нет ответа на этот вопрос."
-MAX_ROWS = 1000
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
 IMAGE_RE = re.compile(r"^data:image/(png|jpeg|webp);base64,([A-Za-z0-9+/=\s]+)$")
 IMAGE_MAGIC = {"png": b"\x89PNG\r\n\x1a\n", "jpeg": b"\xff\xd8\xff", "webp": b"RIFF"}
-
-HELP_SYSTEM = (
-    "Ты помощник по приложению DWH. Отвечай кратко, на языке вопроса, только по приведённым разделам справки "
-    "и по снимку экрана, если он приложен. Называй экран, вкладку и кнопки так, как в справке. "
-    "Если ответа в справке нет, так и скажи. Никогда не выдумывай пароли, адреса и данные.")
-REPORT_SYSTEM = (
-    "Ты пишешь SQL для PostgreSQL 17 по описанию отчёта. Можно использовать только объекты и колонки из описания "
-    "ниже, имена объектов всегда со схемой (dm.имя), только один SELECT, без комментариев. "
-    "Значения справочников бери только из перечисленных. Верни один запрос в блоке ```sql```, без пояснений. "
-    "Если для отчёта нужны данные из списка недоступных роли, верни ```sql\n-- DENIED\n```. "
-    "Если нужных данных нет в описании, верни ```sql\n-- NO_DATA\n```.")
 
 _index: KnowledgeIndex | None = None
 
@@ -235,11 +222,8 @@ def help_answer(payload: HelpRequest, request: Request) -> dict:
     if not found.sections and image is None:
         finish(request, request_id, "NO_DATA", "AI_HELP_NOT_FOUND")
         return {"request_id": request_id, "status": "NO_DATA", "answer": NO_HELP_TEXT, "sections": []}
-    context = "\n---\n".join(s.text for s in found.sections) or "(подходящих разделов справки нет)"
-    note = ("\nРазделы о вопросе недоступны роли пользователя: о них отвечай «" + DENIED_TEXT + "»."
-            if found.denied_titles else "")
-    answer = ask_model(request, request_id, settings, HELP_SYSTEM + note,
-                       f"Справка:\n{context}\n\nВопрос: {payload.question}", image)
+    system, user_text = help_prompt(found, payload.question)
+    answer = ask_model(request, request_id, settings, system, user_text, image)
     finish(request, request_id, "OK", None, message=", ".join(s.number for s in found.sections)[:4000])
     return {"request_id": request_id, "status": "OK", "answer": answer,
             "sections": [{"number": s.number, "title": s.title} for s in found.sections]}
@@ -253,77 +237,23 @@ def report_context(request: Request) -> tuple[list[AllowedObject], list[str], st
     allowed = [AllowedObject(int(r["object_id"]), r["schema_name"], r["object_name"]) for r in access if r["is_allowed"]]
     denied = [r["title"] for r in access if not r["is_allowed"]]
     described = {int(r["object_id"]): r for r in access if r["is_allowed"]}
-    with closing(connect_readonly(config)) as conn:
+    with closing(connect_readonly(config)) as meta_conn, closing(connect_ai_readonly()) as values_conn:
         try:
-            with conn.cursor() as cur:
-                cur.execute("SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
-                            "WHERE n.nspname = 'dm' AND c.relkind IN ('r', 'v', 'm', 'p', 'f')")
-                dm_relations = {r["relname"] for r in cur.fetchall()}
-                cur.execute("SELECT table_name, column_name, data_type FROM information_schema.columns "
-                            "WHERE table_schema = 'dm' AND table_name = ANY(%s) ORDER BY table_name, ordinal_position",
-                            ([o.object_name for o in allowed],))
-                columns: dict[str, list[str]] = {}
-                for r in cur.fetchall():
-                    columns.setdefault(r["table_name"], []).append(f"{r['column_name']} {r['data_type']}")
-                ids = [o.object_id for o in allowed]
-                cur.execute("SELECT object_id, column_name, max_values FROM meta.ai_value_column "
-                            "WHERE is_active AND object_id = ANY(%s) ORDER BY value_column_id", (ids,))
-                value_columns = cur.fetchall()
-                cur.execute("SELECT term, meaning FROM meta.ai_glossary WHERE is_active "
-                            "AND (object_id IS NULL OR object_id = ANY(%s)) ORDER BY term_id", (ids,))
-                glossary = cur.fetchall()
-                cur.execute("SELECT question, sql_text FROM meta.ai_example WHERE is_active AND object_id = ANY(%s) "
-                            "ORDER BY example_id LIMIT 20", (ids,))
-                examples = cur.fetchall()
+            with meta_conn.cursor() as meta_cur, values_conn.cursor() as values_cur:
+                description, dm_relations = describe_report_data(meta_cur, values_cur, allowed, described, denied)
         finally:
-            conn.rollback()
-    values: dict[tuple[int, str], list[str]] = {}
-    if value_columns:
-        by_id = {o.object_id: o for o in allowed}
-        with closing(connect_ai_readonly()) as conn:
-            try:
-                with conn.cursor() as cur:
-                    for vc in value_columns:
-                        obj = by_id[int(vc["object_id"])]
-                        cur.execute(pgsql.SQL("SELECT DISTINCT {c}::text AS v FROM {s}.{t} WHERE {c} IS NOT NULL "
-                                              "ORDER BY 1 LIMIT %s").format(
-                            c=pgsql.Identifier(vc["column_name"]), s=pgsql.Identifier(obj.schema_name),
-                            t=pgsql.Identifier(obj.object_name)), (int(vc["max_values"]),))
-                        values[(obj.object_id, vc["column_name"])] = [r["v"] for r in cur.fetchall()]
-            finally:
-                conn.rollback()
-    lines = []
-    for obj in allowed:
-        info = described[obj.object_id]
-        lines.append(f"Объект dm.{obj.object_name} — {info['title']}. {info['description'] or ''}".strip())
-        lines.append("  Колонки: " + ", ".join(columns.get(obj.object_name, [])))
-        for (object_id, column), items in values.items():
-            if object_id == obj.object_id:
-                lines.append(f"  Значения {column}: " + "; ".join(items))
-    if glossary:
-        lines.append("Термины: " + "; ".join(f"{g['term']} — {g['meaning']}" for g in glossary))
-    for e in examples:
-        lines.append(f"Пример: {e['question']}\n```sql\n{e['sql_text']}\n```")
-    if denied:
-        lines.append("Недоступны роли пользователя: " + "; ".join(denied))
-    return allowed, denied, "\n".join(lines), dm_relations
+            meta_conn.rollback()
+            values_conn.rollback()
+    return allowed, denied, description, dm_relations
 
 
 def run_report_sql(statement: str, allowed: list[AllowedObject]) -> tuple[list[str], list[dict], bool]:
     with closing(connect_ai_readonly()) as conn:
         try:
             with conn.cursor() as cur:
-                cur.execute("EXPLAIN (FORMAT JSON, VERBOSE) " + statement)
-                plan = cur.fetchone()
-                plan_value = list(plan.values())[0] if isinstance(plan, dict) else plan[0]
-                check_plan(plan_value, allowed_closure(cur, allowed))
-                cur.execute(limited(statement, MAX_ROWS))
-                columns = [d.name for d in cur.description or []]
-                rows = cur.fetchall()
+                return run_checked(cur, statement, allowed, MAX_ROWS)
         finally:
             conn.rollback()
-    truncated = len(rows) > MAX_ROWS
-    return columns, [dict(r) for r in rows[:MAX_ROWS]], truncated
 
 
 @router.post("/report")
@@ -338,7 +268,7 @@ def report(payload: ReportRequest, request: Request) -> dict:
     if not allowed:
         finish(request, request_id, "DENIED", "AI_OBJECT_NOT_ALLOWED", message="no reporting object for the role")
         return {"request_id": request_id, "status": "DENIED", "message": DENIED_TEXT}
-    answer = ask_model(request, request_id, settings, REPORT_SYSTEM + "\n\nОписание данных:\n" + context,
+    answer = ask_model(request, request_id, settings, report_system(context),
                        payload.question, max_tokens=600)
     sql_text = extract_sql(answer)
     try:
