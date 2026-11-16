@@ -63,3 +63,32 @@ def connect_control(
     )
 
     return conn
+
+
+def connect_ai_readonly(
+    config: ApiConfig,
+    password: str,
+) -> psycopg.Connection:
+    """
+    I17: DWH database as dwh_ai_ro (reports of the AI assistant).
+
+    The role reads schema dm only; read-only transactions and the
+    statement timeout are set on the role (package 016) and again here.
+    """
+
+    conn = psycopg.connect(
+        host=config.db_host,
+        port=config.db_port,
+        dbname=config.db_name,
+        user="dwh_ai_ro",
+        password=password,
+        row_factory=dict_row,
+        connect_timeout=5,
+        application_name="dwh_ai_report",
+        options="-c default_transaction_read_only=on -c statement_timeout=30000",
+    )
+
+    conn.read_only = True
+
+    return conn
+

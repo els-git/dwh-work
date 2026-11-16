@@ -25,6 +25,7 @@ from dwh_api.object_run_admin import admin_router as object_run_admin_router, vi
 from dwh_api.role_catalog import router as role_catalog_router
 from dwh_api.access_control import router as access_control_router
 from dwh_api.user_catalog import router as user_catalog_router
+from dwh_api.ai_assistant import router as ai_assistant_router
 from dwh_api.models import (
     ApiError,
     ApiMetadata,
@@ -2313,6 +2314,13 @@ async def authorization_middleware(
         resource_required = True
 
 
+    # I17: AI assistant; every call is checked again in the database (package 016).
+    elif path.startswith("/api/ai/"):
+        permissions = (
+            "AI_ASSISTANT_USE",
+        )
+
+
     elif path.startswith(
         "/api/reporting/retail/export"
     ):
@@ -2433,3 +2441,4 @@ app.include_router(object_load_view_router)
 app.include_router(role_catalog_router)
 app.include_router(access_control_router)
 app.include_router(user_catalog_router)
+app.include_router(ai_assistant_router)
