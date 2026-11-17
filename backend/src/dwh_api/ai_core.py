@@ -12,7 +12,6 @@ from dwh_api.ai_sql_guard import AllowedObject, allowed_closure, check_plan, lim
 
 DENIED_TEXT = "Текущей роли эта информация недоступна."
 NO_HELP_TEXT = "В справке нет ответа на этот вопрос."
-CLOSED_PART_TEXT = "Подробно это описано в разделах справки, закрытых для вашей роли (обычно они доступны администратору)."
 MAX_ROWS = 1000
 
 HELP_SYSTEM = (
@@ -52,11 +51,12 @@ def help_prompt(found: SearchResult, question: str, screen_map: str | None = Non
     note = ("\nРазделы о вопросе недоступны роли пользователя: о них отвечай «" + DENIED_TEXT + "»."
             if found.denied_titles else "")
     if found.sections and found.closed_nearby:
-        # Open sections were found, but the best matches include sections closed to the role: say so instead
-        # of "there is no answer in the guide", without describing what the closed sections contain.
-        note += ("\nЧасть разделов справки на эту тему закрыта для роли пользователя. Если ответа на вопрос нет "
-                 "в приведённых разделах, ответь: «" + CLOSED_PART_TEXT + "» — и коротко перескажи только то, "
-                 "что есть в приведённых разделах. Не пиши, что в справке этого нет, и не выдумывай шаги.")
+        # Open sections were found, but the best matches include sections closed to the role. The application
+        # itself shows "described in sections closed for your role" in the interface language (closed_nearby in
+        # the answer); the model only must not claim that the guide has nothing on the subject.
+        note += ("\nЧасть разделов справки на эту тему закрыта для роли пользователя; приложение само сообщит "
+                 "об этом. Коротко перескажи только то, что есть в приведённых разделах. Не пиши, что в справке "
+                 "или в разделах нет информации, не упоминай закрытые разделы и не выдумывай шаги.")
     if translated:
         question = f"{question}\n(перевод на русский: {translated}; отвечай на языке исходного вопроса)"
     if screen_map is None:

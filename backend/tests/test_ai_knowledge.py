@@ -128,19 +128,20 @@ class ClosedNearbyTests(unittest.TestCase):
              "Как добавить витрину: секретный порядок шагов.\n")
 
     def test_closed_nearby_note(self):
-        from dwh_api.ai_core import CLOSED_PART_TEXT, help_prompt
+        from dwh_api.ai_core import help_prompt
         index = KnowledgeIndex(parse_guide(self.GUIDE))
         found = index.search("как добавить витрину", AUDIT)
         self.assertEqual([s.number for s in found.sections], ["1.1"])
         self.assertEqual(found.closed_nearby, 1)
         self.assertEqual(found.denied_titles, [])
         system, text = help_prompt(found, "как добавить витрину")
-        self.assertIn(CLOSED_PART_TEXT, system)
+        self.assertIn("приложение само сообщит", system)
+        self.assertIn("Не пиши, что в справке", system)
         self.assertNotIn("Конструктор", system + text)
         self.assertNotIn("секретный", system + text)
         admin = index.search("как добавить витрину", ADMIN)
         self.assertEqual(admin.closed_nearby, 0)
-        self.assertNotIn(CLOSED_PART_TEXT, help_prompt(admin, "как добавить витрину")[0])
+        self.assertNotIn("приложение само сообщит", help_prompt(admin, "как добавить витрину")[0])
 
     def test_real_guide_marts_question(self):
         index = KnowledgeIndex.from_file()

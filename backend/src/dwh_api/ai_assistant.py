@@ -319,7 +319,8 @@ def help_answer(payload: HelpRequest, request: Request) -> dict:
                            cancel=token)
     finish(request, request_id, "OK", None, message=", ".join(s.number for s in found.sections)[:4000])
     return {"request_id": request_id, "status": "OK", "answer": answer,
-            "sections": [{"number": s.number, "title": s.title} for s in found.sections]}
+            "sections": [{"number": s.number, "title": s.title} for s in found.sections],
+            "closed_nearby": found.closed_nearby > 0}
 
 
 # ------------------------------------------------------------------ report
