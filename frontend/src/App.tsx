@@ -38,6 +38,7 @@ import AdminPage from './AdminPage'
 import AdminIntegrationHistory from './AdminIntegrationHistory'
 import AdminIntegrationRunControl from './AdminIntegrationRunControl'
 import LoadsObjectsPanel from './LoadsObjectsPanel'
+import DmMartsPanel from './DmMartsPanel'
 import AiAssistantPanel from './AiAssistantPanel'
 import SavedReportsPanel from './SavedReportsPanel'
 
@@ -51,6 +52,7 @@ type PageKey =
 // ETL Runs, Data Quality, Run Control and History / Errors).
 type LoadsTab =
   | 'objects'
+  | 'marts'
   | 'runs'
   | 'errors'
   | 'quality'
@@ -209,6 +211,7 @@ function App() {
 
   const loadsTabs: LoadsTab[] = [
     ...(canIntegration ? ['objects' as const] : []),
+    ...(canIntegration ? ['marts' as const] : []),
     ...(canEtl ? ['runs' as const] : []),
     ...(canIntegrationAdmin ? ['errors' as const] : []),
     ...(canDq ? ['quality' as const] : []),
@@ -2499,6 +2502,8 @@ function App() {
         {
           current === 'objects'
             ? <LoadsObjectsPanel canRun={canIntegrationAdmin} />
+            : current === 'marts'
+              ? <DmMartsPanel canRun={canIntegrationAdmin} />
             : current === 'runs'
               ? renderEtlPage()
               : current === 'errors'

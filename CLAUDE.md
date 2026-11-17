@@ -49,7 +49,7 @@ DWH — платформа хранилища данных с frontend, backend 
 Единый согласованный план: неизменяемые ID задач, итерации, зависимости, критерии приёмки, решения, журнал и статусы `PLANNED`, `IN_PROGRESS`, `BLOCKED`, `DONE`, `CANCELLED`, `DEFERRED`. **DONE — только после фактических проверок и подтверждения пользователя.** Историю не удалять, задачи не перенумеровывать, прежние требования не переписывать без согласования. Новые задачи — только с новыми ID и явной договорённостью.
 
 **Последний подтверждённый SHA256 (16.11.2026, в git):**
-`A9E7B78D5867D4A5AF4D6E31F637E45BE00EADFB3A3F826F0656D3A7D6D11DF5`
+`6F8625D430E563A1862A4D44C8B9B2F306C5E59DF6AFB163BC5DA802F50A292B`
 
 Документы на ПК обновляются через `git pull` после слияния PR. Скрипты `sync_docs_to_pc.ps1` удалены 03.11.2026: связь с git их заменила.
 
@@ -461,7 +461,9 @@ E1/E2 на сервере — `tools/server/dwh_sql_package.py --package 016 --s
 
 **Шаг 5 I19 сделан в песочнице 16.11.2026** (план раздел 11): `backend/src/dwh_api/dm_sql.py` (генератор SQL, общий для движка и предпросмотра), `etl/src/dm_mart_worker.py` (движок под `dwh_etl` в процессе диспетчера: проверка ключей, `DELETE`+`INSERT`, журнал), `run_object.enqueue_marts` (после ODS), `backend/src/dwh_api/dm_builder_admin.py` (`/api/admin/integrations/dm/*`, `/api/integrations/loads/marts`); тесты 523 OK, сквозная `scratchpad/e2e_i19.py` (база `e2e_i19`, `scratchpad/e2e_i19_setup.sh`) 30/30.
 
-**Следующий шаг:** шаг 6 I19 — интерфейс; начинать по команде пользователя.
+**Шаг 6 I19 сделан в песочнице 17.11.2026** (план раздел 12): `frontend/src/DmBuilderPanel.tsx` (Администрирование → «Витрины DM»), `DmMartsPanel.tsx` (Загрузки → «Витрины»), `dmApi.ts`, тексты `dm.*`; справка 1.2.0 (2.9, 5.6); build OK, ESLint 0/0, браузер PASS — `scratchpad/ui_i19/ui.cjs` + `scratchpad/ui_server_i19.py` (порт 8767, база `e2e_i19`; перед прогоном `scratchpad/e2e_i19_setup.sh`).
+
+**Следующий шаг:** шаг 7 I19 — выпуск с интерфейсом и первая витрина (пенсии, пакет 019 применения DDL); начинать по команде пользователя.
 
 PR #7 с профилями закрыт без слияния. Тест 005 в E0/E1 внутри своей транзакции подменяет `app.integration_admin_session_user` тестовыми токенами; `ROLLBACK` её восстанавливает. Read-only запросы — через `database/tools/run_readonly_sql.ps1`.
 

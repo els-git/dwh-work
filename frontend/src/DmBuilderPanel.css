@@ -1,0 +1,91 @@
+/* I19: Administration -> "DM marts" (catalog of keys and mart builder). */
+
+.dm-version {
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.dm-block {
+  margin-top: 16px;
+}
+
+.dm-block h5 {
+  margin: 0 0 4px;
+  font-size: 14px;
+}
+
+.dm-edit-table input,
+.dm-edit-table select,
+.dm-grain select {
+  padding: 4px 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-main);
+  color: var(--text-main);
+  font-size: 12px;
+}
+
+.dm-edit-table input:disabled,
+.dm-edit-table select:disabled,
+.dm-grain select:disabled {
+  opacity: 0.75;
+}
+
+.dm-alias {
+  width: 80px;
+}
+
+.dm-type {
+  width: 120px;
+}
+
+.dm-inline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+
+.dm-grain {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.dm-check {
+  flex-direction: row !important;
+  align-items: center;
+}
+
+.dm-check input {
+  min-width: 0 !important;
+}
+
+.dm-actions {
+  margin-top: 16px;
+}
+
+.dm-warning {
+  color: var(--danger, #e5484d);
+  font-size: 12px;
+}
+
+.dm-selected {
+  outline: 1px solid var(--accent);
+}
+
+.dm-sql {
+  max-height: 320px;
+  overflow: auto;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-main);
+  font-size: 12px;
+  white-space: pre-wrap;
+}
