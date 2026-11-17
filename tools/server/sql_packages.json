@@ -175,5 +175,35 @@
       "label": "019",
       "expected": 8
     }
+  },
+  "021": {
+    "number": "021",
+    "owner": "dwh_admin",
+    "marker": "app.object_table_publish(text, text, bigint, integer, boolean)",
+    "copy_db": "dwh_i18_021_test",
+    "check_expected": 8,
+    "added_rows": {},
+    "migration": {
+      "path": "database/migrations/021_object_table_ui_ddl.sql",
+      "sha256": "E21B523CD26D17BAC15CA2DA0263C963255F0185BB6D1C1F981D6D851011C9EF"
+    },
+    "down": {
+      "path": "database/migrations/021_object_table_ui_ddl.down.sql",
+      "sha256": "4DD3866BBACD31E62FE285CC55AAD2587BB36A9C314F8177DF18E67997080415"
+    },
+    "check": {
+      "path": "database/checks/021_object_table_ui_ddl_check.sql",
+      "sha256": "39D87A3156F4426AB1052F097C2269C51A3F6255AB0AAF9D02AFCFE649EE08EA"
+    },
+    "test": {
+      "path": "database/tests/021_object_table_ui_ddl_test.sql",
+      "sha256": "883705DC8DED48295AFD293772C3015C5E85EDC7F0A56D3D6FAA46BF9BC3FE73"
+    },
+    "previous_check": {
+      "path": "database/checks/020_remove_legacy_crm_check.sql",
+      "sha256": "0F44645509C341F5F182CB7485F574FD74B841ACF1E3C6CB1B7FF8AD46928133",
+      "label": "020",
+      "expected": 8
+    }
   }
 }

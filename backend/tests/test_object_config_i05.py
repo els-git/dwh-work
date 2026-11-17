@@ -113,7 +113,9 @@ class ValidationTest(unittest.TestCase):
         issues = oca.validate_definition({"fields": [], "key": []}, None, None)
         self.assertEqual(codes(issues), ["NO_FIELDS", "SNAPSHOT_MISSING", "TARGET_NOT_SELECTED"])
         d = good_definition()
-        self.assertIn("TARGET_TABLE_MISSING", codes(oca.validate_definition(d, SNAPSHOT, None)))
+        # I18 (021): a missing table is created on publication: a warning, not an error.
+        self.assertNotIn("TARGET_TABLE_MISSING", codes(oca.validate_definition(d, SNAPSHOT, None)))
+        self.assertIn("TARGET_TABLE_MISSING", codes(oca.validate_definition(d, SNAPSHOT, None), "WARNING"))
 
     def test_conversion_rules(self):
         d = good_definition()
@@ -131,9 +133,12 @@ class ValidationTest(unittest.TestCase):
         d["fields"][2]["target_type"] = "TIMESTAMP"
         d["fields"][2]["conversion"] = "SAFE"
         d["fields"].append(field("extra", source="nope"))
-        found = codes(oca.validate_definition(d, SNAPSHOT, TARGET))
-        for code in ("SOURCE_TYPE_CHANGED", "TARGET_TYPE_MISMATCH", "SOURCE_COLUMN_MISSING", "TARGET_COLUMN_MISSING"):
-            self.assertIn(code, found)
+        issues = oca.validate_definition(d, SNAPSHOT, TARGET)
+        for code in ("SOURCE_TYPE_CHANGED", "SOURCE_COLUMN_MISSING"):
+            self.assertIn(code, codes(issues))
+        # I18 (021): new and retyped target columns are changed on publication.
+        for code in ("TARGET_TYPE_MISMATCH", "TARGET_COLUMN_MISSING"):
+            self.assertIn(code, codes(issues, "WARNING"))
 
     def test_key_rules(self):
         d = good_definition()
@@ -157,7 +162,8 @@ class ValidationTest(unittest.TestCase):
         target = {**TARGET, "columns": [dict(c, not_null=True, has_default=c["name"] != "pin") for c in TARGET["columns"]]}
         issues = oca.validate_definition(d, SNAPSHOT, target)
         self.assertEqual(codes(issues), [])
-        self.assertEqual(codes(issues, "WARNING"), ["NULLABLE_TO_NOT_NULL", "SOURCE_COLUMN_UNMAPPED"])
+        self.assertEqual(codes(issues, "WARNING"), ["NULLABLE_TO_NOT_NULL", "SOURCE_COLUMN_UNMAPPED",
+                                                    "TARGET_COLUMN_NOT_IN_VERSION"])
 
     def test_duplicates(self):
         d = good_definition()
@@ -311,13 +317,16 @@ class Conn:
     def __init__(self, cfg, snapshot=SNAPSHOT, target=TARGET):
         self.cfg = cfg
         self.calls = []
+        self.needs_confirm = False
         self.handlers = {
             "integration_object_config_get": lambda p: [{"config": self.cfg}],
             "FROM meta.source_object_snapshot": lambda p: snapshot_rows(snapshot) if snapshot else [],
             "FROM pg_class": lambda p: target_rows(target) if target else [],
             "record_validation": lambda p: [{"id": 1}],
             "config_save_draft": lambda p: [{"revision": 2}],
-            "config_publish": lambda p: [{"version_no": 1}],
+            "object_table_publish": lambda p: [{"result": {"status": "NEEDS_CONFIRM" if self.needs_confirm and not p[4]
+                                                           else "PUBLISHED", "version_no": 1, "changes": []}}],
+            "object_table_preview": lambda p: [{"plan": {"changes": [], "problems": []}}],
             "set_drift": lambda p: [{"status": "DRIFT" if p[3] else "READY"}],
             "proposal_create": lambda p: [{"proposal_id": 5}],
             "proposal_reject": lambda p: [{"rejected": True}],
@@ -373,7 +382,10 @@ class FlowTest(unittest.TestCase):
         self.assertTrue(result.ok)
         (params,) = conn.sql_with("record_validation")
         self.assertEqual(params[:4], (self.TOKEN, 16, 2, True))
+        # I18 (021): a missing target table is created on publication.
         conn = Conn(draft_cfg(), target=None)
+        self.assertTrue(oca.validate_draft(conn, self.TOKEN, "req", 16, 2).ok)
+        conn = Conn(draft_cfg(), snapshot=None)
         self.assertFalse(oca.validate_draft(conn, self.TOKEN, "req", 16, 2).ok)
 
     def test_stale_revision(self):
@@ -389,10 +401,12 @@ class FlowTest(unittest.TestCase):
 
         def get_after_publish(p):
             return [{"config": {**draft_cfg(), "draft": None, "current": published}}] \
-                if conn.sql_with("config_publish") else [{"config": draft_cfg()}]
+                if conn.sql_with("object_table_publish") else [{"config": draft_cfg()}]
         conn.handlers["integration_object_config_get"] = get_after_publish
         result = oca.publish_draft(conn, self.TOKEN, "req", 16, 2)
         self.assertEqual((result.version_no, result.status), (1, "READY"))
+        self.assertEqual(conn.sql_with("object_table_publish"), [(self.TOKEN, "LOAD", 16, 2, False)])
+        self.assertEqual(result.table_plan, {"changes": []})
         (params,) = conn.sql_with("set_drift")
         self.assertEqual(params[2], 3)
         self.assertIs(params[3], False)
@@ -403,7 +417,24 @@ class FlowTest(unittest.TestCase):
         with self.assertRaises(HTTPException) as ctx:
             oca.publish_draft(conn, self.TOKEN, "req", 16, 2)
         self.assertEqual(ctx.exception.status_code, 422)
-        self.assertEqual(conn.sql_with("config_publish"), [])
+        self.assertEqual(conn.sql_with("object_table_publish"), [])
+
+    def test_publish_needs_confirm(self):
+        # I18 (021): removed / retyped columns: nothing is published, the plan comes back; no drift baseline.
+        conn = Conn(draft_cfg())
+        conn.needs_confirm = True
+        result = oca.publish_draft(conn, self.TOKEN, "req", 16, 2)
+        self.assertEqual((result.version_no, result.status), (None, "NEEDS_CONFIRM"))
+        self.assertEqual(conn.sql_with("set_drift"), [])
+        conn.handlers["integration_object_config_get"] = lambda p: [{"config": {**draft_cfg(), "draft": None,
+            "current": {"version_id": 3, "definition": good_definition(), "status_details": {}}}}] \
+            if conn.sql_with("object_table_publish")[-1][4] else [{"config": draft_cfg()}]
+        self.assertEqual(oca.publish_draft(conn, self.TOKEN, "req", 16, 2, True).status, "READY")
+
+    def test_table_plan(self):
+        conn = Conn(draft_cfg())
+        self.assertEqual(oca.read_table_plan(conn, self.TOKEN, "req", 16, "ODS"), {"changes": [], "problems": []})
+        self.assertEqual(conn.sql_with("object_table_preview"), [(self.TOKEN, "ODS", 16)])
 
     def test_drift_check(self):
         current = {"version_id": 3, "definition": good_definition(),
