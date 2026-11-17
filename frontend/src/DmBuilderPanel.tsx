@@ -11,14 +11,14 @@ import { confirmAction } from './confirmAction'
 import { formatDateTime } from './dateTime'
 import {
   createDmVersion,
+  deleteDmMart,
   discardDmVersion,
   fieldTypeFor,
   getDmCatalog,
   getDmMarts,
   getDmVersion,
-  proposeDmDdl,
+  previewDmVersion,
   publishDmVersion,
-  rejectDmDdl,
   saveDmEntity,
   saveDmEntityKey,
   saveDmMart,
@@ -27,9 +27,11 @@ import {
   type DmCatalog,
   type DmDefinition,
   type DmFieldDef,
+  type DmImpact,
   type DmMart,
   type DmMartSave,
   type DmOperator,
+  type DmPlan,
   type DmSourceDef,
   type DmSourceKind,
   type DmVersionDetail,
@@ -41,8 +43,9 @@ import './DmBuilderPanel.css'
 
 // I19: Administration -> "DM marts" (ADMIN_INTEGRATION_MANAGE): catalog of entities and their key columns in
 // ODS tables (I19-01) and the mart builder (I19-02): grain, sources (same key, child with aggregates, lookups
-// and roles of one table), fields with priority, filters, preview of the fill SQL, DDL proposal (applied by a
-// SQL package), publication. The database checks every call and validates the version (package 018).
+// and roles of one table), fields with priority, filters, preview of the fill SQL and of the table structure,
+// publication (a new structure is built aside and swapped in by the dispatcher, package 019) and deletion of a
+// mart, both with the list of saved reports and AI settings they affect. The database checks every call.
 
 const KINDS: DmSourceKind[] = ['GRAIN', 'SAME_KEY', 'CHILD', 'LOOKUP']
 const AGGREGATES: DmAggregate[] = ['SUM', 'COUNT', 'COUNT_DISTINCT', 'MIN', 'MAX', 'AVG']
@@ -123,6 +126,7 @@ function DmBuilderPanel() {
   const [detail, setDetail] = useState<DmVersionDetail | null>(null)
   const [draft, setDraft] = useState<Draft | null>(null)
   const [problems, setProblems] = useState<string[] | null>(null)
+  const [plan, setPlan] = useState<DmPlan | null>(null)
   const loadSeq = useRef(0)
   const versionSeq = useRef(0)
   const messageRef = useRef<HTMLDivElement | null>(null)
@@ -164,14 +168,17 @@ function DmBuilderPanel() {
     }
   }, [load])
 
-  async function openVersion(versionId: number) {
+  // Reads a version (and, for a draft, what its publication would do); older responses are ignored.
+  const openVersion = useCallback(async (versionId: number) => {
     const seq = ++versionSeq.current
     try {
       const next = await getDmVersion(versionId)
+      const nextPlan = next.version.status === 'DRAFT' ? await previewDmVersion(versionId) : null
       if (seq !== versionSeq.current) {
         return
       }
       setDetail(next)
+      setPlan(nextPlan)
       setDraft(toDraft(next.definition))
       setProblems(null)
       setError(null)
@@ -180,7 +187,20 @@ function DmBuilderPanel() {
         setError(exc instanceof Error ? exc.message : String(exc))
       }
     }
-  }
+  }, [])
+
+  // While the table of a version is being built, the version and the list are read again until the build ends.
+  const buildingVersionId = detail?.version.build_status === 'BUILDING' ? detail.version.version_id : null
+  useEffect(() => {
+    if (buildingVersionId === null) {
+      return
+    }
+    const timer = window.setInterval(() => {
+      void openVersion(buildingVersionId)
+      void load()
+    }, 5000)
+    return () => window.clearInterval(timer)
+  }, [buildingVersionId, load, openVersion])
 
   async function run(action: () => Promise<unknown>, done?: (result: unknown) => void | Promise<void>,
     message?: string) {
@@ -235,6 +255,7 @@ function DmBuilderPanel() {
       auto_after_ods: mart.auto_after_ods, is_active: mart.is_active })
     versionSeq.current += 1
     setDetail(null)
+    setPlan(null)
     setDraft(null)
     setProblems(null)
     const current = mart.versions.find(item => item.status === 'DRAFT') ?? mart.versions.find(item => item.status === 'PUBLISHED')
@@ -259,6 +280,7 @@ function DmBuilderPanel() {
     setMartForm(EMPTY_MART)
     versionSeq.current += 1
     setDetail(null)
+    setPlan(null)
     setDraft(null)
     setProblems(null)
   }
@@ -274,7 +296,7 @@ function DmBuilderPanel() {
 
   // ------------------------------------------------------------------ version editor
 
-  const readOnly = detail === null || detail.version.status !== 'DRAFT'
+  const readOnly = detail === null || detail.version.status !== 'DRAFT' || detail.version.build_status === 'BUILDING'
 
   function patch(next: Partial<Draft>) {
     if (draft) {
@@ -408,23 +430,108 @@ function DmBuilderPanel() {
         await openVersion(versionId)
       } else {
         setDetail(null)
+        setPlan(null)
         setDraft(null)
       }
     }, message)
+  }
+
+  // Text of the changes and of the saved reports / AI settings they affect, for the confirmation dialog.
+  function impactText(impact: DmImpact, changes: DmPlan['changes']): string {
+    const lines: string[] = []
+    for (const change of changes) {
+      lines.push(change.change === 'REMOVED'
+        ? t('dm.impact.removed', { column: change.column_name })
+        : t('dm.impact.retyped', { column: change.column_name, from: change.old_type, to: change.new_type ?? '' }))
+    }
+    for (const report of impact.reports) {
+      lines.push(t('dm.impact.report', { title: report.title, folder: report.folder_name, owner: report.owner }))
+    }
+    for (const example of impact.examples) {
+      lines.push(t('dm.impact.example', { id: example.example_id, question: example.question }))
+    }
+    for (const column of impact.value_columns) {
+      lines.push(t('dm.impact.valueColumn', { column: column.column_name }))
+    }
+    return lines.join('\n')
   }
 
   async function publish() {
     if (!detail) {
       return
     }
+    const versionId = detail.version.version_id
+    const building = plan?.needs_build ?? true
     const confirmed = await confirmAction({
       title: t('dm.version.publish'),
-      message: t('dm.version.confirmPublish', { mart: detail.version.mart_code, no: detail.version.version_no }),
+      message: t(building ? 'dm.version.confirmPublishBuild' : 'dm.version.confirmPublish',
+        { mart: detail.version.mart_code, no: detail.version.version_no }),
       confirmLabel: t('dm.version.publish'),
       cancelLabel: t('loads.cancel'),
     })
-    if (confirmed) {
-      versionAction(publishDmVersion, t('dm.version.published'))
+    if (!confirmed) {
+      return
+    }
+    let message = ''
+    await run(async () => {
+      let result = await publishDmVersion(versionId, false)
+      if (result.status === 'NEEDS_CONFIRM') {
+        const again = await confirmAction({
+          title: t('dm.impact.title'),
+          message: t('dm.impact.publishMessage'),
+          detail: impactText(result.impact, result.changes),
+          confirmLabel: t('dm.impact.confirm'),
+          cancelLabel: t('loads.cancel'),
+        })
+        if (!again) {
+          message = t('dm.impact.cancelled')
+          return
+        }
+        result = await publishDmVersion(versionId, true)
+      }
+      message = result.status === 'BUILDING' ? t('dm.version.building') : t('dm.version.published')
+    }, async () => {
+      await openVersion(versionId)
+    })
+    if (message) {
+      setNotice(message)
+    }
+  }
+
+  async function deleteMart(mart: DmMart) {
+    const confirmed = await confirmAction({
+      title: t('dm.deleteMart'),
+      message: t('dm.confirmDelete', { mart: mart.mart_code }),
+      confirmLabel: t('dm.deleteMart'),
+      cancelLabel: t('loads.cancel'),
+    })
+    if (!confirmed) {
+      return
+    }
+    let message = ''
+    await run(async () => {
+      const first = await deleteDmMart(mart.mart_id, false)
+      if (first.status === 'NEEDS_CONFIRM') {
+        const again = await confirmAction({
+          title: t('dm.impact.title'),
+          message: t('dm.impact.deleteMessage', { mart: mart.mart_code }),
+          detail: impactText(first.impact, []),
+          confirmLabel: t('dm.deleteMart'),
+          cancelLabel: t('loads.cancel'),
+        })
+        if (!again) {
+          message = t('dm.impact.cancelled')
+          return
+        }
+        await deleteDmMart(mart.mart_id, true)
+      }
+      message = t('dm.deleted', { mart: mart.mart_code })
+      if (selectedMartId === mart.mart_id) {
+        newMart()
+      }
+    })
+    if (message) {
+      setNotice(message)
     }
   }
 
@@ -684,7 +791,11 @@ function DmBuilderPanel() {
           <span className="badge">{t(`dm.status.${version.status}`)}</span>{' '}
           {version.ddl_status !== 'NONE' ? <span className="badge">{t(`dm.ddl.${version.ddl_status}`)}</span> : null}
         </h4>
-        {readOnly ? <p className="loads-muted">{t('dm.version.readOnly')}</p> : null}
+        {version.status !== 'DRAFT' ? <p className="loads-muted">{t('dm.version.readOnly')}</p> : null}
+        {version.build_status === 'BUILDING' ? <div className="loads-notice">{t('dm.version.buildingNow')}</div> : null}
+        {version.build_status === 'FAILED'
+          ? <div className="error"><span>{t('dm.version.buildFailed', { message: version.build_message ?? '' })}</span></div>
+          : null}
 
         <label className="dm-grain">{t('dm.version.grain')}
           <select disabled={readOnly} value={draft.grain_entity_id ?? ''}
@@ -723,22 +834,17 @@ function DmBuilderPanel() {
             ? (
               <>
                 <button type="button" disabled={saving} onClick={saveVersion}>{t('dm.version.save')}</button>
-                <button type="button" disabled={saving}
-                  onClick={() => versionAction(proposeDmDdl, t('dm.version.ddlProposed'))}>
-                  {t('dm.version.proposeDdl')}
+                <button type="button" disabled={saving} onClick={() => { void publish() }}>
+                  {t('dm.version.publish')}
                 </button>
-                {version.ddl_status === 'PROPOSED'
+                {version.build_status === 'NONE'
                   ? (
-                    <button type="button" disabled={saving} onClick={() => versionAction(rejectDmDdl, t('dm.saved'))}>
-                      {t('dm.version.rejectDdl')}
+                    <button type="button" disabled={saving}
+                      onClick={() => versionAction(discardDmVersion, t('dm.version.discarded'), false)}>
+                      {t('dm.version.discard')}
                     </button>
                   )
                   : null}
-                <button type="button" disabled={saving} onClick={() => { void publish() }}>{t('dm.version.publish')}</button>
-                <button type="button" disabled={saving || version.ddl_status === 'APPLIED'}
-                  onClick={() => versionAction(discardDmVersion, t('dm.version.discarded'), false)}>
-                  {t('dm.version.discard')}
-                </button>
               </>
             )
             : null}
@@ -747,13 +853,19 @@ function DmBuilderPanel() {
             : null}
         </div>
 
-        {version.ddl_text
+        {plan && !readOnly
           ? (
             <div className="dm-block">
-              <h5>{t('dm.version.ddl')}</h5>
-              <p className="loads-muted">{t('dm.version.ddlHint')}</p>
-              <pre className="dm-sql">{version.ddl_text}</pre>
-              <small className="code-value">SHA-256 {version.ddl_sha256}</small>
+              <h5>{t('dm.version.structure')}</h5>
+              <p className="loads-muted">
+                {plan.needs_build
+                  ? t(plan.table_exists ? 'dm.version.structureRebuild' : 'dm.version.structureNew')
+                  : t('dm.version.structureSame')}
+              </p>
+              {plan.changes.length > 0
+                ? <div className="dm-warning dm-changes">{impactText(plan.impact, plan.changes)}</div>
+                : null}
+              {plan.needs_build ? <pre className="dm-sql">{plan.ddl_text}</pre> : null}
             </div>
           )
           : null}
@@ -877,12 +989,17 @@ function DmBuilderPanel() {
                         }}>
                           v{version.version_no}
                         </button>{' '}
-                        <small>{t(`dm.status.${version.status}`)} · {formatDateTime(version.published_at ?? version.updated_at)}</small>
+                        <small>
+                          {t(`dm.status.${version.status}`)}
+                          {version.build_status !== 'NONE' ? ` · ${t(`dm.build.${version.build_status}`)}` : ''}
+                          {' · '}{formatDateTime(version.published_at ?? version.updated_at)}
+                        </small>
                       </div>
                     ))}
                   </td>
                   <td className="loads-actions">
                     <button type="button" onClick={() => selectMart(item)}>{t('dm.open')}</button>
+                    <button type="button" disabled={saving} onClick={() => { void deleteMart(item) }}>{t('dm.deleteMart')}</button>
                   </td>
                 </tr>
               ))}

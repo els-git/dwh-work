@@ -308,6 +308,11 @@ class SettingsTests(unittest.TestCase):
 
 
 class SqlPackageTests(Temp):
+    def test_marker_of_a_relation_or_a_function(self):
+        self.assertEqual(sqlpkg.marker_absent({"marker": "meta.dm_mart"}), "SELECT to_regclass('meta.dm_mart') IS NULL")
+        self.assertEqual(sqlpkg.marker_absent({"marker": "meta.mart_builder_guard()"}),
+                         "SELECT to_regprocedure('meta.mart_builder_guard()') IS NULL")
+
     def test_manifest_matches_repository(self):
         packages = json.loads(sqlpkg.PACKAGES.read_text(encoding="utf-8"))
         self.assertIn("016", packages)

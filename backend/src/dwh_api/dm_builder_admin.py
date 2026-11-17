@@ -9,14 +9,19 @@ Administration (ADMIN_INTEGRATION_MANAGE, checked by the middleware and again by
   POST /api/admin/integrations/dm/marts/{id}/versions        new draft (copy of the published version)
   GET  /api/admin/integrations/dm/versions/{id}              definition of a version, DDL proposal, fill SQL preview
   POST /api/admin/integrations/dm/versions/{id}              save the whole definition of a draft -> problems
-  POST /api/admin/integrations/dm/versions/{id}/discard | ddl-propose | ddl-reject | publish
+  POST /api/admin/integrations/dm/versions/{id}/discard | ddl-propose | ddl-reject
+  GET  /api/admin/integrations/dm/versions/{id}/preview      what publication does: DDL, changes, impact (019)
+  POST /api/admin/integrations/dm/versions/{id}/publish      {confirm}: publish; a new structure is built aside
+                                                             and swapped in by the dispatcher (019)
+  POST /api/admin/integrations/dm/marts/{id}/delete          {confirm}: drop the mart table, deactivate (019)
   POST /api/admin/integrations/dm/run-requests               manual run request of a mart
   POST /api/admin/integrations/dm/run-requests/{id}/cancel   cancel a QUEUED request
 State (INTEGRATION_VIEW):
   GET  /api/integrations/loads/marts                         etl.v_dm_mart_status
 
-Every change goes through the app.dm_* functions of 018 (session, validation, audit). The DDL text is built
-by the database and applied by a SQL package; nothing is executed in dm or ods here.
+Every change goes through the app.dm_* functions of 018 and app.mart_builder_* of 019 (session, validation,
+audit). The DDL text is built by the database from the whitelisted field types and executed by the database
+functions of 019 only for tables of the builder's marts; no SQL text from the client is executed.
 """
 from __future__ import annotations
 
@@ -47,7 +52,7 @@ FIELD_TYPES = ("text", "bigint", "integer", "smallint", "numeric", "date", "time
 
 _NOT_FOUND = ("mart not found", "entity not found", "mart version not found", "run request does not exist")
 _CONFLICT = ("already has", "already exists", "only a draft", "only queued", "duplicate key", "already applied",
-             "cannot be changed", "is applied")
+             "cannot be changed", "is applied", "being built", "mart is deleted", "foreign key")
 _REJECTED = ("not compatible", "invalid", "not valid", "does not match", "no active key", "no published version",
              "is not active", "inactive", "violates check constraint", "violates not-null", "too large",
              "no proposed ddl", "can be proposed only", "already has this structure", "permission", "not found")
@@ -119,6 +124,10 @@ class VersionDefinition(BaseModel):
 
 class VersionSave(BaseModel):
     definition: VersionDefinition
+
+
+class Confirm(BaseModel):
+    confirm: bool = False
 
 
 class RunRequestCreate(BaseModel):
@@ -216,9 +225,11 @@ def entity_key_save(payload: EntityKeySave, request: Request, entity_id: int = P
 
 @admin_router.get("/marts")
 def marts() -> list[dict]:
-    rows = read("SELECT * FROM meta.dm_mart ORDER BY mart_code")
-    versions = read("SELECT version_id, mart_id, version_no, status, grain_entity_id, ddl_status, created_at, updated_at, "
-                    "published_at FROM meta.dm_mart_version ORDER BY mart_id, version_no DESC")
+    # Deleted marts (019) are not shown: their code stays reserved, their history stays in the journals.
+    rows = read("SELECT * FROM meta.dm_mart WHERE deleted_at IS NULL ORDER BY mart_code")
+    versions = read("SELECT version_id, mart_id, version_no, status, grain_entity_id, ddl_status, build_status, "
+                    "build_message, created_at, updated_at, published_at FROM meta.dm_mart_version "
+                    "ORDER BY mart_id, version_no DESC")
     for m in rows:
         m["versions"] = [v for v in versions if v["mart_id"] == m["mart_id"]]
     return jsonable_encoder(rows)
@@ -317,10 +328,27 @@ def ddl_reject(request: Request, version_id: int = PathParam(ge=1)) -> dict:
     return {"rejected": True}
 
 
+def _json(row: Any) -> dict:
+    value = _value(row)
+    return json.loads(value) if isinstance(value, str) else dict(value)
+
+
+@admin_router.get("/versions/{version_id}/preview")
+def version_preview(request: Request, version_id: int = PathParam(ge=1)) -> dict:
+    return jsonable_encoder(_json(call_db(request, "SELECT app.mart_builder_preview(%s, %s)", (version_id,))))
+
+
 @admin_router.post("/versions/{version_id}/publish")
-def version_publish(request: Request, version_id: int = PathParam(ge=1)) -> dict:
-    call_db(request, "SELECT app.dm_mart_version_publish(%s, %s)", (version_id,))
-    return {"published": True}
+def version_publish(request: Request, payload: Confirm | None = None, version_id: int = PathParam(ge=1)) -> dict:
+    """PUBLISHED (same structure), BUILDING (built aside by the dispatcher) or NEEDS_CONFIRM with the impact."""
+    confirm = bool(payload and payload.confirm)
+    return jsonable_encoder(_json(call_db(request, "SELECT app.mart_builder_publish(%s, %s, %s)", (version_id, confirm))))
+
+
+@admin_router.post("/marts/{mart_id}/delete")
+def mart_delete(request: Request, payload: Confirm | None = None, mart_id: int = PathParam(ge=1)) -> dict:
+    confirm = bool(payload and payload.confirm)
+    return jsonable_encoder(_json(call_db(request, "SELECT app.mart_builder_delete(%s, %s, %s)", (mart_id, confirm))))
 
 
 # ------------------------------------------------------------------ runs
@@ -339,7 +367,7 @@ def run_request_cancel(request: Request, request_id: int = PathParam(ge=1)) -> d
 
 @view_router.get("/marts")
 def mart_status() -> list[dict]:
-    rows = read("SELECT * FROM etl.v_dm_mart_status ORDER BY mart_code")
+    rows = read("SELECT * FROM etl.v_dm_mart_status WHERE NOT is_deleted ORDER BY mart_code")
     for r in rows:
         if isinstance(r.get("last_run_diagnostic"), str):
             r["last_run_diagnostic"] = json.loads(r["last_run_diagnostic"])

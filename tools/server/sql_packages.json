@@ -90,5 +90,35 @@
       "label": "017",
       "expected": 8
     }
+  },
+  "019": {
+    "number": "019",
+    "owner": "dwh_admin",
+    "marker": "meta.mart_builder_guard()",
+    "copy_db": "dwh_i19_019_test",
+    "check_expected": 8,
+    "added_rows": {},
+    "migration": {
+      "path": "database/migrations/019_dm_builder_ui_ddl.sql",
+      "sha256": "6C2D6E5D1C64AA246D77920BCBCCBB944CB54DF2B25E6914966130B9E65AD0AD"
+    },
+    "down": {
+      "path": "database/migrations/019_dm_builder_ui_ddl.down.sql",
+      "sha256": "FDD10BFB3085050D539E08656ADF5B3793FA46178EA47D05AC8CCCFE2BC04B9D"
+    },
+    "check": {
+      "path": "database/checks/019_dm_builder_ui_ddl_check.sql",
+      "sha256": "FE739C559FB50F194A7B0447D08123BF1FCD4EAA203743E1F1BCF0904DF8BBC3"
+    },
+    "test": {
+      "path": "database/tests/019_dm_builder_ui_ddl_test.sql",
+      "sha256": "8653089A53AF7A79128E8B17BA0D99A22FD56F56F9BDF9CF886A90A4A3E5F89A"
+    },
+    "previous_check": {
+      "path": "database/checks/018_dm_builder_check.sql",
+      "sha256": "93602A24007E08D884B49B4BF2009C601A1D50F746F3189FA37EE994CD9F40D9",
+      "label": "018",
+      "expected": 9
+    }
   }
 }

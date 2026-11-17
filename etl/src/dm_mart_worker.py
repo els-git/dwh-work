@@ -13,6 +13,8 @@ by the claim:
   one transaction: DELETE FROM dm.<code>; INSERT INTO dm.<code> SELECT ... (D6: readers see the old rows
           until the commit; TRUNCATE is not used because it blocks readers)
   etl.dm_mart_run_finish                -> SUCCESS / FAILED with rows, code, message and diagnostic
+A PUBLISH request (package 019: a new structure published from the UI) fills dm.<code>__next instead; the
+finish swaps it in and publishes the version in one transaction, or drops it when the run failed.
 
 Only the DWH database is read and written (no source system), so the run stays in the dispatcher process;
 DWH_DM_STATEMENT_TIMEOUT_SECONDS (default 1800) limits each statement.
@@ -51,9 +53,13 @@ def _rows(cur) -> list[dict[str, Any]]:
     return dm_sql._rows(cur)
 
 
-def build(conn, defn: dm_sql.Definition, *, timeout: int | None = None,
+def build(conn, defn: dm_sql.Definition, *, timeout: int | None = None, target: str | None = None,
           log: Callable[[str], None] = lambda m: None) -> MartResult:
-    """Checks and reloads one mart; commits the data on success, rolls back otherwise."""
+    """Checks and reloads one mart; commits the data on success, rolls back otherwise.
+
+    target: the table to fill (default dm.<mart code>); a PUBLISH request (package 019) fills the table built
+    aside, dm.<mart code>__next, which etl.dm_mart_run_finish swaps in."""
+    table = target or defn.mart_code
     if timeout is None:
         timeout = int(os.environ.get("DWH_DM_STATEMENT_TIMEOUT_SECONDS", "") or DEFAULT_TIMEOUT_SECONDS)
     try:
@@ -90,13 +96,13 @@ def build(conn, defn: dm_sql.Definition, *, timeout: int | None = None,
                                       diagnostic={"alias": check.alias, "table": check.table, "column": check.column,
                                                   "duplicate_keys": total, "examples": examples})
             log(f"STAGE: DM keys checked ({len(defn.sources)} sources)")
-            fill, fill_params = dm_sql.fill_sql(defn, types)
-            cur.execute(f'DELETE FROM "dm".{dm_sql.qi(defn.mart_code)}')
+            fill, fill_params = dm_sql.fill_sql(defn, types, table)
+            cur.execute(f'DELETE FROM "dm".{dm_sql.qi(table)}')
             deleted = cur.rowcount
             cur.execute(fill, fill_params)
             inserted = cur.rowcount
         conn.commit()
-        log(f"STAGE: DM dm.{defn.mart_code} reloaded: deleted={deleted} inserted={inserted}")
+        log(f"STAGE: DM dm.{table} reloaded: deleted={deleted} inserted={inserted}")
         return MartResult(True, rows_deleted=deleted, rows_inserted=inserted)
     except dm_sql.DefinitionError as exc:
         conn.rollback()
@@ -144,7 +150,9 @@ def process_one(conn, worker: str, *, log: Callable[[str], None] = lambda m: pri
         with conn.cursor() as cur:
             defn = dm_sql.load_definition(cur, version_id)
         conn.rollback()
-        result = build(conn, defn, timeout=timeout, log=log)
+        # PUBLISH (package 019): fill the table built aside; the finish swaps it in and publishes the version.
+        target = f"{defn.mart_code}__next" if trigger == "PUBLISH" else None
+        result = build(conn, defn, timeout=timeout, target=target, log=log)
     except dm_sql.DefinitionError as exc:
         conn.rollback()
         result = MartResult(False, error_code="DM_DEFINITION_INVALID", message=str(exc))

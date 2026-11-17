@@ -190,7 +190,19 @@ function DmMartsPanel({ canRun }: DmMartsPanelProps) {
                             ? <div>v{item.published_version_no} <small>{formatDateTime(item.published_at)}</small></div>
                             : <span className="loads-muted">{t('dm.loads.notPublished')}</span>}
                           {item.draft_version_no !== null
-                            ? <div><small>{t('dm.loads.draft', { no: item.draft_version_no })}</small></div>
+                            ? (
+                              <div>
+                                <small>{t('dm.loads.draft', { no: item.draft_version_no })}</small>
+                                {item.draft_build_status === 'BUILDING' || item.draft_build_status === 'FAILED'
+                                  ? (
+                                    <span className={item.draft_build_status === 'FAILED' ? 'badge badge-danger' : 'badge badge-warning'}
+                                      title={item.draft_build_message ?? undefined}>
+                                      {t(`dm.build.${item.draft_build_status}`)}
+                                    </span>
+                                  )
+                                  : null}
+                              </div>
+                            )
                             : null}
                         </td>
                         <td>

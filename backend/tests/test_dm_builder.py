@@ -57,6 +57,10 @@ class FillSqlTest(unittest.TestCase):
         self.assertIn('CAST(coalesce("a"."__a2", 0) AS bigint) AS "n"', text)
         self.assertEqual(params, ["10", ["OPEN", "X"]])  # grain subquery first, then the joins in order
 
+    def test_target_table_of_a_publication(self):
+        text, _ = dm_sql.fill_sql(definition(), TYPES, "m1__next")
+        self.assertTrue(text.startswith('INSERT INTO "dm"."m1__next" ('))
+
     def test_render_inlines_values(self):
         text, params = dm_sql.fill_sql(definition(), TYPES)
         shown = dm_sql.render(text, params)
@@ -204,6 +208,13 @@ class EngineTest(unittest.TestCase):
         result = worker.build(FakeConn(answer), definition(), timeout=60)
         self.assertEqual(result.error_code, "DM_SOURCE_MISSING")
 
+    def test_publish_request_fills_the_table_built_aside(self):
+        conn = FakeConn(self.answers())
+        result = worker.build(conn, definition(), timeout=60, target="m1__next")
+        self.assertTrue(result.ok)
+        self.assertTrue(any(st == 'DELETE FROM "dm"."m1__next"' for st, _ in conn.statements))
+        self.assertTrue(any(st.startswith('INSERT INTO "dm"."m1__next"') for st, _ in conn.statements))
+
     def test_process_one_empty_queue(self):
         conn = FakeConn(lambda s, p: (desc("request_id"), [], 0))
         self.assertFalse(worker.process_one(conn, "w", log=lambda m: None))
@@ -234,6 +245,26 @@ class ApiErrorTest(unittest.TestCase):
         self.assertEqual(self.status("Mart version not found"), 404)
         self.assertEqual(self.status("Key type TEXT is not compatible with the keys of the entity (NUMBER)"), 422)
         self.assertEqual(self.status("Column ods.t.c not found"), 422)
+
+    def test_publish_and_delete_pass_confirmation(self):
+        calls = []
+
+        def fake_call(request, statement, params=(), fetch="one"):
+            calls.append((statement, params))
+            return {"r": {"status": "NEEDS_CONFIRM"}}
+        original = api.call_db
+        api.call_db = fake_call
+        try:
+            self.assertEqual(api.version_publish(None, api.Confirm(confirm=True), 7), {"status": "NEEDS_CONFIRM"})
+            api.version_publish(None, None, 7)
+            api.mart_delete(None, api.Confirm(), 3)
+        finally:
+            api.call_db = original
+        self.assertEqual(calls, [("SELECT app.mart_builder_publish(%s, %s, %s)", (7, True)),
+                                 ("SELECT app.mart_builder_publish(%s, %s, %s)", (7, False)),
+                                 ("SELECT app.mart_builder_delete(%s, %s, %s)", (3, False))])
+        self.assertEqual(self.status("The version is being built and cannot be changed"), 409)
+        self.assertEqual(self.status("Mart is deleted"), 409)
 
     def test_definition_document_round_trip(self):
         doc = api.definition_document(definition(), 3)
