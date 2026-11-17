@@ -130,14 +130,23 @@ function DmBuilderPanel() {
   const loadSeq = useRef(0)
   const versionSeq = useRef(0)
   const messageRef = useRef<HTMLDivElement | null>(null)
+  // Build state of the open version as last read, to tell the user when a build has ended.
+  const lastBuildRef = useRef<{ versionId: number, building: boolean } | null>(null)
+  const statusKey = detail ? `${detail.version.version_id}:${detail.version.status}:${detail.version.build_status}` : ''
 
-  // Messages are shown next to the place of the action (in the version editor when it is open) and the page
-  // scrolls to them, so an error of a button at the bottom of the page is not left out of sight.
+  // Messages and the state of the version are shown in one panel where the action buttons are, and the page
+  // scrolls to it after every action and every change of the state, so the result of a click is always seen.
+  const lastStatusKeyRef = useRef('')
   useEffect(() => {
-    if ((error || notice) && messageRef.current) {
-      messageRef.current.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+    const previous = lastStatusKeyRef.current
+    lastStatusKeyRef.current = statusKey
+    // Opening another version does not scroll; a new state of the same version (building -> published) does.
+    const sameVersionChanged = previous !== '' && previous !== statusKey
+      && previous.split(':')[0] === statusKey.split(':')[0]
+    if ((error || notice || sameVersionChanged) && messageRef.current) {
+      messageRef.current.scrollIntoView({ block: 'center', behavior: 'smooth' })
     }
-  }, [error, notice])
+  }, [error, notice, statusKey])
 
   const load = useCallback(async () => {
     const seq = ++loadSeq.current
@@ -177,6 +186,13 @@ function DmBuilderPanel() {
       if (seq !== versionSeq.current) {
         return
       }
+      const previous = lastBuildRef.current
+      if (previous && previous.versionId === versionId && previous.building && next.version.build_status !== 'BUILDING') {
+        setNotice(next.version.status === 'PUBLISHED'
+          ? t('dm.version.buildDone', { mart: next.version.mart_code, no: next.version.version_no })
+          : null)
+      }
+      lastBuildRef.current = { versionId, building: next.version.build_status === 'BUILDING' }
       setDetail(next)
       setPlan(nextPlan)
       setDraft(toDraft(next.definition))
@@ -187,7 +203,7 @@ function DmBuilderPanel() {
         setError(exc instanceof Error ? exc.message : String(exc))
       }
     }
-  }, [])
+  }, [t])
 
   // While the table of a version is being built, the version and the list are read again until the build ends.
   const buildingVersionId = detail?.version.build_status === 'BUILDING' ? detail.version.version_id : null
@@ -770,9 +786,10 @@ function DmBuilderPanel() {
     )
   }
 
-  function renderMessages() {
+  // Messages at the top of the panel when no version is open (the version editor has its own status panel).
+  function renderMessages(withRef: boolean) {
     return (
-      <div ref={messageRef}>
+      <div ref={withRef ? messageRef : undefined}>
         {error ? <div className="error"><span>{error}</span></div> : null}
         {notice ? <div className="loads-notice">{notice}</div> : null}
       </div>
@@ -792,10 +809,6 @@ function DmBuilderPanel() {
           {version.ddl_status !== 'NONE' ? <span className="badge">{t(`dm.ddl.${version.ddl_status}`)}</span> : null}
         </h4>
         {version.status !== 'DRAFT' ? <p className="loads-muted">{t('dm.version.readOnly')}</p> : null}
-        {version.build_status === 'BUILDING' ? <div className="loads-notice">{t('dm.version.buildingNow')}</div> : null}
-        {version.build_status === 'FAILED'
-          ? <div className="error"><span>{t('dm.version.buildFailed', { message: version.build_message ?? '' })}</span></div>
-          : null}
 
         <label className="dm-grain">{t('dm.version.grain')}
           <select disabled={readOnly} value={draft.grain_entity_id ?? ''}
@@ -827,7 +840,24 @@ function DmBuilderPanel() {
           ? <div className="error"><span>{t('dm.version.missing', { list: detail.missing.join(', ') })}</span></div>
           : null}
 
-        {renderMessages()}
+        <div ref={messageRef} className="dm-status">
+          {version.build_status === 'BUILDING'
+            ? <div className="loads-notice dm-status-building">{t('dm.version.buildingNow')}</div>
+            : null}
+          {version.build_status === 'FAILED'
+            ? <div className="error"><span>{t('dm.version.buildFailed', { message: version.build_message ?? '' })}</span></div>
+            : null}
+          {version.status === 'PUBLISHED'
+            ? (
+              <div className="loads-notice">
+                {t('dm.version.publishedInfo', { mart: version.mart_code, no: version.version_no,
+                  at: formatDateTime(version.published_at) })}
+              </div>
+            )
+            : null}
+          {error ? <div className="error"><span>{error}</span></div> : null}
+          {notice ? <div className="loads-notice">{notice}</div> : null}
+        </div>
 
         <div className="loads-actions dm-actions">
           {!readOnly
@@ -883,7 +913,7 @@ function DmBuilderPanel() {
   return (
     <section className="content-panel ai-admin-grid">
       <p className="loads-muted">{t('dm.hint')}</p>
-      {detail && draft ? null : renderMessages()}
+      {detail && draft ? null : renderMessages(true)}
 
       <div>
         <h4>{t('dm.entities')}</h4>
