@@ -8,6 +8,7 @@ import AdminRolesPage from './AdminRolesPage'
 import AdminAccessPage from './AdminAccessPage'
 import AdminIntegrationsPage from './AdminIntegrationsPage'
 import AiAdminPanel from './AiAdminPanel'
+import DmBuilderPanel from './DmBuilderPanel'
 
 import './AdminPage.css'
 
@@ -19,6 +20,7 @@ type AdminSection =
   | 'access'
   | 'integrations'
   | 'ai'
+  | 'dm'
 
 
 interface AdminSectionDefinition {
@@ -71,6 +73,13 @@ const adminSections: AdminSectionDefinition[] = [
     permission: 'AI_ADMIN_MANAGE',
     description:
       'AI assistant: reporting objects, reference columns, terms, examples, journal.',
+  },
+  {
+    key: 'dm',
+    labelKey: 'adminTabs.dm',
+    permission: 'ADMIN_INTEGRATION_MANAGE',
+    description:
+      'DM marts: entities and key columns of ODS tables, mart builder, DDL proposals, publication.',
   },
 ]
 
@@ -163,6 +172,14 @@ function AdminPage() {
     ) {
       return (
         <AiAdminPanel />
+      )
+    }
+    if (
+      activeDefinition.key
+      === 'dm'
+    ) {
+      return (
+        <DmBuilderPanel />
       )
     }
 
