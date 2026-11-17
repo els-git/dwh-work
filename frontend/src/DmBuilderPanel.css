@@ -89,3 +89,9 @@
   font-size: 12px;
   white-space: pre-wrap;
 }
+
+/* I19 (019): lists of changes and of affected reports, in the editor and in the confirmation dialog. */
+.dm-changes,
+.confirm-dialog-detail {
+  white-space: pre-line;
+}

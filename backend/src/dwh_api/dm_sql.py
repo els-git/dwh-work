@@ -231,8 +231,11 @@ def _cast_type(data_type: str) -> str:
     return "text" if data_type.startswith("varchar") else data_type
 
 
-def fill_sql(defn: Definition, types: dict[tuple[str, str], str]) -> tuple[str, list[Any]]:
-    """INSERT ... SELECT of the whole mart and its parameters (the DELETE is done separately)."""
+def fill_sql(defn: Definition, types: dict[tuple[str, str], str], target: str | None = None) -> tuple[str, list[Any]]:
+    """INSERT ... SELECT of the whole mart and its parameters (the DELETE is done separately).
+
+    target: the table to fill, by default dm.<mart code>; a publication with a new structure fills
+    dm.<mart code>__next, which the database then swaps in (package 019)."""
     grain = defn.grain
     key_fields = [f for f in defn.fields if f.is_key]
     if len(key_fields) != 1:
@@ -288,7 +291,7 @@ def fill_sql(defn: Definition, types: dict[tuple[str, str], str]) -> tuple[str, 
         expr = parts[0] if len(parts) == 1 else "coalesce(" + ", ".join(parts) + ")"
         exprs.append(f"  {expr} AS {qi(f.name)}")
     columns = ", ".join(qi(f.name) for f in defn.fields)
-    text = (f"INSERT INTO \"dm\".{qi(defn.mart_code)} ({columns}, \"dm_loaded_at\")\nSELECT\n"
+    text = (f"INSERT INTO \"dm\".{qi(target or defn.mart_code)} ({columns}, \"dm_loaded_at\")\nSELECT\n"
             + ",\n".join(exprs) + ",\n  now()\n" + "\n".join(joins))
     # Filters of the grain are inside its subquery; parameters follow the order of the text.
     return text, params

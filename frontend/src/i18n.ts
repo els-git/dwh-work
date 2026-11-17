@@ -57,6 +57,25 @@ const resources = {
         "note": "The model runs on the DWH server without internet access. Answers follow the permissions of your role; screenshots are not stored."
       },
       "dm": {
+        "deleteMart": "Delete mart",
+        "deleted": "Mart dm.{{mart}} deleted",
+        "confirmDelete": "Delete the mart dm.{{mart}}? Its table is dropped and the mart disappears from Data loads, Reporting and the AI assistant. The code stays reserved, the run history is kept.",
+        "build": {
+          "BUILDING": "building",
+          "FAILED": "build failed"
+        },
+        "impact": {
+          "title": "What the change affects",
+          "publishMessage": "Fields that are removed or retyped are used below. Saved reports with them stop working, reference columns of the assistant are disabled. Continue?",
+          "deleteMessage": "The mart dm.{{mart}} is used below. Saved reports stop working, examples and reference columns of the assistant are disabled. Delete?",
+          "confirm": "Continue",
+          "cancelled": "Cancelled, nothing changed",
+          "removed": "• field {{column}} is removed",
+          "retyped": "• field {{column}}: type {{from}} → {{to}}",
+          "report": "• saved report \"{{title}}\" (folder \"{{folder}}\", {{owner}})",
+          "example": "• assistant example #{{id}}: {{question}}",
+          "valueColumn": "• reference column {{column}} of the assistant is disabled"
+        },
         "saved": "Saved",
         "hint": "DM marts are built from ODS tables by a common entity key. The mart table structure is applied by a SQL package; after publication the mart is filled manually or after ODS.",
         "entities": "Entities and keys",
@@ -105,6 +124,15 @@ const resources = {
           "REJECTED": "DDL rejected"
         },
         "version": {
+          "confirmPublishBuild": "Publish version {{no}} of the mart dm.{{mart}}? The table is built aside and filled from ODS; reports see the previous data until the tables are swapped.",
+          "confirmPublish": "Publish version {{no}} of the mart dm.{{mart}}? The table structure does not change: the version is published at once and the mart is refreshed from ODS.",
+          "building": "The table is being built: the dispatcher fills it and publishes the version. The status refreshes itself.",
+          "buildingNow": "The mart table is being built. The version is published once it is filled; until then reports see the previous data.",
+          "buildFailed": "The build failed: {{message}}. The published version and its data did not change. Fix the draft and publish again.",
+          "structure": "Structure of the mart table",
+          "structureNew": "The table does not exist yet: publication creates and fills it.",
+          "structureRebuild": "Fields changed: publication builds the table aside, fills it and swaps it in without a pause for reports.",
+          "structureSame": "The table structure does not change: published at once, then refreshed from ODS.",
           "saved": "Version saved",
           "title": "dm.{{mart}} — version {{no}}",
           "readOnly": "A published version cannot be changed: create a new draft.",
@@ -139,7 +167,6 @@ const resources = {
           "ddlProposed": "DDL proposal created: a SQL package applies it",
           "rejectDdl": "Reject DDL",
           "publish": "Publish",
-          "confirmPublish": "Publish version {{no}} of the mart dm.{{mart}}?",
           "published": "Version published",
           "discard": "Delete draft",
           "discarded": "Draft deleted",
@@ -166,7 +193,8 @@ const resources = {
           "examples": "Examples:",
           "trigger": {
             "MANUAL": "manual",
-            "AFTER_ODS": "after ODS"
+            "AFTER_ODS": "after ODS",
+            "PUBLISH": "publication"
           },
           "run": "Refresh mart",
           "confirmRun": "Refresh the mart dm.{{mart}}? Its rows are fully rewritten from ODS.",
@@ -981,6 +1009,25 @@ const resources = {
         "note": "Модель работает на сервере DWH без выхода в интернет. Ответ учитывает права вашей роли; снимок экрана не сохраняется."
       },
       "dm": {
+        "deleteMart": "Удалить витрину",
+        "deleted": "Витрина dm.{{mart}} удалена",
+        "confirmDelete": "Удалить витрину dm.{{mart}}? Таблица витрины будет удалена, витрина пропадёт из «Загрузок», «Отчётности» и у ИИ-помощника. Код витрины останется занят, история запусков сохранится.",
+        "build": {
+          "BUILDING": "строится",
+          "FAILED": "сборка не удалась"
+        },
+        "impact": {
+          "title": "Что затронет изменение",
+          "publishMessage": "Поля, которые удаляются или меняют тип, используются ниже. Сохранённые отчёты с ними перестанут работать, колонки-справочники помощника будут отключены. Продолжить?",
+          "deleteMessage": "Витрину dm.{{mart}} используют ниже. Сохранённые отчёты перестанут работать, примеры и колонки-справочники помощника будут отключены. Удалить?",
+          "confirm": "Продолжить",
+          "cancelled": "Отменено, ничего не изменено",
+          "removed": "• поле {{column}} удаляется",
+          "retyped": "• поле {{column}}: тип {{from}} → {{to}}",
+          "report": "• сохранённый отчёт «{{title}}» (папка «{{folder}}», {{owner}})",
+          "example": "• пример помощника №{{id}}: {{question}}",
+          "valueColumn": "• колонка-справочник помощника {{column}} будет отключена"
+        },
         "saved": "Сохранено",
         "hint": "Витрины DM собираются из таблиц ODS по общему ключу сущности. Структура таблицы витрины применяется SQL-пакетом; после публикации витрина заполняется вручную или после ODS.",
         "entities": "Сущности и ключи",
@@ -1029,6 +1076,15 @@ const resources = {
           "REJECTED": "DDL отклонён"
         },
         "version": {
+          "confirmPublishBuild": "Опубликовать версию {{no}} витрины dm.{{mart}}? Таблица будет построена рядом и заполнена из ODS; отчёты до конца видят прежние данные, затем таблицы меняются местами.",
+          "confirmPublish": "Опубликовать версию {{no}} витрины dm.{{mart}}? Структура таблицы не меняется: версия опубликуется сразу, витрина обновится из ODS.",
+          "building": "Таблица строится: диспетчер заполнит её и опубликует версию. Статус обновляется сам.",
+          "buildingNow": "Идёт построение таблицы витрины. Версия опубликуется после заполнения; до этого отчёты видят прежние данные.",
+          "buildFailed": "Построение не удалось: {{message}}. Опубликованная версия и её данные не изменились. Исправьте черновик и опубликуйте снова.",
+          "structure": "Структура таблицы витрины",
+          "structureNew": "Таблицы ещё нет: при публикации она будет создана и заполнена.",
+          "structureRebuild": "Поля изменились: при публикации таблица будет построена рядом, заполнена и подменит текущую без перерыва для отчётов.",
+          "structureSame": "Структура таблицы не меняется: публикация сразу, затем обновление из ODS.",
           "saved": "Версия сохранена",
           "title": "dm.{{mart}} — версия {{no}}",
           "readOnly": "Опубликованную версию изменить нельзя: создайте новый черновик.",
@@ -1063,7 +1119,6 @@ const resources = {
           "ddlProposed": "Проект DDL создан: его применяет SQL-пакет",
           "rejectDdl": "Отклонить DDL",
           "publish": "Опубликовать",
-          "confirmPublish": "Опубликовать версию {{no}} витрины dm.{{mart}}?",
           "published": "Версия опубликована",
           "discard": "Удалить черновик",
           "discarded": "Черновик удалён",
@@ -1090,7 +1145,8 @@ const resources = {
           "examples": "Примеры:",
           "trigger": {
             "MANUAL": "вручную",
-            "AFTER_ODS": "после ODS"
+            "AFTER_ODS": "после ODS",
+            "PUBLISH": "публикация"
           },
           "run": "Обновить витрину",
           "confirmRun": "Обновить витрину dm.{{mart}}? Строки будут полностью перезаписаны из ODS.",
@@ -1905,6 +1961,25 @@ const resources = {
         "note": "Model DWH serverində internetə çıxışı olmadan işləyir. Cavab rolunuzun icazələrini nəzərə alır; ekran şəkli saxlanmır."
       },
       "dm": {
+        "deleteMart": "Vitrini sil",
+        "deleted": "dm.{{mart}} vitrini silindi",
+        "confirmDelete": "dm.{{mart}} vitrini silinsin? Vitrin cədvəli silinəcək, vitrin «Yükləmələr», «Hesabatlar» və Sİ köməkçisindən yox olacaq. Kod məşğul qalır, işə salma tarixçəsi saxlanılır.",
+        "build": {
+          "BUILDING": "qurulur",
+          "FAILED": "qurulma alınmadı"
+        },
+        "impact": {
+          "title": "Dəyişiklik nəyə təsir edir",
+          "publishMessage": "Silinən və ya tipi dəyişən sahələr aşağıda istifadə olunur. Onlarla yadda saxlanmış hesabatlar işləməyəcək, köməkçinin sorğu sütunları söndürüləcək. Davam edilsin?",
+          "deleteMessage": "dm.{{mart}} vitrini aşağıda istifadə olunur. Yadda saxlanmış hesabatlar işləməyəcək, köməkçinin nümunələri və sorğu sütunları söndürüləcək. Silinsin?",
+          "confirm": "Davam et",
+          "cancelled": "Ləğv edildi, heç nə dəyişmədi",
+          "removed": "• {{column}} sahəsi silinir",
+          "retyped": "• {{column}} sahəsi: tip {{from}} → {{to}}",
+          "report": "• yadda saxlanmış hesabat «{{title}}» («{{folder}}» qovluğu, {{owner}})",
+          "example": "• köməkçi nümunəsi №{{id}}: {{question}}",
+          "valueColumn": "• köməkçinin {{column}} sorğu sütunu söndürüləcək"
+        },
         "saved": "Yadda saxlandı",
         "hint": "DM vitrinləri ODS cədvəllərindən ümumi obyekt açarı ilə qurulur. Vitrin cədvəlinin strukturu SQL paketi ilə tətbiq olunur; dərcdən sonra vitrin əl ilə və ya ODS-dən sonra doldurulur.",
         "entities": "Obyektlər və açarlar",
@@ -1953,6 +2028,15 @@ const resources = {
           "REJECTED": "DDL rədd edilib"
         },
         "version": {
+          "confirmPublishBuild": "dm.{{mart}} vitrininin {{no}} versiyası dərc olunsun? Cədvəl yanında qurulub ODS-dən doldurulacaq; cədvəllər yerini dəyişənə qədər hesabatlar əvvəlki məlumatları görür.",
+          "confirmPublish": "dm.{{mart}} vitrininin {{no}} versiyası dərc olunsun? Cədvəlin strukturu dəyişmir: versiya dərhal dərc olunacaq, vitrin ODS-dən yenilənəcək.",
+          "building": "Cədvəl qurulur: dispetçer onu dolduracaq və versiyanı dərc edəcək. Status özü yenilənir.",
+          "buildingNow": "Vitrin cədvəli qurulur. Versiya doldurulduqdan sonra dərc olunacaq; o vaxta qədər hesabatlar əvvəlki məlumatları görür.",
+          "buildFailed": "Qurulma alınmadı: {{message}}. Dərc olunmuş versiya və onun məlumatları dəyişmədi. Qaralamanı düzəldib yenidən dərc edin.",
+          "structure": "Vitrin cədvəlinin strukturu",
+          "structureNew": "Cədvəl hələ yoxdur: dərc zamanı yaradılıb doldurulacaq.",
+          "structureRebuild": "Sahələr dəyişib: dərc zamanı cədvəl yanında qurulacaq, doldurulacaq və hesabatlar üçün fasiləsiz əvəz ediləcək.",
+          "structureSame": "Cədvəlin strukturu dəyişmir: dərhal dərc, sonra ODS-dən yeniləmə.",
           "saved": "Versiya yadda saxlandı",
           "title": "dm.{{mart}} — versiya {{no}}",
           "readOnly": "Dərc olunmuş versiyanı dəyişmək olmaz: yeni qaralama yaradın.",
@@ -1987,7 +2071,6 @@ const resources = {
           "ddlProposed": "DDL layihəsi yaradıldı: onu SQL paketi tətbiq edir",
           "rejectDdl": "DDL-i rədd et",
           "publish": "Dərc et",
-          "confirmPublish": "dm.{{mart}} vitrininin {{no}} versiyası dərc olunsun?",
           "published": "Versiya dərc olundu",
           "discard": "Qaralamanı sil",
           "discarded": "Qaralama silindi",
@@ -2014,7 +2097,8 @@ const resources = {
           "examples": "Nümunələr:",
           "trigger": {
             "MANUAL": "əl ilə",
-            "AFTER_ODS": "ODS-dən sonra"
+            "AFTER_ODS": "ODS-dən sonra",
+            "PUBLISH": "dərc"
           },
           "run": "Vitrini yenilə",
           "confirmRun": "dm.{{mart}} vitrini yenilənsin? Sətirlər ODS-dən tam yenidən yazılacaq.",

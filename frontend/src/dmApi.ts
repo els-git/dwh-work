@@ -44,6 +44,8 @@ export interface DmVersionSummary {
   status: 'DRAFT' | 'PUBLISHED' | 'SUPERSEDED'
   grain_entity_id: number | null
   ddl_status: 'NONE' | 'PROPOSED' | 'APPLIED' | 'REJECTED'
+  build_status: 'NONE' | 'BUILDING' | 'FAILED'
+  build_message: string | null
   updated_at: string
   published_at: string | null
 }
@@ -146,6 +148,35 @@ export interface DmMartStatus {
   last_request_at: string | null
   last_request_result: string | null
   has_active_request: boolean
+  draft_build_status: 'NONE' | 'BUILDING' | 'FAILED' | null
+  draft_build_message: string | null
+  is_deleted: boolean
+}
+
+// I19 (package 019): what publication or deletion does and what it touches.
+export interface DmImpact {
+  reports: { report_id: number, title: string, folder_name: string, visibility: string, owner: string }[]
+  examples: { example_id: number, question: string }[]
+  value_columns: { value_column_id: number, column_name: string }[]
+}
+
+export interface DmPlan {
+  needs_build: boolean
+  table_exists: boolean
+  ddl_text: string
+  changes: { column_name: string, change: 'REMOVED' | 'RETYPED', old_type: string, new_type: string | null }[]
+  impact: DmImpact
+  problems: string[]
+}
+
+export interface DmPublishResult extends DmPlan {
+  status: 'PUBLISHED' | 'BUILDING' | 'NEEDS_CONFIRM'
+  request_id?: number | null
+}
+
+export interface DmDeleteResult {
+  status: 'DELETED' | 'NEEDS_CONFIRM'
+  impact: DmImpact
 }
 
 
@@ -201,10 +232,11 @@ export const getDmVersion = (versionId: number) => request<DmVersionDetail>(`${B
 export const saveDmVersion = (versionId: number, definition: DmDefinition) =>
   post<{ version_id: number, problems: string[] }>(`${BASE}/versions/${versionId}`, { definition })
 export const discardDmVersion = (versionId: number) => post<{ discarded: boolean }>(`${BASE}/versions/${versionId}/discard`)
-export const proposeDmDdl = (versionId: number) =>
-  post<{ ddl_text: string, ddl_sha256: string }>(`${BASE}/versions/${versionId}/ddl-propose`)
-export const rejectDmDdl = (versionId: number) => post<{ rejected: boolean }>(`${BASE}/versions/${versionId}/ddl-reject`)
-export const publishDmVersion = (versionId: number) => post<{ published: boolean }>(`${BASE}/versions/${versionId}/publish`)
+export const previewDmVersion = (versionId: number) => request<DmPlan>(`${BASE}/versions/${versionId}/preview`)
+export const publishDmVersion = (versionId: number, confirm: boolean) =>
+  post<DmPublishResult>(`${BASE}/versions/${versionId}/publish`, { confirm })
+export const deleteDmMart = (martId: number, confirm: boolean) =>
+  post<DmDeleteResult>(`${BASE}/marts/${martId}/delete`, { confirm })
 export const createDmRunRequest = (martId: number) => post<{ request_id: number }>(`${BASE}/run-requests`, { mart_id: martId })
 export const cancelDmRunRequest = (requestId: number) => post<{ cancelled: boolean }>(`${BASE}/run-requests/${requestId}/cancel`)
 export const getDmMartStatus = () => request<DmMartStatus[]>('/api/integrations/loads/marts')

@@ -127,8 +127,15 @@ def apply(run: Run, database: str, paths: dict[str, Path], package: dict, lock_t
     run.log(f"apply: {done}")
 
 
+def marker_absent(package: dict) -> str:
+    """Query: the marker object of the package is absent. A marker with '(' is a function (019 adds no relation)."""
+    marker = package["marker"]
+    lookup = "to_regprocedure" if "(" in marker else "to_regclass"
+    return f"SELECT {lookup}('{marker}') IS NULL"
+
+
 def state_before(run: Run, package: dict, paths: dict[str, Path]) -> None:
-    if run.scalar(DB, f"SELECT to_regclass('{package['marker']}') IS NULL") != "t":
+    if run.scalar(DB, marker_absent(package)) != "t":
         raise Stop(f"{package['number']} is already applied to {DB} ({package['marker']} exists)")
     check_result(run, f"{DB}: check {package['previous_check']['label']}",
                  run.psql_file(DB, paths["previous_check"], "dwh_app", read_only=True),
@@ -176,7 +183,7 @@ def stage_e1(run: Run, package: dict, paths: dict[str, Path]) -> None:
     result = run.psql_file(copy, paths["down"], package["owner"])
     if result.returncode != 0 or f"ROLLBACK_{package['number']}_DONE" not in result.stdout:
         raise Stop(f"rollback script failed: {result.stderr.strip()[-800:]}")
-    if run.scalar(copy, f"SELECT to_regclass('{package['marker']}') IS NULL") != "t":
+    if run.scalar(copy, marker_absent(package)) != "t":
         raise Stop("rollback script left the package objects")
     run.log(f"{copy}: rollback script: ROLLBACK_{package['number']}_DONE")
     apply(run, copy, paths, package)
