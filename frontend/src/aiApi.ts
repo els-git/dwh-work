@@ -18,6 +18,8 @@ export interface AiHelpAnswer {
   code?: string
   answer: string
   sections: { number: string, title: string }[]
+  // Part of the subject is described in guide sections closed to the role (shown in the interface language).
+  closed_nearby?: boolean
 }
 
 export type AiCell = string | number | boolean | null

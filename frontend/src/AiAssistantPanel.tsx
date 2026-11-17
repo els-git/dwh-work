@@ -38,6 +38,7 @@ interface ChatMessage {
   image?: string
   status?: string
   sections?: string[]
+  closedNearby?: boolean
   report?: AiReportAnswer
   seconds?: number
 }
@@ -279,7 +280,8 @@ function AiAssistantPanel() {
           return
         }
         push({ role: 'assistant', text: helpText(answer), status: answer.status,
-               sections: answer.sections.map(s => s.title), seconds: spent() })
+               sections: answer.sections.map(s => s.title), closedNearby: answer.closed_nearby === true,
+               seconds: spent() })
       } else {
         const answer = await askAiReport(text, clientId, abort.signal)
         if (seq !== askSeq.current) {
@@ -458,6 +460,7 @@ function AiAssistantPanel() {
             {message.sections && message.sections.length > 0
               ? <div className="ai-sources">{t('ai.sources')}: {message.sections.join('; ')}</div>
               : null}
+            {message.closedNearby ? <div className="ai-closed-note">{t('ai.closedNearby')}</div> : null}
             {message.report ? renderReport(message.report) : null}
             {message.report?.status === 'OK' && status?.can_save_reports
               ? <SaveReportForm requestId={message.report.request_id} defaultTitle={message.question ?? ''} />
