@@ -201,7 +201,7 @@ class TaskCommandTests(Temp):
         self.assertIn("--setenv=DWH_RUN_OBJECT_ID=16", cmd)
         self.assertEqual(cmd[-1], "/opt/dwh/current/src/etl/src/run_object.py")
         self.assertEqual(dwh_task.main(["run-object"]), 2)
-        self.assertEqual(dwh_task.main(["plan-snapshot", "--snapshot-date", "4.11.2026"]), 2)
+        self.assertEqual(sorted(dwh_task.TASKS), ["check-dwh", "run-object"])
 
 
 class DispatcherServiceTests(unittest.TestCase):
@@ -321,6 +321,23 @@ class SqlPackageTests(Temp):
                 path = PROJECT / package[key]["path"]
                 self.assertEqual(sqlpkg.sha256_file(path), package[key]["sha256"].upper(), f"{name} {key}")
             self.assertIn(f"MIGRATION_{package['number']}_DONE", (PROJECT / package["migration"]["path"]).read_text())
+
+    def test_compare_counts(self):
+        before = {"rows|a.t": "5", "rows|a.add": "1", "rows|dq.rule": "14", "rows|stg.crm_retail_x": "3", "objects|a|r|3": "3"}
+        package = {"added_rows": {"a.add": 2},
+                   "removed": {"rows_may_decrease": ["dq.rule"], "dropped_tables": r"^stg\.crm_retail_"}}
+        ok = {"rows|a.t": "5", "rows|a.add": "3", "rows|dq.rule": "0"}
+        problems, notes = sqlpkg.compare_counts(before, ok, package)
+        self.assertEqual(problems, [])
+        self.assertEqual(notes, ["removed rows dq.rule: 14 -> 0", "dropped stg.crm_retail_x (3 rows)"])
+        problems, _ = sqlpkg.compare_counts(before, dict(ok, **{"rows|dq.rule": "15"}), package)
+        self.assertEqual(problems, ["dq.rule: 14 -> 15 (may only decrease)"])
+        problems, _ = sqlpkg.compare_counts(before, dict(ok, **{"rows|stg.crm_retail_x": "3"}), package)
+        self.assertEqual(problems, ["stg.crm_retail_x: should be dropped, still exists"])
+        problems, _ = sqlpkg.compare_counts(before, dict(ok, **{"rows|a.t": "4"}), package)
+        self.assertEqual(problems, ["a.t: 5 -> 4 (expected 5)"])
+        problems, _ = sqlpkg.compare_counts({"rows|a.t": "5"}, {"rows|a.t": "5"}, {})
+        self.assertEqual(problems, [])
 
     def test_check_result(self):
         run = sqlpkg.Run(Path(self.tmp.name) / "r.txt")

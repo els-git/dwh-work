@@ -1,20 +1,15 @@
 import { Trans } from 'react-i18next'
-import { useSeverityLabel } from './severityLabels'
 import {
   useEffect,
   useState,
 } from 'react'
 
 import {
-  getIntegrationHistoryDqIssues,
-  getIntegrationHistoryDqRuns,
   getIntegrationHistoryEtlErrors,
   getIntegrationHistoryEtlRuns,
 } from './integrationAdminApi'
 
 import type {
-  IntegrationHistoryDqIssue,
-  IntegrationHistoryDqRun,
   IntegrationHistoryEtlError,
   IntegrationHistoryEtlRun,
 } from './integrationAdminApi'
@@ -27,8 +22,6 @@ import {
 type HistoryMode =
   | 'etl-runs'
   | 'etl-errors'
-  | 'dq-runs'
-  | 'dq-issues'
 
 
 function errorMessage(
@@ -146,7 +139,6 @@ function diagnosticJson(
 
 
 export default function AdminIntegrationHistory() {
-  const getSeverityLabel = useSeverityLabel()
 
   const [
     mode,
@@ -162,16 +154,6 @@ export default function AdminIntegrationHistory() {
     etlErrors,
     setEtlErrors,
   ] = useState<IntegrationHistoryEtlError[]>([])
-
-  const [
-    dqRuns,
-    setDqRuns,
-  ] = useState<IntegrationHistoryDqRun[]>([])
-
-  const [
-    dqIssues,
-    setDqIssues,
-  ] = useState<IntegrationHistoryDqIssue[]>([])
 
   const [
     loading,
@@ -199,22 +181,16 @@ export default function AdminIntegrationHistory() {
       const [
         etlRunResult,
         etlErrorResult,
-        dqRunResult,
-        dqIssueResult,
       ] = await Promise.all([
         getIntegrationHistoryEtlRuns(100),
         getIntegrationHistoryEtlErrors(
           100,
           batchRunId ?? undefined,
         ),
-        getIntegrationHistoryDqRuns(100),
-        getIntegrationHistoryDqIssues(100),
       ])
 
       setEtlRuns(etlRunResult)
       setEtlErrors(etlErrorResult)
-      setDqRuns(dqRunResult)
-      setDqIssues(dqIssueResult)
     } catch (loadError) {
       setError(
         errorMessage(loadError),
@@ -234,14 +210,10 @@ export default function AdminIntegrationHistory() {
         100,
         undefined,
       ),
-      getIntegrationHistoryDqRuns(100),
-      getIntegrationHistoryDqIssues(100),
     ])
       .then(([
         etlRunResult,
         etlErrorResult,
-        dqRunResult,
-        dqIssueResult,
       ]) => {
         if (cancelled) {
           return
@@ -249,8 +221,6 @@ export default function AdminIntegrationHistory() {
 
         setEtlRuns(etlRunResult)
         setEtlErrors(etlErrorResult)
-        setDqRuns(dqRunResult)
-        setDqIssues(dqIssueResult)
       })
       .catch(loadError => {
         if (!cancelled) {
@@ -351,34 +321,6 @@ export default function AdminIntegrationHistory() {
           }
         >
           <Trans i18nKey="batch.tr0246" />{etlErrors.length})
-        </button>
-
-        <button
-          type="button"
-          className={
-            mode === 'dq-runs'
-              ? 'integration-history-tab active'
-              : 'integration-history-tab'
-          }
-          onClick={
-            () => setMode('dq-runs')
-          }
-        >
-          <Trans i18nKey="batch.tr0243" />{dqRuns.length})
-        </button>
-
-        <button
-          type="button"
-          className={
-            mode === 'dq-issues'
-              ? 'integration-history-tab active'
-              : 'integration-history-tab'
-          }
-          onClick={
-            () => setMode('dq-issues')
-          }
-        >
-          <Trans i18nKey="batch.tr0242" />{dqIssues.length})
         </button>
       </nav>
 
@@ -959,198 +901,6 @@ export default function AdminIntegrationHistory() {
                       )
                 }
               </>
-            )
-          : null
-      }
-
-      {
-        !loading && mode === 'dq-runs'
-          ? (
-              <div className="data-table-wrapper">
-                <table className="data-table integration-admin-wide-table">
-                  <thead>
-                    <tr>
-                      <th><Trans i18nKey="batch.tr0044" /></th>
-                      <th><Trans i18nKey="batch.tr0047" /></th>
-                      <th><Trans i18nKey="batch.tr0036" /></th>
-                      <th><Trans i18nKey="batch.tr0043" /></th>
-                      <th><Trans i18nKey="batch.tr0274" /></th>
-                      <th><Trans i18nKey="batch.tr0039" /></th>
-                      <th><Trans i18nKey="batch.tr0240" /></th>
-                      <th><Trans i18nKey="batch.tr0048" /></th>
-                    </tr>
-                  </thead>
-
-                  <tbody>
-                    {
-                      dqRuns.map(
-                        item => (
-                          <tr key={item.dq_run_id}>
-                            <td>
-                              #{item.dq_run_id}
-                            </td>
-
-                            <td>
-                              #{item.source_batch_run_id}
-                            </td>
-
-                            <td>
-                              <span
-                                className={
-                                  statusBadgeClass(
-                                    item.status,
-                                  )
-                                }
-                              >
-                                {item.status}
-                              </span>
-                            </td>
-
-                            <td>
-                              {item.business_date ?? ''}
-                            </td>
-
-                            <td>
-                              {
-                                formatDateTime(
-                                  item.started_at,
-                                )
-                              }
-                            </td>
-
-                            <td>
-                              {
-                                formatDateTime(
-                                  item.finished_at,
-                                )
-                              }
-                            </td>
-
-                            <td>
-                              {item.created_by ?? ''}
-                            </td>
-
-                            <td className="integration-history-message">
-                              {item.message ?? ''}
-                            </td>
-                          </tr>
-                        ),
-                      )
-                    }
-                  </tbody>
-                </table>
-              </div>
-            )
-          : null
-      }
-
-      {
-        !loading && mode === 'dq-issues'
-          ? (
-              dqIssues.length === 0
-                ? (
-                    <div className="integration-admin-empty">
-                      <Trans i18nKey="batch.tr0258" />
-                    </div>
-                  )
-                : (
-                    <div className="data-table-wrapper">
-                      <table className="data-table integration-admin-wide-table">
-                        <thead>
-                          <tr>
-                            <th><Trans i18nKey="batch.tr0253" /></th>
-                            <th><Trans i18nKey="batch.tr0044" /></th>
-                            <th><Trans i18nKey="batch.tr0045" /></th>
-                            <th><Trans i18nKey="batch.tr0046" /></th>
-                            <th><Trans i18nKey="batch.tr0036" /></th>
-                            <th><Trans i18nKey="batch.tr0042" /></th>
-                            <th><Trans i18nKey="batch.tr0050" /></th>
-                            <th><Trans i18nKey="batch.tr0049" /></th>
-                            <th><Trans i18nKey="batch.tr0048" /></th>
-                            <th><Trans i18nKey="batch.tr0051" /></th>
-                          </tr>
-                        </thead>
-
-                        <tbody>
-                          {
-                            dqIssues.map(
-                              item => (
-                                <tr key={item.dq_issue_id}>
-                                  <td>
-                                    #{item.dq_issue_id}
-                                  </td>
-
-                                  <td>
-                                    #{item.dq_run_id}
-                                  </td>
-
-                                  <td>
-                                    <code>
-                                      {item.rule_code}
-                                    </code>
-                                    <br />
-                                    {item.rule_name}
-                                  </td>
-
-                                  <td>
-                                    <span
-                                      className={
-                                        statusBadgeClass(
-                                          item.severity,
-                                        )
-                                      }
-                                    >
-                                      {getSeverityLabel(item.severity)}
-                                    </span>
-                                  </td>
-
-                                  <td>
-                                    <span
-                                      className={
-                                        statusBadgeClass(
-                                          item.issue_status,
-                                        )
-                                      }
-                                    >
-                                      {item.issue_status}
-                                    </span>
-                                  </td>
-
-                                  <td>
-                                    {
-                                      `${item.source_system} / `
-                                      + `${item.source_schema}.`
-                                      + item.source_object
-                                    }
-                                  </td>
-
-                                  <td>
-                                    {item.column_name ?? ''}
-                                  </td>
-
-                                  <td className="integration-history-message">
-                                    {item.bad_value ?? ''}
-                                  </td>
-
-                                  <td className="integration-history-message">
-                                    {item.error_message ?? ''}
-                                  </td>
-
-                                  <td>
-                                    {
-                                      formatDateTime(
-                                        item.created_at,
-                                      )
-                                    }
-                                  </td>
-                                </tr>
-                              ),
-                            )
-                          }
-                        </tbody>
-                      </table>
-                    </div>
-                  )
             )
           : null
       }

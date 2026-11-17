@@ -11,7 +11,7 @@ E1: dwh must be in the state before the package (check of the previous package a
     The copy is left with the package applied (as on the PC). dwh is only read.
 E2: same state check of dwh -> fresh copy of dwh (dwh_backup.py, label pre-<package>) -> row counts ->
     confirmation by typing APPLY -> package in ONE transaction (lock_timeout 10s) -> checks -> row counts:
-    unchanged except the rows the package adds (sql_packages.json "added_rows").
+    unchanged except the rows the package adds (sql_packages.json "added_rows") or removes ("removed", I18 020).
 Any failure = STOP; a failed apply rolls back completely. Prints E1_RESULT / E2_RESULT: PASS / STOP.
 Report: /srv/dwh/incoming/<stage>_<package>_<time>.txt. Runs psql as postgres (peer login, no passwords);
 objects are created as the owner role of the package ("owner"). Uses the system python3 only.
@@ -212,20 +212,48 @@ def stage_e2(run: Run, package: dict, paths: dict[str, Path]) -> None:
                  run.psql_file(DB, paths["previous_check"], "dwh_app", read_only=True),
                  package["previous_check"]["expected"])
     after = counts(run, DB)
-    added = package.get("added_rows", {})
-    problems = []
-    for key, value in before.items():
-        if not key.startswith("rows|"):
-            continue
-        table = key.split("|", 1)[1]
-        expected = int(value) + int(added.get(table, 0))
-        if after.get(key) != str(expected):
-            problems.append(f"{table}: {value} -> {after.get(key)} (expected {expected})")
+    problems, notes = compare_counts(before, after, package)
+    for line in notes:
+        run.log("  " + line)
     new_tables = sorted(k.split("|", 1)[1] for k in after if k.startswith("rows|") and k not in before)
     run.log(f"row counts: {len([k for k in before if k.startswith('rows|')])} tables compared, "
             f"new tables: {', '.join(new_tables) or '-'}")
     if problems:
         raise Stop("row counts changed: " + "; ".join(problems))
+
+
+def compare_counts(before: dict[str, str], after: dict[str, str], package: dict) -> tuple[list[str], list[str]]:
+    """Rows of every table must be unchanged, except:
+    "added_rows" {table: n}: exactly n rows more;
+    "removed" {"rows_may_decrease": [tables], "dropped_tables": regex}: a package that removes data (020) may
+    lower the rows of the listed tables (never raise them) and must drop the tables matching the regex.
+    Returns the problems and the lines that say what was removed."""
+    added = package.get("added_rows", {})
+    removed = package.get("removed", {})
+    may_decrease = set(removed.get("rows_may_decrease", []))
+    dropped = re.compile(removed["dropped_tables"]) if removed.get("dropped_tables") else None
+    problems: list[str] = []
+    notes: list[str] = []
+    for key, value in before.items():
+        if not key.startswith("rows|"):
+            continue
+        table = key.split("|", 1)[1]
+        if dropped is not None and dropped.search(table):
+            if key in after:
+                problems.append(f"{table}: should be dropped, still exists")
+            else:
+                notes.append(f"dropped {table} ({value} rows)")
+            continue
+        if table in may_decrease:
+            if key not in after or int(after[key]) > int(value):
+                problems.append(f"{table}: {value} -> {after.get(key)} (may only decrease)")
+            elif after[key] != value:
+                notes.append(f"removed rows {table}: {value} -> {after[key]}")
+            continue
+        expected = int(value) + int(added.get(table, 0))
+        if after.get(key) != str(expected):
+            problems.append(f"{table}: {value} -> {after.get(key)} (expected {expected})")
+    return problems, notes
 
 
 def main(argv: list[str] | None = None) -> int:

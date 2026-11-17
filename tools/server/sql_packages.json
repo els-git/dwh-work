@@ -120,5 +120,60 @@
       "label": "018",
       "expected": 9
     }
+  },
+  "020": {
+    "number": "020",
+    "owner": "dwh_admin",
+    "marker": "meta.legacy_crm_removed()",
+    "copy_db": "dwh_i18_020_test",
+    "check_expected": 8,
+    "added_rows": {},
+    "removed": {
+      "rows_may_decrease": [
+        "meta.column_contract",
+        "meta.mapping_rule",
+        "meta.mapping_source_ref",
+        "meta.batch_contract_snapshot",
+        "meta.batch_mapping_snapshot",
+        "etl.job",
+        "etl.batch_run",
+        "etl.job_run",
+        "etl.error_log",
+        "etl.watermark",
+        "etl.run_request",
+        "dq.rule",
+        "dq.run",
+        "dq.result",
+        "dq.issue",
+        "dq.run_rule_snapshot",
+        "meta.ai_report_object",
+        "meta.ai_value_column",
+        "meta.ai_example",
+        "meta.ai_glossary"
+      ],
+      "dropped_tables": "^(stg|ods)\\.crm_retail_|^dm\\.retail_application_history$"
+    },
+    "migration": {
+      "path": "database/migrations/020_remove_legacy_crm.sql",
+      "sha256": "58DFBDD6D7A96D7573D86C3327A88DEF2F796D762B006B4D5970AF81B7816774"
+    },
+    "down": {
+      "path": "database/migrations/020_remove_legacy_crm.down.sql",
+      "sha256": "C1E5E46223DEB8D9CBB9F4EE05B2920DB4F7B0C647FE12152A51B479341A2424"
+    },
+    "check": {
+      "path": "database/checks/020_remove_legacy_crm_check.sql",
+      "sha256": "0F44645509C341F5F182CB7485F574FD74B841ACF1E3C6CB1B7FF8AD46928133"
+    },
+    "test": {
+      "path": "database/tests/020_remove_legacy_crm_test.sql",
+      "sha256": "A7E1446CB115D35721708F79B760EAB12A27F0DD0EA4CC67F32DA27B8B7A2753"
+    },
+    "previous_check": {
+      "path": "database/checks/019_dm_builder_ui_ddl_check.sql",
+      "sha256": "FE739C559FB50F194A7B0447D08123BF1FCD4EAA203743E1F1BCF0904DF8BBC3",
+      "label": "019",
+      "expected": 8
+    }
   }
 }

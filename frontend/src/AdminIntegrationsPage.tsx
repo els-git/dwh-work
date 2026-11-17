@@ -34,12 +34,6 @@ import {
   formatDateTime,
 } from './dateTime'
 
-import AdminIntegrationContracts
-  from './AdminIntegrationContracts'
-import AdminIntegrationMappings
-  from './AdminIntegrationMappings'
-import AdminIntegrationDqRules
-  from './AdminIntegrationDqRules'
 
 import './AdminIntegrationsPage.css'
 
@@ -47,9 +41,6 @@ import './AdminIntegrationsPage.css'
 type Mode =
   | 'systems'
   | 'objects'
-  | 'contracts'
-  | 'mappings'
-  | 'dq'
 
 
 type EditorMode =
@@ -779,57 +770,6 @@ function AdminIntegrationsPage() {
           }
         >
           <Trans i18nKey="batch.tr0208" />
-        </button>
-
-        <button
-          type="button"
-          className={
-            mode === 'contracts'
-              ? 'admin-integrations-tab active'
-              : 'admin-integrations-tab'
-          }
-          onClick={
-            () => {
-              setMode('contracts')
-              closeEditor()
-            }
-          }
-        >
-          <Trans i18nKey="batch.tr0073" />
-        </button>
-
-        <button
-          type="button"
-          className={
-            mode === 'mappings'
-              ? 'admin-integrations-tab active'
-              : 'admin-integrations-tab'
-          }
-          onClick={
-            () => {
-              setMode('mappings')
-              closeEditor()
-            }
-          }
-        >
-          <Trans i18nKey="batch.tr0074" />
-        </button>
-
-        <button
-          type="button"
-          className={
-            mode === 'dq'
-              ? 'admin-integrations-tab active'
-              : 'admin-integrations-tab'
-          }
-          onClick={
-            () => {
-              setMode('dq')
-              closeEditor()
-            }
-          }
-        >
-          <Trans i18nKey="batch.tr0229" />
         </button>
       </nav>
 
@@ -1602,30 +1542,6 @@ function AdminIntegrationsPage() {
               </>
             )
             : null
-      }
-
-      {
-        mode === 'contracts'
-          ? (
-              <AdminIntegrationContracts />
-            )
-          : null
-      }
-
-      {
-        mode === 'mappings'
-          ? (
-              <AdminIntegrationMappings />
-            )
-          : null
-      }
-
-      {
-        mode === 'dq'
-          ? (
-              <AdminIntegrationDqRules />
-            )
-          : null
       }
     </section>
   )

@@ -240,58 +240,6 @@
    ]
   },
   {
-   "id": "H15",
-   "kind": "help",
-   "role": "admin",
-   "question": "Где посмотреть результаты проверок качества данных?",
-   "expect": "OK",
-   "sections": [
-    "2.7"
-   ],
-   "terms": [
-    "качество данных"
-   ]
-  },
-  {
-   "id": "H16",
-   "kind": "help",
-   "role": "admin",
-   "question": "Как поставить в очередь задание CRM ETL?",
-   "expect": "OK",
-   "sections": [
-    "2.8"
-   ],
-   "terms": [
-    "в очередь"
-   ]
-  },
-  {
-   "id": "H17",
-   "kind": "help",
-   "role": "admin",
-   "question": "Как выгрузить отчёт в Excel?",
-   "expect": "OK",
-   "sections": [
-    "3.2"
-   ],
-   "terms": [
-    "выгруз"
-   ]
-  },
-  {
-   "id": "H18",
-   "kind": "help",
-   "role": "admin",
-   "question": "Как найти нужную строку в отчёте по слову?",
-   "expect": "OK",
-   "sections": [
-    "3.1"
-   ],
-   "terms": [
-    "фильтр"
-   ]
-  },
-  {
    "id": "H19",
    "kind": "help",
    "role": "admin",
