@@ -95,3 +95,12 @@
 .confirm-dialog-detail {
   white-space: pre-line;
 }
+
+/* State of the open version next to its buttons: building, failed, published, last message. */
+.dm-status {
+  margin-top: 16px;
+}
+
+.dm-status-building {
+  border-color: var(--accent);
+}
