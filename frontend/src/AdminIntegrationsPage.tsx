@@ -1248,87 +1248,6 @@ function AdminIntegrationsPage() {
                               </select>
                             </label>
 
-                            <label>
-                              <span><Trans i18nKey="batch.tr0201" /></span>
-                              <select
-                                value={loadStrategy}
-                                onChange={
-                                  event =>
-                                    setLoadStrategy(
-                                      event.target.value,
-                                    )
-                                }
-                              >
-                                <option value="FULL">
-                                  FULL
-                                </option>
-                                <option value="INCREMENTAL">
-                                  INCREMENTAL
-                                </option>
-                                <option value="INCREMENTAL_OVERLAP">
-                                  INCREMENTAL_OVERLAP
-                                </option>
-                                <option value="SNAPSHOT">
-                                  SNAPSHOT
-                                </option>
-                              </select>
-                            </label>
-
-                            <label>
-                              <span><Trans i18nKey="batch.tr0214" /></span>
-                              <input
-                                value={watermarkColumn}
-                                onChange={
-                                  event =>
-                                    setWatermarkColumn(
-                                      event.target.value,
-                                    )
-                                }
-                              />
-                            </label>
-
-                            <label>
-                              <span><Trans i18nKey="batch.tr0228" /></span>
-                              <input
-                                value={targetSchema}
-                                onChange={
-                                  event =>
-                                    setTargetSchema(
-                                      event.target.value,
-                                    )
-                                }
-                              />
-                            </label>
-
-                            <label>
-                              <span><Trans i18nKey="batch.tr0225" /></span>
-                              <input
-                                value={targetObject}
-                                onChange={
-                                  event =>
-                                    setTargetObject(
-                                      event.target.value,
-                                    )
-                                }
-                              />
-                            </label>
-
-                            <label>
-                              <span><Trans i18nKey="batch.tr0199" /></span>
-                              <input
-                                type="number"
-                                min={1}
-                                required
-                                value={loadOrder}
-                                onChange={
-                                  event =>
-                                    setLoadOrder(
-                                      event.target.value,
-                                    )
-                                }
-                              />
-                            </label>
-
                             <label className="wide">
                               <span><Trans i18nKey="batch.tr0223" /></span>
                               <textarea
@@ -1405,10 +1324,6 @@ function AdminIntegrationsPage() {
                               <tr>
                                 <th><Trans i18nKey="batch.tr0042" /></th>
                                 <th><Trans i18nKey="batch.tr0185" /></th>
-                                <th><Trans i18nKey="batch.tr0231" /></th>
-                                <th><Trans i18nKey="batch.tr0232" /></th>
-                                <th><Trans i18nKey="batch.tr0038" /></th>
-                                <th><Trans i18nKey="batch.tr0071" /></th>
                                 <th><Trans i18nKey="batch.tr0036" /></th>
                                 <th><Trans i18nKey="batch.tr0215" /></th>
                               </tr>
@@ -1435,30 +1350,6 @@ function AdminIntegrationsPage() {
 
                                         <td>
                                           {item.object_type}
-                                        </td>
-
-                                        <td>
-                                          {item.load_strategy}
-                                        </td>
-
-                                        <td>
-                                          {item.watermark_column ?? ''}
-                                        </td>
-
-                                        <td>
-                                          {
-                                            item.target_schema
-                                            && item.target_object
-                                              ? (
-                                                  `${item.target_schema}.`
-                                                  + item.target_object
-                                                )
-                                              : ''
-                                          }
-                                        </td>
-
-                                        <td>
-                                          {item.load_order}
                                         </td>
 
                                         <td>

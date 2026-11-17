@@ -15,6 +15,7 @@ import {
 import {
   useSeverityLabel,
 } from './severityLabels'
+import { suggestedTargetTable } from './targetName'
 import {
   createOdsConfigProposal,
   getOdsConfig,
@@ -127,6 +128,9 @@ function OdsConfigPanel({
   // Responses for an older load are ignored.
   const requestSequence = useRef(0)
 
+  // I18: a new mapping proposes <source schema>_<source object> as the ODS table.
+  const suggestedTable = suggestedTargetTable(sourceObject.source_schema, sourceObject.source_object)
+
   const applyData = useCallback(
     (value: OdsConfigResponse) => {
       setData(value)
@@ -172,11 +176,11 @@ function OdsConfigPanel({
       }
 
       setRows(nextRows)
-      setTargetTable(saved?.target_table ?? '')
+      setTargetTable(saved?.target_table ?? suggestedTable)
       setKeyColumns(saved?.key ?? [])
       setIssues(value.config.draft?.last_validation?.issues ?? null)
     },
-    [],
+    [suggestedTable],
   )
 
   useEffect(
@@ -577,6 +581,11 @@ function OdsConfigPanel({
                               : t('objectConfig.targetExisting', { columns: target.columns.length })
                       }
                     </p>
+                    {
+                      targetTable !== '' && targetTable === suggestedTable
+                        ? <p className="wide">{t('objectConfig.targetSuggested')}</p>
+                        : null
+                    }
                     <p className="wide">{t('odsConfig.hint')}</p>
                   </div>
                 )
