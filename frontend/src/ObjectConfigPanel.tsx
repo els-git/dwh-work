@@ -16,11 +16,12 @@ import {
   useSeverityLabel,
 } from './severityLabels'
 import OdsConfigPanel from './OdsConfigPanel'
+import { publishWithTablePlan } from './tablePlan'
 import { suggestedTargetTable } from './targetName'
 import {
   checkObjectConfigDrift,
-  createObjectConfigProposal,
   getObjectConfig,
+  getObjectTablePlan,
   publishObjectConfig,
   rejectTargetProposal,
   saveObjectConfigDraft,
@@ -443,17 +444,6 @@ function ObjectConfigPanel({
   const canPublish =
     draft !== null && !dirty && validationCurrent && lastValidation?.ok === true
 
-  const missingColumns =
-    draft === null
-      ? []
-      : draft.definition.fields.filter(field => target !== null && !targetColumns.has(field.target_column))
-
-  const canPropose =
-    draft !== null
-    && !dirty
-    && draft.definition.target_table !== null
-    && (target === null || missingColumns.length > 0)
-
   const changeCandidates = rows.filter(
     row => row.included
       && row.write_policy !== 'NO_WRITE'
@@ -532,41 +522,21 @@ function ObjectConfigPanel({
       return
     }
 
-    const confirmed =
-      await confirmAction({
+    const objectId = sourceObject.source_object_id
+    const revision = draft.draft_revision
+
+    // I18 (021): the target table is created or changed on publication; the dialog shows how.
+    await run(
+      async () => publishWithTablePlan({
+        plan: await getObjectTablePlan(objectId, 'LOAD'),
         title: t('objectConfig.publishTitle'),
         message: t('objectConfig.publishMessage', {
           object: `${sourceObject.source_schema}.${sourceObject.source_object}`,
           version: draft.version_no,
         }),
-        confirmLabel: t('objectConfig.publish'),
-        cancelLabel: t('objectConfig.cancel'),
-      })
-
-    if (!confirmed) {
-      return
-    }
-
-    await run(
-      async () => {
-        const result = await publishObjectConfig(sourceObject.source_object_id, draft.draft_revision)
-
-        return t('objectConfig.published', { version: result.version_no, status: result.status })
-      },
-    )
-  }
-
-  async function propose() {
-    if (draft === null) {
-      return
-    }
-
-    await run(
-      async () => {
-        await createObjectConfigProposal(sourceObject.source_object_id, draft.draft_revision)
-
-        return t('objectConfig.proposalCreated')
-      },
+        t,
+        publish: confirm => publishObjectConfig(objectId, revision, confirm),
+      }),
     )
   }
 
@@ -1113,14 +1083,6 @@ function ObjectConfigPanel({
                         onClick={() => { void validate() }}
                       >
                         {t('objectConfig.validate')}
-                      </button>
-                      <button
-                        type="button"
-                        className="admin-secondary-button"
-                        disabled={busy || !canPropose}
-                        onClick={() => { void propose() }}
-                      >
-                        {t('objectConfig.propose')}
                       </button>
                       <button
                         type="button"

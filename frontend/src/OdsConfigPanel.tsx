@@ -7,17 +7,15 @@ import {
 import { useTranslation } from 'react-i18next'
 
 import {
-  confirmAction,
-} from './confirmAction'
-import {
   formatDateTime,
 } from './dateTime'
 import {
   useSeverityLabel,
 } from './severityLabels'
+import { publishWithTablePlan } from './tablePlan'
 import { suggestedTargetTable } from './targetName'
 import {
-  createOdsConfigProposal,
+  getObjectTablePlan,
   getOdsConfig,
   publishOdsConfig,
   saveOdsConfigDraft,
@@ -112,7 +110,6 @@ function OdsConfigPanel({
 
   const [notice, setNotice] = useState<string | null>(null)
 
-  const [proposalDdl, setProposalDdl] = useState<string | null>(null)
 
   const [targetTable, setTargetTable] = useState('')
 
@@ -335,12 +332,6 @@ function OdsConfigPanel({
 
   const canPublish = draft !== null && !dirty && validationCurrent && lastValidation?.ok === true
 
-  const canPropose =
-    draft !== null
-    && !dirty
-    && draft.definition.target_table !== null
-    && (target === null || draft.definition.fields.some(field => !targetColumns.has(field.target_column)))
-
   function updateRow(
     rowId: string,
     change: Partial<OdsRow>,
@@ -456,43 +447,21 @@ function OdsConfigPanel({
       return
     }
 
-    const confirmed =
-      await confirmAction({
+    const objectId = sourceObject.source_object_id
+    const revision = draft.draft_revision
+
+    // I18 (021): the ODS table is created or changed on publication; the dialog shows how.
+    await run(
+      async () => publishWithTablePlan({
+        plan: await getObjectTablePlan(objectId, 'ODS'),
         title: t('odsConfig.publishTitle'),
         message: t('odsConfig.publishMessage', {
           object: `${sourceObject.source_schema}.${sourceObject.source_object}`,
           version: draft.version_no,
         }),
-        confirmLabel: t('objectConfig.publish'),
-        cancelLabel: t('objectConfig.cancel'),
-      })
-
-    if (!confirmed) {
-      return
-    }
-
-    await run(
-      async () => {
-        const result = await publishOdsConfig(sourceObject.source_object_id, draft.draft_revision)
-
-        return t('objectConfig.published', { version: result.version_no, status: result.status })
-      },
-    )
-  }
-
-  async function propose() {
-    if (draft === null) {
-      return
-    }
-
-    await run(
-      async () => {
-        const result = await createOdsConfigProposal(sourceObject.source_object_id, draft.draft_revision)
-
-        setProposalDdl(result.ddl)
-
-        return t('odsConfig.proposalCreated', { id: result.proposal_id })
-      },
+        t,
+        publish: confirm => publishOdsConfig(objectId, revision, confirm),
+      }),
     )
   }
 
@@ -831,14 +800,6 @@ function OdsConfigPanel({
                       </button>
                       <button
                         type="button"
-                        className="admin-secondary-button"
-                        disabled={busy || !canPropose}
-                        onClick={() => { void propose() }}
-                      >
-                        {t('objectConfig.propose')}
-                      </button>
-                      <button
-                        type="button"
                         className="admin-primary-button"
                         disabled={busy || !canPublish}
                         title={canPublish ? undefined : t('objectConfig.publishNeedsValidation')}
@@ -858,14 +819,6 @@ function OdsConfigPanel({
                 </button>
               </div>
 
-              {
-                proposalDdl !== null && (
-                  <div className="wide">
-                    <pre style={{ whiteSpace: 'pre-wrap', overflowX: 'auto' }}>{proposalDdl}</pre>
-                    <p>{t('objectConfig.proposalNote')}</p>
-                  </div>
-                )
-              }
             </>
           )
       }

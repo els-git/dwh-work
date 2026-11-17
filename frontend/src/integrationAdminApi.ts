@@ -733,15 +733,56 @@ export function validateObjectConfig(
 }
 
 
+// I18 (package 021): what publication does to the target table of the draft.
+export interface ObjectTableChange {
+  change: 'CREATE_TABLE' | 'ADDED' | 'REMOVED' | 'RETYPED' | 'KEY_CHANGED' | 'KEPT'
+  column?: string
+  old_type?: string | null
+  new_type?: string | null
+  old_key?: string[] | null
+  new_key?: string[]
+}
+
+export interface ObjectTablePlan {
+  target_schema: string | null
+  target_table: string | null
+  table_exists: boolean
+  ddl_text: string | null
+  changes: ObjectTableChange[]
+  needs_confirm: boolean
+  impact: {
+    ods_configs: { source_object_id: number, version_no: number, columns: string[] }[]
+    marts: { mart_code: string, version_no: number, status: string, columns: string[] }[]
+  }
+  problems: string[]
+}
+
+export interface ObjectPublishResult {
+  version_no: number | null
+  status: string
+  table_plan: ObjectTablePlan | null
+}
+
+export function getObjectTablePlan(
+  sourceObjectId: number,
+  line: 'LOAD' | 'ODS',
+): Promise<ObjectTablePlan> {
+  return apiRequest<ObjectTablePlan>(
+    (line === 'LOAD' ? objectConfigPath(sourceObjectId) : odsConfigPath(sourceObjectId)) + '/table-plan',
+  )
+}
+
+
 export function publishObjectConfig(
   sourceObjectId: number,
   draftRevision: number,
-): Promise<{ version_no: number, status: string }> {
-  return apiRequest<{ version_no: number, status: string }>(
+  confirm: boolean,
+): Promise<ObjectPublishResult> {
+  return apiRequest<ObjectPublishResult>(
     objectConfigPath(sourceObjectId) + '/publish',
     {
       method: 'POST',
-      body: JSON.stringify({ draft_revision: draftRevision }),
+      body: JSON.stringify({ draft_revision: draftRevision, confirm }),
     },
   )
 }
@@ -754,20 +795,6 @@ export function checkObjectConfigDrift(
     objectConfigPath(sourceObjectId) + '/drift-check',
     {
       method: 'POST',
-    },
-  )
-}
-
-
-export function createObjectConfigProposal(
-  sourceObjectId: number,
-  draftRevision: number,
-): Promise<{ proposal_id: number, change_kind: string, ddl: string }> {
-  return apiRequest<{ proposal_id: number, change_kind: string, ddl: string }>(
-    objectConfigPath(sourceObjectId) + '/proposal',
-    {
-      method: 'POST',
-      body: JSON.stringify({ draft_revision: draftRevision }),
     },
   )
 }
@@ -899,14 +926,15 @@ export function saveOdsConfigDraft(
 
 function odsDraftAction<T>(
   sourceObjectId: number,
-  action: 'validate' | 'publish' | 'proposal',
+  action: 'validate' | 'publish',
   draftRevision: number,
+  extra: Record<string, unknown> = {},
 ): Promise<T> {
   return apiRequest<T>(
     odsConfigPath(sourceObjectId) + '/' + action,
     {
       method: 'POST',
-      body: JSON.stringify({ draft_revision: draftRevision }),
+      body: JSON.stringify({ draft_revision: draftRevision, ...extra }),
     },
   )
 }
@@ -923,16 +951,9 @@ export function validateOdsConfig(
 export function publishOdsConfig(
   sourceObjectId: number,
   draftRevision: number,
-): Promise<{ version_no: number, status: string }> {
-  return odsDraftAction(sourceObjectId, 'publish', draftRevision)
-}
-
-
-export function createOdsConfigProposal(
-  sourceObjectId: number,
-  draftRevision: number,
-): Promise<{ proposal_id: number, change_kind: string, ddl: string }> {
-  return odsDraftAction(sourceObjectId, 'proposal', draftRevision)
+  confirm: boolean,
+): Promise<ObjectPublishResult> {
+  return odsDraftAction(sourceObjectId, 'publish', draftRevision, { confirm })
 }
 
 

@@ -32,6 +32,7 @@ from dwh_api.object_config_admin import (
     DraftRevisionRequest,
     DraftSaveResponse,
     ProposalResponse,
+    PublishRequest,
     PublishResponse,
     ValidationResponse,
     _execute,
@@ -40,7 +41,10 @@ from dwh_api.object_config_admin import (
     build_proposal,
     compatibility_matrix,
     has_errors,
+    publish_with_table,
+    read_table_plan,
     read_targets,
+    table_plan_of,
 )
 
 router = APIRouter(
@@ -156,7 +160,8 @@ def validate_ods(definition: dict, stg: dict | None, stg_columns: list[dict] | N
     if not definition.get("target_table"):
         issues.append(_issue("ERROR", "TARGET_NOT_SELECTED"))
     elif target is None:
-        issues.append(_issue("ERROR", "TARGET_TABLE_MISSING"))
+        # I18 (021): the table is created on publication.
+        issues.append(_issue("WARNING", "TARGET_TABLE_MISSING"))
     if not fields:
         issues.append(_issue("ERROR", "NO_FIELDS"))
     stg_by_name = {c["name"]: c for c in (stg_columns or [])}
@@ -181,10 +186,11 @@ def validate_ods(definition: dict, stg: dict | None, stg_columns: list[dict] | N
                                      expected=f.get("stg_type"), actual=actual["type"]))
         if target is not None:
             actual = target_columns.get(column)
+            # I18 (021): a new column is added on publication, a type is changed after a confirmation.
             if actual is None:
-                issues.append(_issue("ERROR", "TARGET_COLUMN_MISSING", column))
+                issues.append(_issue("WARNING", "TARGET_COLUMN_MISSING", column))
             elif actual["type"] != target_type:
-                issues.append(_issue("ERROR", "TARGET_TYPE_MISMATCH", column, expected=target_type, actual=actual["type"]))
+                issues.append(_issue("WARNING", "TARGET_TYPE_MISMATCH", column, expected=target_type, actual=actual["type"]))
         stg_type = f.get("stg_type")
         stg_base = field_types.parse(stg_type)[0] if stg_type else None
         if transform in ("COPY", "DEFAULT") and stg_type and stg_type != target_type \
@@ -215,9 +221,10 @@ def validate_ods(definition: dict, stg: dict | None, stg_columns: list[dict] | N
             issues.append(_issue("ERROR", "KEY_FIELD_MISSING", part))
         elif not f.get("stg_column") or f.get("allow_explicit_null") or f["transform"] in ("DEFAULT", "EMPTY_TO_NULL"):
             issues.append(_issue("ERROR", "KEY_NOT_FROM_STG", part))
-    for name, column in target_columns.items():
-        if column["not_null"] and not column["has_default"] and name not in by_target:
-            issues.append(_issue("ERROR", "TARGET_REQUIRED_UNMAPPED", name))
+    for name in target_columns:
+        if name not in by_target:
+            # I18 (021): dropped on publication after a confirmation, kept when another object writes it.
+            issues.append(_issue("WARNING", "TARGET_COLUMN_NOT_IN_VERSION", name))
     for name in stg_by_name:
         if name not in used_stg:
             issues.append(_issue("WARNING", "STG_COLUMN_UNMAPPED", source_column=name))
@@ -291,14 +298,15 @@ def validate_ods_draft(conn, token_hash: str, request_id: str, source_object_id:
 
 
 def publish_ods_draft(conn, token_hash: str, request_id: str, source_object_id: int,
-                      draft_revision: int) -> PublishResponse:
+                      draft_revision: int, confirm: bool = False) -> PublishResponse:
     # The STG and ODS tables may have changed since the validation: check again before publishing.
     _, _, _, issues = _validate(conn, token_hash, request_id, source_object_id, draft_revision)
     if has_errors(issues):
         raise HTTPException(status_code=422, detail="Validation is outdated or failed; check the draft again")
-    (row,) = _execute(conn, request_id, "SELECT app.integration_ods_config_publish(%s, %s, %s) AS version_no",
-                      (token_hash, source_object_id, draft_revision))
-    return PublishResponse(version_no=row["version_no"], status="READY")
+    result = publish_with_table(conn, token_hash, request_id, source_object_id, "ODS", draft_revision, confirm)
+    if result["status"] != "PUBLISHED":
+        return PublishResponse(status=result["status"], table_plan=table_plan_of(result))
+    return PublishResponse(version_no=result["version_no"], status="READY", table_plan=table_plan_of(result))
 
 
 def create_ods_proposal(conn, token_hash: str, request_id: str, source_object_id: int,
@@ -345,8 +353,13 @@ def post_ods_config_validate(request: Request, source_object_id: int = PathParam
 
 @router.post("/source-objects/{source_object_id}/ods-config/publish", response_model=PublishResponse)
 def post_ods_config_publish(request: Request, source_object_id: int = PathParam(ge=1),
-                            payload: DraftRevisionRequest = Body(...)) -> PublishResponse:
-    return _run(request, publish_ods_draft, source_object_id, payload.draft_revision)
+                            payload: PublishRequest = Body(...)) -> PublishResponse:
+    return _run(request, publish_ods_draft, source_object_id, payload.draft_revision, payload.confirm)
+
+
+@router.get("/source-objects/{source_object_id}/ods-config/table-plan")
+def get_ods_config_table_plan(request: Request, source_object_id: int = PathParam(ge=1)) -> dict[str, Any]:
+    return _run(request, read_table_plan, source_object_id, "ODS")
 
 
 @router.post("/source-objects/{source_object_id}/ods-config/proposal", response_model=ProposalResponse)

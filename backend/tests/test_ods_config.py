@@ -64,7 +64,8 @@ class ValidationTest(unittest.TestCase):
     def test_missing_parts(self):
         self.assertEqual(codes(oca.validate_ods({"fields": [], "key": []}, None, None, None)),
                          ["NO_FIELDS", "STG_NOT_PUBLISHED", "TARGET_NOT_SELECTED"])
-        self.assertIn("TARGET_TABLE_MISSING", codes(oca.validate_ods(good(), STG, STG_COLUMNS, None)))
+        # I18 (021): a missing table is created on publication: a warning, not an error.
+        self.assertIn("TARGET_TABLE_MISSING", codes(oca.validate_ods(good(), STG, STG_COLUMNS, None), "WARNING"))
 
     def test_transform_rules(self):
         d = good()
@@ -82,9 +83,11 @@ class ValidationTest(unittest.TestCase):
         d = good()
         d["fields"][0] = f("id", stg_type="BIGINT", target_type="INTEGER")
         d["fields"].append(f("ghost", target_type="TEXT"))
-        found = codes(oca.validate_ods(d, STG, STG_COLUMNS, TARGET))
-        for code in ("TRANSFORM_NEEDS_CAST", "STG_COLUMN_MISSING", "TARGET_COLUMN_MISSING", "TARGET_TYPE_MISMATCH"):
-            self.assertIn(code, found)
+        issues = oca.validate_ods(d, STG, STG_COLUMNS, TARGET)
+        for code in ("TRANSFORM_NEEDS_CAST", "STG_COLUMN_MISSING"):
+            self.assertIn(code, codes(issues))
+        for code in ("TARGET_COLUMN_MISSING", "TARGET_TYPE_MISMATCH"):
+            self.assertIn(code, codes(issues, "WARNING"))
 
     def test_key_and_required(self):
         d = good()
@@ -92,7 +95,8 @@ class ValidationTest(unittest.TestCase):
         d["fields"] = [x for x in d["fields"] if x["target_column"] != "id"]
         found = codes(oca.validate_ods(d, STG, STG_COLUMNS, TARGET))
         self.assertIn("KEY_NOT_FROM_STG", found)
-        self.assertIn("TARGET_REQUIRED_UNMAPPED", found)
+        # I18 (021): a column of the table that is not in the version is dropped on publication after a confirmation.
+        self.assertIn("TARGET_COLUMN_NOT_IN_VERSION", codes(oca.validate_ods(d, STG, STG_COLUMNS, TARGET), "WARNING"))
 
     def test_value_fits(self):
         for value, type_, ok in (("12", "INTEGER", True), ("1.5", "INTEGER", False), ("99999999999", "INTEGER", False),
