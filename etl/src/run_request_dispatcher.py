@@ -429,6 +429,39 @@ def process_object_request(
     )
 
 
+_MART_WORKER_WARNED = False
+
+
+def process_mart_request(
+    conn,
+    name: str,
+) -> bool:
+    """One DM mart run request (I19, package 018); False when none can be claimed.
+
+    Taken when the CRM queue and the object queue are empty. Without backend/src on the path
+    the other queues keep working and the mart queue is skipped with one warning.
+    """
+    global _MART_WORKER_WARNED
+
+    try:
+        from dm_mart_worker import (
+            process_one,
+        )
+    except ImportError as exc:
+        if not _MART_WORKER_WARNED:
+            print(
+                "WARNING: DM mart run requests are not processed:",
+                f"{type(exc).__name__}: {exc}",
+            )
+            _MART_WORKER_WARNED = True
+        return False
+
+    return process_one(
+        conn,
+        name,
+    )
+
+
 def main(
     *,
     quiet_empty: bool = False,
@@ -466,6 +499,13 @@ def main(
         if request is None:
             # I08: object run requests are taken when the CRM queue is empty.
             if process_object_request(
+                conn,
+                name,
+            ):
+                return
+
+            # I19: DM marts are reloaded when the CRM and object queues are empty.
+            if process_mart_request(
                 conn,
                 name,
             ):

@@ -973,6 +973,7 @@ def run_ods(source_object_id: int, stg_run_id: int | None, *, dwh_connect: Calla
             result.rows_unchanged = result.rows_read - result.rows_inserted - result.rows_updated
             result.status = _ods_finish(dwh, result, True)
             dwh.commit()
+            enqueue_marts(dwh, definition["target_table"], log)
             return result
         except (RunError, psycopg.Error) as caught:
             error = caught if isinstance(caught, RunError) else database_error(caught, "dwh")
@@ -992,6 +993,26 @@ def run_ods(source_object_id: int, stg_run_id: int | None, *, dwh_connect: Calla
             return result
     finally:
         dwh.close()
+
+
+def enqueue_marts(dwh, ods_table: str, log: Callable[[str], None]) -> int:
+    """I19 (D8): after a successful ODS step, queue the published marts that read this ODS table.
+
+    The ODS result is already committed; a failure here is only logged (before package 018 the function does
+    not exist) and never changes the result of the run."""
+    try:
+        with dwh.cursor() as cur:
+            cur.execute("SELECT etl.dm_mart_enqueue_after_ods(%s)", (ods_table,))
+            queued = int(cur.fetchone()[0])
+        dwh.commit()
+    except psycopg.Error as exc:
+        dwh.rollback()
+        message = (getattr(getattr(exc, "diag", None), "message_primary", None) or type(exc).__name__).strip()
+        log(f"WARNING: DM marts were not queued after ODS: {message}")
+        return 0
+    if queued:
+        log(f"DM_QUEUED: {queued} mart(s) after ODS {ods_table}")
+    return queued
 
 
 def _print_ods(ods: OdsResult | None) -> bool:
