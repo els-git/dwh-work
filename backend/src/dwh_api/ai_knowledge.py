@@ -100,6 +100,10 @@ class Section:
 class SearchResult:
     sections: list[Section]
     denied_titles: list[str]
+    # Sections close to the best match that the role may not read, while open ones were found too: the model
+    # is told that part of the subject is closed (without their text or titles), so it does not answer
+    # "there is nothing in the guide" about a subject described for another role.
+    closed_nearby: int = 0
 
     @property
     def only_denied(self) -> bool:
@@ -208,4 +212,4 @@ class KnowledgeIndex:
         if allowed and not any(s.access.allows(user) for _, s in near):
             # The question is about a closed subject; loosely related open sections would mislead.
             allowed = []
-        return SearchResult(allowed, denied if not allowed else [])
+        return SearchResult(allowed, denied if not allowed else [], len(denied) if allowed else 0)

@@ -286,6 +286,9 @@ def cancel(payload: CancelRequest, request: Request) -> dict:
     return {"stopped": token is not None}
 
 
+HELP_MAX_TOKENS = 1200
+
+
 @router.post("/help")
 def help_answer(payload: HelpRequest, request: Request) -> dict:
     user = user_scope(request)
@@ -311,7 +314,9 @@ def help_answer(payload: HelpRequest, request: Request) -> dict:
                     "answer": NO_HELP_TEXT, "sections": []}
         screen_map = knowledge().screen_map(user) if image else None
         system, user_text = help_prompt(found, payload.question, screen_map, translated)
-        answer = ask_model(request, request_id, settings, system, user_text, image, cancel=token)
+        # Help answers are longer than reports and Azerbaijani/English text takes more tokens: 1200, not 700.
+        answer = ask_model(request, request_id, settings, system, user_text, image, max_tokens=HELP_MAX_TOKENS,
+                           cancel=token)
     finish(request, request_id, "OK", None, message=", ".join(s.number for s in found.sections)[:4000])
     return {"request_id": request_id, "status": "OK", "answer": answer,
             "sections": [{"number": s.number, "title": s.title} for s in found.sections]}
