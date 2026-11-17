@@ -206,7 +206,6 @@ const resources = {
         }
       },
       "savedReports": {
-        "retailTab": "Retail applications",
         "tab": "My and shared reports",
         "hint": "Reports saved from the AI assistant. A report keeps its description and query and runs again with your rights; personal folders are seen only by their owner.",
         "noFolders": "No folders yet. Create one here or save a report from the assistant chat.",
@@ -269,14 +268,12 @@ const resources = {
         "rows": "Rows"
       },
       "loads": {
-        "sectionHint": "Operation of data loads: objects, runs, errors, data quality and CRM run requests. Settings stay in Administration.",
+        "sectionHint": "Operation of data loads: objects, marts, runs and errors. Settings stay in Administration.",
         "tab": {
           "objects": "Objects",
           "marts": "Marts",
           "runs": "Runs",
-          "errors": "Errors and history",
-          "quality": "Data quality",
-          "crm": "CRM run control"
+          "errors": "Errors and history"
         },
         "objectsHint": "State of every source object. Requests are executed by the dispatcher (run_local_dwh.ps1 -Mode Run).",
         "refresh": "Refresh",
@@ -1161,7 +1158,6 @@ const resources = {
         }
       },
       "savedReports": {
-        "retailTab": "Розничные заявки",
         "tab": "Мои и общие отчёты",
         "hint": "Отчёты, сохранённые из ИИ-помощника. Отчёт хранит описание и запрос и выполняется заново с вашими правами; личные папки видит только владелец.",
         "noFolders": "Папок пока нет. Создайте папку здесь или сохраните отчёт из чата помощника.",
@@ -1224,14 +1220,12 @@ const resources = {
         "rows": "Строк"
       },
       "loads": {
-        "sectionHint": "Работа загрузок: объекты, запуски, ошибки, качество данных и заявки CRM. Настройки — в «Администрировании».",
+        "sectionHint": "Работа загрузок: объекты, витрины, запуски и ошибки. Настройки — в «Администрировании».",
         "tab": {
           "objects": "Объекты",
           "marts": "Витрины",
           "runs": "Запуски",
-          "errors": "Ошибки и история",
-          "quality": "Качество данных",
-          "crm": "Управление запусками CRM"
+          "errors": "Ошибки и история"
         },
         "objectsHint": "Состояние каждого объекта источника. Заявки выполняет диспетчер (run_local_dwh.ps1 -Mode Run).",
         "refresh": "Обновить",
@@ -2116,7 +2110,6 @@ const resources = {
         }
       },
       "savedReports": {
-        "retailTab": "Pərakəndə müraciətlər",
         "tab": "Mənim və ümumi hesabatlar",
         "hint": "Süni intellekt köməkçisindən saxlanılmış hesabatlar. Hesabat təsviri və sorğunu saxlayır və sizin hüquqlarınızla yenidən icra olunur; şəxsi qovluqları yalnız sahibi görür.",
         "noFolders": "Hələ qovluq yoxdur. Burada yaradın və ya köməkçinin söhbətindən hesabatı saxlayın.",
@@ -2179,14 +2172,12 @@ const resources = {
         "rows": "Sətir"
       },
       "loads": {
-        "sectionHint": "Yükləmələrin işi: obyektlər, icralar, xətalar, məlumat keyfiyyəti və CRM sorğuları. Ayarlar — «İdarəetmə» bölməsində.",
+        "sectionHint": "Yükləmələrin işi: obyektlər, vitrinlər, icralar və xətalar. Ayarlar — «İdarəetmə» bölməsində.",
         "tab": {
           "objects": "Obyektlər",
           "marts": "Vitrinlər",
           "runs": "İcralar",
-          "errors": "Xətalar və tarixçə",
-          "quality": "Məlumat keyfiyyəti",
-          "crm": "CRM icralarının idarəsi"
+          "errors": "Xətalar və tarixçə"
         },
         "objectsHint": "Hər mənbə obyektinin vəziyyəti. Sorğuları dispetçer icra edir (run_local_dwh.ps1 -Mode Run).",
         "refresh": "Yenilə",

@@ -1,19 +1,9 @@
 param(
     [Parameter(Mandatory = $true)]
+    # I18: the tasks of the old CRM contour (check-crm, snapshots, validate/transform/refresh/DQ) were removed.
     [ValidateSet(
         "check",
-        "check-crm",
         "check-dwh",
-        "capture-source-metadata",
-        "plan-snapshot",
-        "extract-snapshot",
-        "load-snapshot",
-        "validate-stg",
-        "transform-ods",
-        "refresh-marts",
-        "run-dq",
-        "audit-mappings",
-        "load-mapping-catalog",
         "run-object"
     )]
     [string]$Task,
@@ -72,59 +62,14 @@ switch ($Task) {
     "check" {
         Write-Host "=== ETL CHECK-ONLY MODE ==="
 
-        Run-EtlScript "check_crm.py"
         Run-EtlScript "check_dwh.py"
 
         Write-Host ""
         Write-Host "ETL CHECK-ONLY PASSED"
     }
 
-    "check-crm" {
-        Run-EtlScript "check_crm.py"
-    }
-
     "check-dwh" {
         Run-EtlScript "check_dwh.py"
-    }
-
-    "capture-source-metadata" {
-        Run-EtlScript "capture_source_metadata.py"
-    }
-
-    "plan-snapshot" {
-        Run-EtlScript "plan_snapshot.py"
-    }
-
-    "extract-snapshot" {
-        Run-EtlScript "extract_snapshot.py"
-    }
-
-    "load-snapshot" {
-        Run-EtlScript "load_snapshot.py"
-    }
-
-    "validate-stg" {
-        Run-EtlScript "validate_stg.py"
-    }
-
-    "transform-ods" {
-        Run-EtlScript "transform_ods.py"
-    }
-
-    "refresh-marts" {
-        Run-EtlScript "refresh_marts.py"
-    }
-
-    "run-dq" {
-        Run-EtlScript "run_dq.py"
-    }
-
-    "audit-mappings" {
-        Run-EtlScript "audit_mappings.py"
-    }
-
-    "load-mapping-catalog" {
-        Run-EtlScript "load_mapping_catalog.py"
     }
 
     "run-object" {

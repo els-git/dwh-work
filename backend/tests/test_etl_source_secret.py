@@ -15,7 +15,6 @@ os.environ.setdefault("DWH_ETL_PASSWORD", "unit-test-not-used")
 
 import psycopg
 
-from dwh import config as etl_config
 from dwh import source_secret as ss
 from dwh_api.secret_file_store import EncryptedFileSecretStore
 from dwh_api.secret_store import SecretStore
@@ -114,26 +113,6 @@ class EtlSourceSecretTests(unittest.TestCase):
         with mock.patch.dict(os.environ, {ss.SECRET_DIRECTORY_ENV: ""}):
             with self.assertRaises(ss.SourceSecretError):
                 self.read(Conn())
-
-
-class CrmConfigTests(unittest.TestCase):
-    ENV = {"CRM_DB_HOST": "crm.local", "CRM_DB_NAME": "vtb", "CRM_DB_USER": "vtb"}
-
-    def test_secretstore_when_env_password_absent(self):
-        with mock.patch.dict(os.environ, self.ENV), mock.patch.dict(os.environ, {"CRM_DB_PASSWORD": ""}), \
-                mock.patch.object(ss, "read_source_credential", return_value=SYNTHETIC) as reader:
-            cfg = etl_config.get_crm_config()
-        reader.assert_called_once_with("CRM_RETAIL")
-        self.assertEqual(cfg.password, SYNTHETIC)
-
-    def test_legacy_env_password_still_used_with_warning(self):
-        with mock.patch.dict(os.environ, {**self.ENV, "CRM_DB_PASSWORD": "legacy-pw"}), \
-                mock.patch.object(ss, "read_source_credential") as reader, \
-                mock.patch("sys.stderr") as stderr:
-            cfg = etl_config.get_crm_config()
-        reader.assert_not_called()
-        self.assertEqual(cfg.password, "legacy-pw")
-        self.assertIn("WARNING", "".join(str(c.args[0]) for c in stderr.write.call_args_list))
 
 
 if __name__ == "__main__":

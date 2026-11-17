@@ -189,10 +189,10 @@ sudo journalctl -u dwh-llm -n 50 --no-pager
   Результат — `NETWORK_RESULT`.
 - Задачи ETL вручную (аналог `run_etl.ps1`, от пользователя `dwh` с ключами служб):
   ```bash
-  sudo python3 /opt/dwh/current/src/tools/server/dwh_task.py check-crm
+  sudo python3 /opt/dwh/current/src/tools/server/dwh_task.py check-dwh
   sudo python3 /opt/dwh/current/src/tools/server/dwh_task.py run-object --object-id 16
-  sudo python3 /opt/dwh/current/src/tools/server/dwh_task.py plan-snapshot --snapshot-date 2026-11-04
   ```
+  Команды старого контура CRM (`check-crm`, снимки, `validate/transform/refresh`, DQ) удалены в I18: CRM загружается как объекты.
 - Копии базы:
   - список: `sudo ls -l /backup/dwh`;
   - копия вручную: `sudo systemctl start dwh-backup`;

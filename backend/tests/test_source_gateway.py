@@ -243,7 +243,7 @@ ALLOWED_DIRECT = {
     "backend/src/dwh_api/db.py": "DWH database (API roles)",
     "backend/src/dwh_api/secret_admin_executor.py": "DWH database (operator of SecretStore)",
     "backend/src/dwh_api/postgres_connector.py": "passes psycopg.connect to the gateway as connect_fn",
-    "etl/src/dwh/db.py": "connect(): DWH database; connect_readonly(): source through the gateway",
+    "etl/src/dwh/db.py": "connect(): DWH database (the CRM connection of the old contour was removed in I18)",
     "backend/src/dwh_api/ai_llm.py": "local model service of the AI assistant; LlmSettings refuses hosts other than 127.0.0.1",
 }
 
@@ -266,16 +266,10 @@ class WatchdogTest(unittest.TestCase):
                  for m in DIRECT.finditer(text)]
         self.assertEqual(found, [], "source connections must go through dwh_api/source_gateway.py")
 
-    def test_crm_config_only_with_gateway(self):
-        bad = re.compile(r"(?<!_readonly)\bconnect\s*\(\s*(get_crm_config\s*\(\s*\)|crm_config)\b")
-        found = [name for name, text in self.sources() if bad.search(text)]
-        self.assertEqual(found, [])
-
     def test_source_paths_use_gateway(self):
         texts = dict(self.sources())
         self.assertIn("source_gateway.connect(", texts["backend/src/dwh_api/postgres_connector.py"])
         self.assertIn("source_gateway.connect(", texts["etl/src/run_object.py"])
-        self.assertIn("from dwh_api.source_gateway import connect", texts["etl/src/dwh/db.py"])
 
 
 if __name__ == "__main__":

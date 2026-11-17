@@ -201,7 +201,7 @@ class TaskCommandTests(Temp):
         self.assertIn("--setenv=DWH_RUN_OBJECT_ID=16", cmd)
         self.assertEqual(cmd[-1], "/opt/dwh/current/src/etl/src/run_object.py")
         self.assertEqual(dwh_task.main(["run-object"]), 2)
-        self.assertEqual(dwh_task.main(["plan-snapshot", "--snapshot-date", "4.11.2026"]), 2)
+        self.assertEqual(sorted(dwh_task.TASKS), ["check-dwh", "run-object"])
 
 
 class DispatcherServiceTests(unittest.TestCase):
