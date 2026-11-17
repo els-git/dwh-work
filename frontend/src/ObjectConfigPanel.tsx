@@ -833,7 +833,8 @@ function ObjectConfigPanel({
                         max={MAX_OVERLAP_MINUTES}
                         step={1}
                         value={overlapText}
-                        disabled={busy}
+                        disabled={busy || loadStrategy !== 'INCREMENTAL'}
+                        title={loadStrategy !== 'INCREMENTAL' ? t('objectConfig.overlapOnlyIncremental') : undefined}
                         aria-invalid={!overlapValid}
                         onChange={event => setOverlapText(event.target.value.trim())}
                       />
