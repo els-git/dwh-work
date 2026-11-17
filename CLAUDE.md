@@ -518,6 +518,7 @@ M-SS05 входит в пакет 005: `dwh_app` получает `EXECUTE` то
 - **всегда давать команды полностью** (требование пользователя 03.11.2026): с полным путём к файлу, проверкой SHA256 и запуском — каждая команда готова к копированию целиком, без ссылок на «команду выше»;
 - **никаких словесных указаний вместо команд** (требование пользователя 11.11.2026): не писать «перезапустите backend/frontend» — давать команды. Backend (API + диспетчер, одно окно, остановка Ctrl+C): `& "C:\Users\elshad.asgarov\Desktop\DWH\dwh\tools\run_local_dwh.ps1" -Mode Run`; frontend (сборка + preview на `127.0.0.1:4173`, отдельное окно, остановка Ctrl+C): `& "C:\Users\elshad.asgarov\Desktop\DWH\dwh\tools\run_frontend.ps1" -Mode preview`; `plan-snapshot` требует `$env:SNAPSHOT_DATE = "ГГГГ-ММ-ДД"` в том же окне;
 - запускать в отдельном окне Windows PowerShell, команды по одной;
+- **выпуск** (требование пользователя 17.11.2026): архив и SHA256 лежат в `runtime\releases` (не `runtime\release`); копирование на сервер: `scp "C:\Users\elshad.asgarov\Desktop\DWH\dwh\runtime\releases\dwh_release_<версия>.zip" "C:\Users\elshad.asgarov\Desktop\DWH\dwh\runtime\releases\dwh_release_<версия>.sha256" elshad@10.1.20.20:/srv/dwh/incoming/`;
 - пароль вводить вручную или вставлять правым кликом (Ctrl+V в скрытый ввод не работает);
 - сервер выдаёт сообщения по-русски (`ЗАМЕЧАНИЕ` вместо `NOTICE`): не разбирать вывод по словам сервера;
 - после связи ПК с git скрипты и SQL лежат в репозитории и запускаются из папки проекта после `git pull`; встраивать SQL в base64 больше не нужно.
