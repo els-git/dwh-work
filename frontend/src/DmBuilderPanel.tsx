@@ -125,6 +125,15 @@ function DmBuilderPanel() {
   const [problems, setProblems] = useState<string[] | null>(null)
   const loadSeq = useRef(0)
   const versionSeq = useRef(0)
+  const messageRef = useRef<HTMLDivElement | null>(null)
+
+  // Messages are shown next to the place of the action (in the version editor when it is open) and the page
+  // scrolls to them, so an error of a button at the bottom of the page is not left out of sight.
+  useEffect(() => {
+    if ((error || notice) && messageRef.current) {
+      messageRef.current.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+    }
+  }, [error, notice])
 
   const load = useCallback(async () => {
     const seq = ++loadSeq.current
@@ -485,7 +494,9 @@ function DmBuilderPanel() {
                       )
                       : source.table === ''
                         ? null
-                        : key
+                        : draft?.grain_entity_id === null
+                          ? <span className="dm-warning">{t('dm.version.noGrain')}</span>
+                          : key
                           ? <span className="code-value">{source.table}.{key}</span>
                           : <span className="dm-warning">{t('dm.version.noKey')}</span>}
                   </td>
@@ -652,6 +663,15 @@ function DmBuilderPanel() {
     )
   }
 
+  function renderMessages() {
+    return (
+      <div ref={messageRef}>
+        {error ? <div className="error"><span>{error}</span></div> : null}
+        {notice ? <div className="loads-notice">{notice}</div> : null}
+      </div>
+    )
+  }
+
   function renderVersion() {
     if (!detail || !draft) {
       return null
@@ -695,6 +715,8 @@ function DmBuilderPanel() {
         {detail.missing.length > 0
           ? <div className="error"><span>{t('dm.version.missing', { list: detail.missing.join(', ') })}</span></div>
           : null}
+
+        {renderMessages()}
 
         <div className="loads-actions dm-actions">
           {!readOnly
@@ -749,8 +771,7 @@ function DmBuilderPanel() {
   return (
     <section className="content-panel ai-admin-grid">
       <p className="loads-muted">{t('dm.hint')}</p>
-      {error ? <div className="error"><span>{error}</span></div> : null}
-      {notice ? <div className="loads-notice">{notice}</div> : null}
+      {detail && draft ? null : renderMessages()}
 
       <div>
         <h4>{t('dm.entities')}</h4>
