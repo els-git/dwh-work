@@ -35,6 +35,7 @@ import type {
 interface OdsConfigPanelProps {
   sourceObject: IntegrationSourceObject
   onClose: () => void
+  onPublished?: () => void
 }
 
 
@@ -95,6 +96,7 @@ function canonical(
 function OdsConfigPanel({
   sourceObject,
   onClose,
+  onPublished,
 }: OdsConfigPanelProps) {
   const { t } = useTranslation()
 
@@ -452,16 +454,23 @@ function OdsConfigPanel({
 
     // I18 (021): the ODS table is created or changed on publication; the dialog shows how.
     await run(
-      async () => publishWithTablePlan({
-        plan: await getObjectTablePlan(objectId, 'ODS'),
-        title: t('odsConfig.publishTitle'),
-        message: t('odsConfig.publishMessage', {
-          object: `${sourceObject.source_schema}.${sourceObject.source_object}`,
-          version: draft.version_no,
-        }),
-        t,
-        publish: confirm => publishOdsConfig(objectId, revision, confirm),
-      }),
+      async () => {
+        const text = await publishWithTablePlan({
+          plan: await getObjectTablePlan(objectId, 'ODS'),
+          title: t('odsConfig.publishTitle'),
+          message: t('odsConfig.publishMessage', {
+            object: `${sourceObject.source_schema}.${sourceObject.source_object}`,
+            version: draft.version_no,
+          }),
+          t,
+          publish: confirm => publishOdsConfig(objectId, revision, confirm),
+        })
+
+        // The list of objects shows the published versions: let it re-read them.
+        onPublished?.()
+
+        return text
+      },
     )
   }
 

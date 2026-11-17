@@ -96,17 +96,18 @@ function AdminIntegrationsPage() {
   ] = useState<number | null>(null)
 
   // I18: published STG / ODS versions of each object for the column "Mapping"
-  // (re-read when the mapping panel is closed: a publication may have changed them).
+  // (re-read after every publication in the mapping panel and when another panel is opened or closed).
   const [
     mappingStatus,
     setMappingStatus,
   ] = useState<Map<number, ObjectLoadStatus>>(new Map())
 
-  useEffect(() => {
-    if (configObjectId !== null) {
-      return
-    }
+  const [
+    mappingRevision,
+    setMappingRevision,
+  ] = useState(0)
 
+  useEffect(() => {
     let cancelled = false
 
     getObjectLoadStatus()
@@ -122,7 +123,7 @@ function AdminIntegrationsPage() {
     return () => {
       cancelled = true
     }
-  }, [configObjectId])
+  }, [configObjectId, mappingRevision])
 
   const [
     systems,
@@ -1335,6 +1336,7 @@ function AdminIntegrationsPage() {
                             key={configObject.source_object_id}
                             sourceObject={configObject}
                             onClose={() => setConfigObjectId(null)}
+                            onPublished={() => setMappingRevision(value => value + 1)}
                           />
                         )
                       : null

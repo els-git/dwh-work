@@ -44,6 +44,7 @@ import type {
 interface ObjectConfigPanelProps {
   sourceObject: IntegrationSourceObject
   onClose: () => void
+  onPublished?: () => void
 }
 
 
@@ -143,6 +144,7 @@ function message(
 function ObjectConfigPanel({
   sourceObject,
   onClose,
+  onPublished,
 }: ObjectConfigPanelProps) {
   const { t } = useTranslation()
 
@@ -527,16 +529,23 @@ function ObjectConfigPanel({
 
     // I18 (021): the target table is created or changed on publication; the dialog shows how.
     await run(
-      async () => publishWithTablePlan({
-        plan: await getObjectTablePlan(objectId, 'LOAD'),
-        title: t('objectConfig.publishTitle'),
-        message: t('objectConfig.publishMessage', {
-          object: `${sourceObject.source_schema}.${sourceObject.source_object}`,
-          version: draft.version_no,
-        }),
-        t,
-        publish: confirm => publishObjectConfig(objectId, revision, confirm),
-      }),
+      async () => {
+        const text = await publishWithTablePlan({
+          plan: await getObjectTablePlan(objectId, 'LOAD'),
+          title: t('objectConfig.publishTitle'),
+          message: t('objectConfig.publishMessage', {
+            object: `${sourceObject.source_schema}.${sourceObject.source_object}`,
+            version: draft.version_no,
+          }),
+          t,
+          publish: confirm => publishObjectConfig(objectId, revision, confirm),
+        })
+
+        // The list of objects shows the published versions: let it re-read them.
+        onPublished?.()
+
+        return text
+      },
     )
   }
 
@@ -608,6 +617,7 @@ function ObjectConfigPanel({
           <OdsConfigPanel
             sourceObject={sourceObject}
             onClose={onClose}
+            onPublished={onPublished}
           />
         )
       }
