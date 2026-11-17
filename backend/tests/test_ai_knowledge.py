@@ -86,8 +86,6 @@ class SearchTests(unittest.TestCase):
         self.assertFalse(result.only_denied)
 
 
-if __name__ == "__main__":
-    unittest.main()
 
 
 class ScreenshotPromptTests(unittest.TestCase):
@@ -118,3 +116,40 @@ class ScreenshotPromptTests(unittest.TestCase):
         repair = repair_message("итог", "SELECT dm.x FROM dm.v_a a", 'missing FROM-clause entry for table "dm"')
         self.assertIn("missing FROM-clause", repair)
         self.assertIn("SELECT dm.x", repair)
+
+
+class ClosedNearbyTests(unittest.TestCase):
+    """A subject described partly in an open and partly in a closed section: the audit role is told the rest is
+    closed for its role instead of "there is nothing in the guide"; neither the text nor the title is given."""
+
+    GUIDE = ("## 1. Загрузки\n<!-- access: permissions=ETL_VIEW -->\n### 1.1. Вкладка витрины\n"
+             "Список витрин и их запусков; добавить витрину сюда нельзя.\n"
+             "## 2. Администрирование\n<!-- access: level=ADMIN -->\n### 2.1. Конструктор витрины\n"
+             "Как добавить витрину: секретный порядок шагов.\n")
+
+    def test_closed_nearby_note(self):
+        from dwh_api.ai_core import CLOSED_PART_TEXT, help_prompt
+        index = KnowledgeIndex(parse_guide(self.GUIDE))
+        found = index.search("как добавить витрину", AUDIT)
+        self.assertEqual([s.number for s in found.sections], ["1.1"])
+        self.assertEqual(found.closed_nearby, 1)
+        self.assertEqual(found.denied_titles, [])
+        system, text = help_prompt(found, "как добавить витрину")
+        self.assertIn(CLOSED_PART_TEXT, system)
+        self.assertNotIn("Конструктор", system + text)
+        self.assertNotIn("секретный", system + text)
+        admin = index.search("как добавить витрину", ADMIN)
+        self.assertEqual(admin.closed_nearby, 0)
+        self.assertNotIn(CLOSED_PART_TEXT, help_prompt(admin, "как добавить витрину")[0])
+
+    def test_real_guide_marts_question(self):
+        index = KnowledgeIndex.from_file()
+        audit = index.search("Как добавить витрину?", AUDIT)
+        self.assertTrue(audit.sections)
+        self.assertGreater(audit.closed_nearby, 0)
+        self.assertTrue(all(s.access.allows(AUDIT) for s in audit.sections))
+        self.assertIn("5.6", [s.number for s in index.search("Как добавить витрину?", ADMIN).sections])
+
+
+if __name__ == "__main__":
+    unittest.main()
