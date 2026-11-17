@@ -1,4 +1,4 @@
-import { Trans } from 'react-i18next'
+import { Trans, useTranslation } from 'react-i18next'
 import {
   useEffect,
   useState,
@@ -13,6 +13,7 @@ import {
   createIntegrationSourceSystem,
   getIntegrationSourceObjects,
   getIntegrationSourceSystems,
+  getObjectLoadStatus,
   setIntegrationSourceObjectActive,
   setIntegrationSourceSystemActive,
   updateIntegrationSourceObject,
@@ -22,6 +23,7 @@ import {
 import type {
   IntegrationSourceObject,
   IntegrationSourceSystem,
+  ObjectLoadStatus,
 } from './integrationAdminApi'
 
 import {
@@ -92,6 +94,35 @@ function AdminIntegrationsPage() {
     configObjectId,
     setConfigObjectId,
   ] = useState<number | null>(null)
+
+  // I18: published STG / ODS versions of each object for the column "Mapping"
+  // (re-read when the mapping panel is closed: a publication may have changed them).
+  const [
+    mappingStatus,
+    setMappingStatus,
+  ] = useState<Map<number, ObjectLoadStatus>>(new Map())
+
+  useEffect(() => {
+    if (configObjectId !== null) {
+      return
+    }
+
+    let cancelled = false
+
+    getObjectLoadStatus()
+      .then(rows => {
+        if (!cancelled) {
+          setMappingStatus(new Map(rows.map(row => [row.source_object_id, row])))
+        }
+      })
+      .catch(() => {
+        // Without the status the column shows a dash; the list itself still works.
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [configObjectId])
 
   const [
     systems,
@@ -1325,6 +1356,7 @@ function AdminIntegrationsPage() {
                                 <th><Trans i18nKey="batch.tr0042" /></th>
                                 <th><Trans i18nKey="batch.tr0185" /></th>
                                 <th><Trans i18nKey="batch.tr0036" /></th>
+                                <th><Trans i18nKey="objectConfig.open" /></th>
                                 <th><Trans i18nKey="batch.tr0215" /></th>
                               </tr>
                             </thead>
@@ -1366,6 +1398,10 @@ function AdminIntegrationsPage() {
                                                 : 'DISABLED'
                                             }
                                           </span>
+                                        </td>
+
+                                        <td>
+                                          <MappingCell status={mappingStatus.get(item.source_object_id)} />
                                         </td>
 
                                         <td>
@@ -1440,3 +1476,48 @@ function AdminIntegrationsPage() {
 
 
 export default AdminIntegrationsPage
+
+
+// I18: published STG / ODS versions and their tables; DRIFT is marked, nothing published is shown dimmed.
+function MappingCell({ status }: { status: ObjectLoadStatus | undefined }) {
+  const { t } = useTranslation()
+
+  if (status === undefined) {
+    return <span className="integration-run-muted">—</span>
+  }
+
+  const lines: { key: string, text: string, drift: boolean }[] = []
+
+  if (status.load_version_no !== null) {
+    lines.push({
+      key: 'stg',
+      text: `STG v${status.load_version_no} · ${status.stg_schema ?? 'stg'}.${status.stg_table ?? '?'}`,
+      drift: status.load_status === 'DRIFT',
+    })
+  }
+
+  if (status.ods_version_no !== null) {
+    lines.push({
+      key: 'ods',
+      text: `ODS v${status.ods_version_no} · ods.${status.ods_table ?? '?'}`,
+      drift: status.ods_status === 'DRIFT',
+    })
+  }
+
+  if (lines.length === 0) {
+    return <span className="integration-run-muted">{t('objectConfig.mappingNone')}</span>
+  }
+
+  return (
+    <>
+      {
+        lines.map(line => (
+          <div key={line.key}>
+            <code>{line.text}</code>
+            {line.drift && <>{' '}<span className="badge badge-warning">DRIFT</span></>}
+          </div>
+        ))
+      }
+    </>
+  )
+}

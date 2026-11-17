@@ -372,6 +372,7 @@ const resources = {
         "problems": "The table cannot be changed: {{problems}}"
       },
       "objectConfig": {
+        "mappingNone": "not published",
         "open": "Mapping",
         "title": "Field mapping: {{object}}",
         "loading": "Loading configuration…",
@@ -1344,6 +1345,7 @@ const resources = {
         "problems": "Таблицу нельзя изменить: {{problems}}"
       },
       "objectConfig": {
+        "mappingNone": "не опубликован",
         "open": "Маппинг",
         "title": "Маппинг полей: {{object}}",
         "loading": "Загрузка конфигурации…",
@@ -2316,6 +2318,7 @@ const resources = {
         "problems": "Cədvəli dəyişmək olmaz: {{problems}}"
       },
       "objectConfig": {
+        "mappingNone": "dərc olunmayıb",
         "open": "Uyğunlaşdırma",
         "title": "Sahələrin uyğunlaşdırılması: {{object}}",
         "loading": "Konfiqurasiya yüklənir…",
