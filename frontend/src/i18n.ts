@@ -206,6 +206,48 @@ const resources = {
           "notRunnable": "A published version and the mart table are required"
         }
       },
+      "martView": {
+        "tab": "Marts",
+        "hint": "Marts available to your role. Filter, sort and download; every opening and download is logged.",
+        "noMarts": "No marts are available to your role.",
+        "choose": "Choose a mart on the left.",
+        "built": "built",
+        "rows": "{{rows}} rows",
+        "addFilter": "+ Filter",
+        "apply": "Apply",
+        "download": "Download: {{rows}} rows",
+        "overLimit": "over the limit of {{limit}}",
+        "prev": "← Back",
+        "next": "Next →",
+        "page": "Page {{page}} of {{pages}}",
+        "loading": "Loading…",
+        "yes": "yes",
+        "no": "no",
+        "op": {
+          "eq": "equals",
+          "contains": "contains",
+          "gte": "from",
+          "lte": "to",
+          "empty": "empty",
+          "not_empty": "not empty"
+        },
+        "tooMany": {
+          "title": "{{format}} download was not made: too many rows.",
+          "text": "By the current filters the mart “{{mart}}” ({{code}}) has {{rows}} rows, and a {{format}} file is made from at most {{limit}} rows.",
+          "what": "What you can do:",
+          "narrow": "narrow the selection with filters — for example by date or channel — to at most {{limit}} rows;",
+          "other": "choose {{formats}} — it takes up to {{limit}} rows.",
+          "parts": "download in parts — for example month by month."
+        },
+        "code": {
+          "MART_FILTER_VALUE": "A filter value does not fit the type of its column (number, date or yes/no).",
+          "MART_FILTER_COLUMN": "Unknown column {{column}}.",
+          "MART_FILTER_OPERATOR": "“From / to” works only for numbers and dates ({{column}}).",
+          "MART_SORT_COLUMN": "Unknown column {{column}}.",
+          "MART_QUERY_TIMEOUT": "The query took too long. Narrow the filters.",
+          "AI_OBJECT_NOT_ALLOWED": "This mart is not available to your role."
+        }
+      },
       "savedReports": {
         "tab": "My and shared reports",
         "hint": "Reports saved from the AI assistant. A report keeps its description and query and runs again with your rights; personal folders are seen only by their owner.",
@@ -1180,6 +1222,48 @@ const resources = {
           "notRunnable": "Нужна опубликованная версия и таблица витрины"
         }
       },
+      "martView": {
+        "tab": "Витрины",
+        "hint": "Витрины, доступные вашей роли. Фильтры, сортировка и выгрузка; каждое открытие и выгрузка записываются в журнал.",
+        "noMarts": "Вашей роли не доступна ни одна витрина.",
+        "choose": "Выберите витрину слева.",
+        "built": "построена",
+        "rows": "{{rows}} строк",
+        "addFilter": "+ Фильтр",
+        "apply": "Применить",
+        "download": "Скачать: {{rows}} строк",
+        "overLimit": "больше предела {{limit}}",
+        "prev": "← Назад",
+        "next": "Вперёд →",
+        "page": "Страница {{page}} из {{pages}}",
+        "loading": "Загрузка…",
+        "yes": "да",
+        "no": "нет",
+        "op": {
+          "eq": "равно",
+          "contains": "содержит",
+          "gte": "от",
+          "lte": "до",
+          "empty": "пусто",
+          "not_empty": "не пусто"
+        },
+        "tooMany": {
+          "title": "Выгрузка в {{format}} не выполнена: слишком много строк.",
+          "text": "По текущим фильтрам в витрине «{{mart}}» ({{code}}) {{rows}} строк, а {{format}} формируется не больше чем из {{limit}} строк.",
+          "what": "Что можно сделать:",
+          "narrow": "сузить выборку фильтрами — например, по дате или по каналу, чтобы осталось не больше {{limit}} строк;",
+          "other": "выбрать формат {{formats}} — он принимает до {{limit}} строк.",
+          "parts": "выгрузить частями — например, по месяцам."
+        },
+        "code": {
+          "MART_FILTER_VALUE": "Значение фильтра не подходит к типу колонки (число, дата или да/нет).",
+          "MART_FILTER_COLUMN": "Неизвестная колонка {{column}}.",
+          "MART_FILTER_OPERATOR": "«От / до» работает только для чисел и дат ({{column}}).",
+          "MART_SORT_COLUMN": "Неизвестная колонка {{column}}.",
+          "MART_QUERY_TIMEOUT": "Запрос выполнялся слишком долго. Сузьте фильтры.",
+          "AI_OBJECT_NOT_ALLOWED": "Эта витрина недоступна вашей роли."
+        }
+      },
       "savedReports": {
         "tab": "Мои и общие отчёты",
         "hint": "Отчёты, сохранённые из ИИ-помощника. Отчёт хранит описание и запрос и выполняется заново с вашими правами; личные папки видит только владелец.",
@@ -2152,6 +2236,48 @@ const resources = {
           "confirmRun": "dm.{{mart}} vitrini yenilənsin? Sətirlər ODS-dən tam yenidən yazılacaq.",
           "requestCreated": "dm.{{mart}} yeniləmə sorğusu №{{id}} yaradıldı",
           "notRunnable": "Dərc olunmuş versiya və vitrin cədvəli lazımdır"
+        }
+      },
+      "martView": {
+        "tab": "Vitrinlər",
+        "hint": "Rolunuza açıq olan vitrinlər. Filtrlər, sıralama və yükləmə; hər açılış və yükləmə jurnala yazılır.",
+        "noMarts": "Rolunuza heç bir vitrin açıq deyil.",
+        "choose": "Soldan vitrin seçin.",
+        "built": "quruldu",
+        "rows": "{{rows}} sətir",
+        "addFilter": "+ Filtr",
+        "apply": "Tətbiq et",
+        "download": "Yüklə: {{rows}} sətir",
+        "overLimit": "{{limit}} limitindən çox",
+        "prev": "← Geri",
+        "next": "İrəli →",
+        "page": "Səhifə {{page}} / {{pages}}",
+        "loading": "Yüklənir…",
+        "yes": "bəli",
+        "no": "xeyr",
+        "op": {
+          "eq": "bərabər",
+          "contains": "ehtiva edir",
+          "gte": "-dan",
+          "lte": "-dək",
+          "empty": "boş",
+          "not_empty": "boş deyil"
+        },
+        "tooMany": {
+          "title": "{{format}} yükləməsi edilmədi: sətir çox çoxdur.",
+          "text": "Cari filtrlərlə «{{mart}}» ({{code}}) vitrinində {{rows}} sətir var, {{format}} isə ən çox {{limit}} sətirdən hazırlanır.",
+          "what": "Nə etmək olar:",
+          "narrow": "seçimi filtrlərlə daraltmaq — məsələn, tarix və ya kanal üzrə, ən çox {{limit}} sətir qalsın;",
+          "other": "{{formats}} formatını seçmək — {{limit}} sətrə qədər qəbul edir.",
+          "parts": "hissə-hissə yükləmək — məsələn, aylar üzrə."
+        },
+        "code": {
+          "MART_FILTER_VALUE": "Filtr dəyəri sütunun tipinə uyğun deyil (rəqəm, tarix və ya bəli/xeyr).",
+          "MART_FILTER_COLUMN": "Naməlum sütun {{column}}.",
+          "MART_FILTER_OPERATOR": "«-dan / -dək» yalnız rəqəm və tarixlər üçündür ({{column}}).",
+          "MART_SORT_COLUMN": "Naməlum sütun {{column}}.",
+          "MART_QUERY_TIMEOUT": "Sorğu çox uzun çəkdi. Filtrləri daraldın.",
+          "AI_OBJECT_NOT_ALLOWED": "Bu vitrin rolunuza açıq deyil."
         }
       },
       "savedReports": {

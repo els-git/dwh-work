@@ -74,3 +74,25 @@ E0 (`$SP/e0_022.sh`: фикстура 016 → 016 → 017 → 022): check 022 **
 
 `UPDATE_RESULT: PASS`; `dwh_sql_package.py --package 022 --stage e1`: SHA256 файлов OK; в `dwh` check 017 8/8; копия `dwh_i22_022_test` — `MIGRATION_022_DONE`, check 022 6/6, check 017 8/8, тест `ALL_TESTS_PASS` (29 строк PASS), откат `ROLLBACK_022_DONE`, повторное применение, check 022 6/6; `E1_RESULT: PASS`, копия оставлена с 022 (отчёт `/srv/dwh/incoming/e1_022_20261118_143122.txt`). Дальше — E2 к `dwh`, только с разрешения пользователя.
 
+### 6.3. E2 PASS (18.11.2026)
+
+`dwh_sql_package.py --package 022 --stage e2` (выпуск `2026.11.32`): копия `pre-022` (`/backup/dwh/dwh_20261118_143741_pre-022.dump`), `APPLY`, `MIGRATION_022_DONE`, check 022 6/6, check 017 8/8, строки 108 таблиц без изменений, `E2_RESULT: PASS`. Реестр 1.45.0, раздел 12.49. Шаг 2 выполнен.
+
+## 7. Шаг 3 — API и интерфейс в песочнице (18.11.2026)
+
+**API** `backend/src/dwh_api/mart_view.py` (`/api/reports/marts`, подключён в `main.py`):
+- `GET ""` — витрины роли (`app.mart_view_list`) и время последнего построения (`etl.v_dm_mart_status`);
+- `POST /{object_id}/view` — открытие: строка журнала `VIEW`, колонки из `pg_catalog`, число строк, страница 1 (100 строк);
+- `POST /views/{view_id}/page` — следующая страница; фильтры и сортировка берутся из журнала (`app.mart_view_continue`), не от клиента;
+- `POST /{object_id}/export` — CSV (поток, UTF-8 с BOM, `;`), XLSX (`openpyxl` write-only, временный файл), PDF (`reportlab`, альбомный A4, DejaVu; широкая витрина — таблицы по 10 колонок с повтором первой); строки считаются до файла, при превышении предела — `409 MART_EXPORT_TOO_MANY_ROWS` с `rows`, `limit`, `other_formats`, журнал `REFUSED`.
+- Запрос строит сервер: имена колонок — только из каталога (кавычки), значения — параметры с приведением к типу колонки; данные читает `dwh_ai_ro` (только `dm`, только чтение), `statement_timeout` 60 с. Ошибки, которые пользователь может исправить: `MART_FILTER_VALUE`, `MART_FILTER_COLUMN`, `MART_FILTER_OPERATOR`, `MART_SORT_COLUMN`, `MART_QUERY_TIMEOUT` (400), закрытая витрина — 403.
+
+**Интерфейс:** `frontend/src/ReportingPage.tsx` (вкладки «Мои и общие отчёты» / «Витрины»), `MartViewPanel.tsx`, `martViewApi.ts`, тексты `martView.*` (ru/en/az), стили в `SavedReportsPanel.css`; сообщение о превышении предела — как в разделе 3.1. Справка 1.6.0, раздел 3.5.
+
+**Проверки:**
+- unit `backend/tests/test_mart_view.py` 15 OK; все тесты backend 556 OK (skipped 1); сборка OK, ESLint 0/0;
+- сквозная проверка API `scratchpad/e2e_i22.py` на PostgreSQL песочницы (база `e2e_i22`: `e2e_i19` + 022, витрина 12 000 строк и закрытая витрина, сессии администратора и пользователя с `REPORT_VIEW`; `scratchpad/e2e_i22_setup.sh`, API `scratchpad/ui_server_i22.py`, порт 8768) — **17/17**: список по роли, страницы, фильтры всех видов, сортировка, неверное значение и неизвестная колонка (таблица цела), CSV 12 000, XLSX 1 200, PDF 300, отказ PDF 12 000 > 5 000, закрытая витрина 403, журнал (11 строк, страницы не пишутся), чужой вид — 404;
+- браузер `scratchpad/ui_i22/ui.cjs` (пользователь с `REPORT_VIEW`) — PASS: список, страницы, сортировка, фильтр, скачивание XLSX, пометка «больше предела», сообщение о превышении, неверное значение; ошибок страницы нет.
+
+**Не проверено:** выгрузка 1 000 000 строк по времени и памяти (в песочнице — 12 000); поведение на сервере. Дальше — шаг 4: выпуск и приёмка на сервере.
+
