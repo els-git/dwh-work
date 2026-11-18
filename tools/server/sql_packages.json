@@ -227,7 +227,7 @@
     },
     "test": {
       "path": "database/tests/022_mart_view_log_test.sql",
-      "sha256": "17A96A1E9DB072C0A86AE724D4C7DDE7C6FD337FE2AEB72DBB15C702AA0897DD"
+      "sha256": "F46DFE8EF763AC34253B182582ED0D53AF790EC760CF753387DB79CF7E7A6EA2"
     },
     "previous_check": {
       "path": "database/checks/017_ai_saved_reports_check.sql",

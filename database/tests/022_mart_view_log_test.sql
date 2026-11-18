@@ -1,8 +1,9 @@
 -- I22 test of 022: role-aware list of marts, log of views and exports, continuation of a view. One transaction,
 -- ROLLED BACK. For E0 (sandbox with fixtures) and E1 (restored copy), never the working dwh. The real session
 -- check is tested first (M01); then app.saved_report_session_user and app.ai_user_permissions are replaced
--- inside the transaction by test users (as the test of 017). dm.retail_application_history is added to the
--- whitelist with ADMIN_INTEGRATION_MANAGE and stands for a mart a role must not see.
+-- inside the transaction by test users (as the test of 017). The test creates its own two tables in dm and
+-- whitelist rows for them (dm.i22_test_open with REPORT_VIEW, dm.i22_test_closed with ADMIN_INTEGRATION_MANAGE);
+-- it does not depend on any existing mart.
 -- Run as the schema owner: psql -v ON_ERROR_STOP=1 -f 022_mart_view_log_test.sql
 -- Expected last line: ALL_TESTS_PASS (labels M01-M14: 14 checks).
 BEGIN;
@@ -68,7 +69,7 @@ DECLARE
   b text := repeat('b', 64);
   c text := repeat('c', 64);
   d text := repeat('d', 64);
-  v_cur bigint := (SELECT object_id FROM meta.ai_report_object WHERE object_name = 'v_retail_application_current');
+  v_cur bigint;
   v_hist bigint;
   r record;
   q_view bigint;
@@ -76,22 +77,27 @@ DECLARE
   q_denied bigint;
   q_running bigint;
 BEGIN
-  IF v_cur IS NULL THEN RAISE EXCEPTION 'FAIL setup: whitelist object v_retail_application_current not found'; END IF;
-  UPDATE meta.ai_report_object SET required_permission_code = 'REPORT_VIEW', is_active = true WHERE object_id = v_cur;
+  IF to_regclass('dm.i22_test_open') IS NOT NULL OR to_regclass('dm.i22_test_closed') IS NOT NULL THEN
+    RAISE EXCEPTION 'FAIL setup: test tables dm.i22_test_* already exist';
+  END IF;
+  CREATE TABLE dm.i22_test_open (id bigint);
+  CREATE TABLE dm.i22_test_closed (id bigint);
   INSERT INTO meta.ai_report_object (schema_name, object_name, title, description, required_permission_code)
-  VALUES ('dm', 'retail_application_history', 'История заявок', 'test', 'ADMIN_INTEGRATION_MANAGE')
-  ON CONFLICT (schema_name, object_name) DO UPDATE SET required_permission_code = 'ADMIN_INTEGRATION_MANAGE', is_active = true
+  VALUES ('dm', 'i22_test_open', 'I22 test open', 'test', 'REPORT_VIEW')
+  RETURNING object_id INTO v_cur;
+  INSERT INTO meta.ai_report_object (schema_name, object_name, title, description, required_permission_code)
+  VALUES ('dm', 'i22_test_closed', 'I22 test closed', 'test', 'ADMIN_INTEGRATION_MANAGE')
   RETURNING object_id INTO v_hist;
 
   PERFORM pg_temp.ok('M02 list: the allowed mart is listed, the closed one is not',
-    EXISTS (SELECT 1 FROM app.mart_view_list(b) l WHERE l.object_id = v_cur AND l.object_name = 'v_retail_application_current')
+    EXISTS (SELECT 1 FROM app.mart_view_list(b) l WHERE l.object_id = v_cur AND l.object_name = 'i22_test_open')
     AND NOT EXISTS (SELECT 1 FROM app.mart_view_list(b) l WHERE l.object_id = v_hist));
   PERFORM pg_temp.expect_fail('M03 list without REPORT_VIEW', format('SELECT * FROM app.mart_view_list(%L)', d));
 
   SELECT * INTO r FROM app.mart_view_begin(b, v_cur, '{"action": "VIEW", "filters": [{"column": "x", "op": "eq", "value": "1"}]}');
   q_view := r.request_id;
   PERFORM pg_temp.ok('M04 begin VIEW: allowed, table returned, RUNNING row with the filters',
-    r.is_allowed AND r.schema_name = 'dm' AND r.object_name = 'v_retail_application_current'
+    r.is_allowed AND r.schema_name = 'dm' AND r.object_name = 'i22_test_open'
     AND EXISTS (SELECT 1 FROM app.ai_request_log l WHERE l.request_id = q_view AND l.request_kind = 'MART_VIEW'
                  AND l.status = 'RUNNING' AND l.user_id = 900001 AND l.object_ids = ARRAY[v_cur]
                  AND l.view_detail->'filters'->0->>'column' = 'x' AND l.saved_report_id IS NULL));
@@ -125,7 +131,7 @@ BEGIN
 
   SELECT * INTO r FROM app.mart_view_continue(b, q_view);
   PERFORM pg_temp.ok('M10 continue: own finished view, table and filters returned, nothing logged',
-    r.is_allowed AND r.object_name = 'v_retail_application_current' AND r.view_detail->'filters'->0->>'value' = '1'
+    r.is_allowed AND r.object_name = 'i22_test_open' AND r.view_detail->'filters'->0->>'value' = '1'
     AND (SELECT count(*) FROM app.ai_request_log WHERE request_kind = 'MART_VIEW') = 2);
 
   SELECT * INTO r FROM app.mart_view_begin(b, v_cur, '{"action": "VIEW"}');
