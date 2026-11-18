@@ -134,6 +134,29 @@ class FileTest(unittest.TestCase):
         self.assertTrue(body.startswith(b"%PDF"))
         self.assertGreater(len(body), 5000)
 
+    def test_pdf_cells_fit_their_columns(self):
+        """Long values are cut to the column width (the cells of the PDF do not wrap)."""
+        from unittest import mock
+        import reportlab.platypus as platypus
+        seen = []
+        real = platypus.LongTable
+
+        def spy(data, *args, **kwargs):
+            seen.append((data, kwargs["colWidths"]))
+            return real(data, *args, **kwargs)
+
+        cols = [Column(f"column_with_a_long_name_{i}", "text", "text") for i in range(10)]
+        rows = [{c.name: datetime(2024, 8, 2, 9, 34, 20, 719000, tzinfo=timezone.utc) if i % 2 else "x" * 200
+                 for i, c in enumerate(cols)} for _ in range(5)]
+        from reportlab.pdfbase.pdfmetrics import stringWidth
+        with mock.patch.object(platypus, "LongTable", side_effect=spy):
+            build_pdf(rows, cols, "t", "")
+        data, widths = seen[0]
+        for row in data[1:]:
+            for text, width in zip(row, widths):
+                self.assertLessEqual(stringWidth(text, "DwhMart", 6.5), width - 6 + 0.01)
+        self.assertNotIn(".719", " ".join(data[1]))
+
 
 if __name__ == "__main__":
     unittest.main()
