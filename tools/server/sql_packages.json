@@ -235,5 +235,35 @@
       "label": "017",
       "expected": 8
     }
+  },
+  "023": {
+    "number": "023",
+    "owner": "dwh_admin",
+    "marker": "app.sql_mart_save(text, bigint, text, text[], jsonb)",
+    "copy_db": "dwh_i23_023_test",
+    "check_expected": 7,
+    "added_rows": {},
+    "migration": {
+      "path": "database/migrations/023_sql_mart.sql",
+      "sha256": "0CEA5ECAF58B35A0CA353637B0EA86C26414FD6482D1F6B8DDD7EE995920F486"
+    },
+    "down": {
+      "path": "database/migrations/023_sql_mart.down.sql",
+      "sha256": "9FA5C79B819599B5310B5E83803D9D4D9C9884394507123E0C2E3FBB14BF79DC"
+    },
+    "check": {
+      "path": "database/checks/023_sql_mart_check.sql",
+      "sha256": "5B97B3A531AA3144DC5DA1F3218D5DC477779BD8AB61A86B3A98A3150BA3ACFE"
+    },
+    "test": {
+      "path": "database/tests/023_sql_mart_test.sql",
+      "sha256": "9E7E890E453060AF512DA3F84731434A81F05C6E11F5CA3A8BB02DAA363770F6"
+    },
+    "previous_check": {
+      "path": "database/checks/019_dm_builder_ui_ddl_check.sql",
+      "sha256": "FE739C559FB50F194A7B0447D08123BF1FCD4EAA203743E1F1BCF0904DF8BBC3",
+      "label": "019",
+      "expected": 8
+    }
   }
 }
