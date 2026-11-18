@@ -72,3 +72,46 @@
   white-space: pre-wrap;
   font-size: 12px;
 }
+
+/* I22: marts in "Reporting" */
+.mart-filters {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.mart-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.mart-sortable {
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.mart-refusal {
+  display: block;
+}
+
+.mart-view select,
+.mart-view input,
+.mart-view .loads-actions span {
+  font-size: 13px;
+}
+
+.mart-view select,
+.mart-view input {
+  padding: 4px 6px;
+}
+
+.mart-refusal ul {
+  margin: 4px 0 0 18px;
+  padding: 0;
+}
+
+.mart-refusal p {
+  margin: 4px 0;
+}

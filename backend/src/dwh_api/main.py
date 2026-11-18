@@ -27,6 +27,7 @@ from dwh_api.access_control import router as access_control_router
 from dwh_api.user_catalog import router as user_catalog_router
 from dwh_api.ai_assistant import router as ai_assistant_router
 from dwh_api.saved_reports import router as saved_reports_router
+from dwh_api.mart_view import router as mart_view_router
 from dwh_api.dm_builder_admin import admin_router as dm_builder_admin_router, view_router as dm_mart_view_router
 from dwh_api.models import (
     ApiError,
@@ -773,5 +774,6 @@ app.include_router(access_control_router)
 app.include_router(user_catalog_router)
 app.include_router(ai_assistant_router)
 app.include_router(saved_reports_router)
+app.include_router(mart_view_router)
 app.include_router(dm_builder_admin_router)
 app.include_router(dm_mart_view_router)

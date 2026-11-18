@@ -28,7 +28,7 @@ import AdminIntegrationHistory from './AdminIntegrationHistory'
 import LoadsObjectsPanel from './LoadsObjectsPanel'
 import DmMartsPanel from './DmMartsPanel'
 import AiAssistantPanel from './AiAssistantPanel'
-import SavedReportsPanel from './SavedReportsPanel'
+import ReportingPage from './ReportingPage'
 
 
 type PageKey =
@@ -972,7 +972,7 @@ function App() {
           activePage === 'reporting'
             ? (
               <>
-                <SavedReportsPanel />
+                <ReportingPage />
               </>
             )
             : activePage === 'administration'
