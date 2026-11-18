@@ -510,3 +510,47 @@ class ConversionReportTest(unittest.TestCase):
         (params,) = conn.finished()
         self.assertEqual(len(params), 12)
         self.assertEqual(result.error_code, "CREDENTIAL_UNAVAILABLE")
+
+
+class NullKeyReportTest(unittest.TestCase):
+    """I18: KEY_NULL names the empty key column and the identifier columns of the first rows (no personal data)."""
+
+    class Cursor:
+        def __init__(self, counts, rows):
+            self.results = [[counts], [({"id": r},) for r in rows]]
+            self.sql = []
+
+        def execute(self, query, params=None):
+            self.sql.append(query)
+            self.current = self.results.pop(0)
+
+        def fetchone(self):
+            return self.current[0]
+
+        def fetchall(self):
+            return self.current
+
+    def plan(self, names, key):
+        return ro.Plan("ods", "t", [field(n) for n in names], key)
+
+    def test_message_names_rows_by_identifier_columns(self):
+        cur = self.Cursor((3,), [11, 12, 13])
+        err = ro.null_key_error(cur, self.plan(["contract_no", "id", "last_name"], ["contract_no"]), 3)
+        self.assertEqual(err.code, "KEY_NULL")
+        self.assertEqual(err.message, "3 source rows have an empty business key: contract_no empty in 3; "
+                                      "rows: id=11, id=12, id=13")
+        self.assertEqual((err.column, err.record_key), ("contract_no", {"id": "11"}))
+        self.assertEqual(err.diagnostic["key_columns"], [{"column": "contract_no", "empty_rows": 3}])
+        self.assertEqual(ro._identifier_columns(self.plan(["contract_no", "id", "last_name"], ["contract_no"])), ["id"])
+
+    def test_more_rows_than_shown(self):
+        cur = self.Cursor((25,), list(range(10)))
+        err = ro.null_key_error(cur, self.plan(["k", "id"], ["k"]), 25)
+        self.assertTrue(err.message.endswith("(10 of 25)"))
+
+    def test_without_identifier_columns_no_values_are_shown(self):
+        cur = self.Cursor((2,), [])
+        err = ro.null_key_error(cur, self.plan(["k", "last_name", "phone"], ["k"]), 2)
+        self.assertIn("no identifier column", err.message)
+        self.assertEqual(len(cur.sql), 1)  # personal columns are never read
+        self.assertIsNone(err.record_key)

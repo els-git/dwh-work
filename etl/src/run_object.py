@@ -200,6 +200,7 @@ def database_error(exc: psycopg.Error, stage: str) -> RunError:
 REPORT_VALUES = 5
 REPORT_KEYS = 10
 REPORT_VALUE_CHARS = 50
+REPORT_COLUMNS = 4
 
 
 def _shown(value: str) -> str:
@@ -557,6 +558,42 @@ def check_values(dwh, plan: Plan, total: int) -> None:
         raise conversion_error("STG", total, failed)
 
 
+IDENTIFIER_SUFFIXES = ("_id", "_code", "_no", "_number", "_num", "_uuid", "_guid")
+
+
+def _identifier_columns(plan: Plan) -> list[str]:
+    """Columns that name a row without personal data: id, *_id, *_code, *_no ... (not the key itself)."""
+    return [f["target_column"] for f in plan.fields
+            if f["target_column"] not in plan.key
+            and (f["target_column"] == "id" or f["target_column"].endswith(IDENTIFIER_SUFFIXES))][:REPORT_COLUMNS]
+
+
+def null_key_error(cur, plan: Plan, nulls: int) -> RunError:
+    """KEY_NULL with what is empty (per key column) and the identifier columns of the first rows (I18)."""
+    empty_in = sql.SQL(" OR ").join(sql.SQL("{} IS NULL").format(_ident(k)) for k in plan.key)
+    cur.execute(sql.SQL("SELECT {} FROM dwh_object_run_stage").format(
+        sql.SQL(", ").join(sql.SQL("count(*) FILTER (WHERE {} IS NULL)").format(_ident(k)) for k in plan.key)))
+    per_key = [{"column": k, "empty_rows": n} for k, n in zip(plan.key, cur.fetchone()) if n]
+    identifiers = _identifier_columns(plan)
+    rows: list[dict] = []
+    if identifiers:
+        cur.execute(sql.SQL("SELECT jsonb_build_object({}) FROM dwh_object_run_stage WHERE {} ORDER BY {} LIMIT {}").format(
+            sql.SQL(", ").join(sql.SQL("{}, {}").format(sql.Literal(c), _ident(c)) for c in identifiers),
+            empty_in, sql.SQL(", ").join(_ident(c) for c in identifiers), sql.Literal(REPORT_KEYS)))
+        rows = [{k: (None if v is None else _shown(str(v))) for k, v in r[0].items()} for r in cur.fetchall()]
+    text = f"{nulls} source rows have an empty business key: " + ", ".join(
+        f"{p['column']} empty in {p['empty_rows']}" for p in per_key)
+    if rows:
+        text += "; rows: " + ", ".join(_key_text(r) for r in rows)
+        if nulls > len(rows):
+            text += f" ({len(rows)} of {nulls})"
+    elif not identifiers:
+        text += "; no identifier column (id, *_id, *_code, *_no) to name the rows"
+    return RunError("KEY_NULL", text, column=per_key[0]["column"] if per_key else None,
+                    record_key=rows[0] if rows else None,
+                    diagnostic={"kind": "KEY_NULL", "empty_rows": nulls, "key_columns": per_key, "rows": rows})
+
+
 def validate_key(dwh, plan: Plan) -> None:
     key = sql.SQL(", ").join(_ident(k) for k in plan.key)
     key_json = sql.SQL("jsonb_build_object({})").format(
@@ -566,7 +603,7 @@ def validate_key(dwh, plan: Plan) -> None:
             sql.SQL(" OR ").join(sql.SQL("{} IS NULL").format(_ident(k)) for k in plan.key)))
         nulls = cur.fetchone()[0]
         if nulls:
-            raise RunError("KEY_NULL", f"{nulls} source rows have an empty business key")
+            raise null_key_error(cur, plan, nulls)
         cur.execute(sql.SQL("SELECT {}, count(*) FROM dwh_object_run_stage GROUP BY {} HAVING count(*) > 1 LIMIT 1").format(
             key_json, key))
         dup = cur.fetchone()
