@@ -42,8 +42,10 @@ router = APIRouter(prefix="/api/reports/marts", tags=["Mart view"])
 PAGE_SIZE = 100
 EXPORT_LIMITS = {"CSV": 1_000_000, "XLSX": 1_000_000, "PDF": 5_000}
 FETCH_ROWS = 5_000
-PDF_COLUMNS_PER_TABLE = 10
-PDF_CELL_CHARS = 40
+PDF_COLUMNS_PER_TABLE = 8
+PDF_CELL_CHARS = 60
+PDF_FONT_SIZE = 6.5
+PDF_CELL_PADDING = 3
 STATEMENT_TIMEOUT_MS = 60_000
 MIME = {"CSV": "text/csv; charset=utf-8",
         "XLSX": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -244,6 +246,13 @@ def text_value(value: Any) -> str:
     if isinstance(value, datetime):
         return value.isoformat(sep=" ")
     return str(value)
+
+
+def pdf_value(value: Any) -> str:
+    """Text of a PDF cell: date-times as YYYY-MM-DD HH:MM:SS (no microseconds, no zone), to fit a narrow column."""
+    if isinstance(value, datetime):
+        return value.strftime("%Y-%m-%d %H:%M:%S")
+    return text_value(value)
 
 
 def excel_value(value: Any) -> Any:
@@ -460,7 +469,7 @@ def _register_pdf_font() -> tuple[str, str]:
 
 
 def build_pdf(rows: list[dict], columns: list[Column], title: str, filters_text: str) -> bytes:
-    """Landscape A4; wide marts are split into tables of 10 columns, the first column repeated in each."""
+    """Landscape A4; wide marts are split into tables of 8 columns, the first column repeated in each."""
     from reportlab.lib import colors
     from reportlab.lib.pagesizes import A4, landscape
     from reportlab.lib.styles import ParagraphStyle
@@ -480,19 +489,32 @@ def build_pdf(rows: list[dict], columns: list[Column], title: str, filters_text:
     groups = [rest[i:i + PDF_COLUMNS_PER_TABLE - 1] for i in range(0, len(rest), PDF_COLUMNS_PER_TABLE - 1)] or [[]]
     width = doc.width
 
-    def cut(value: Any) -> str:
-        text = text_value(value)
-        return text if len(text) <= PDF_CELL_CHARS else text[:PDF_CELL_CHARS - 1] + "…"
+    from reportlab.pdfbase.pdfmetrics import stringWidth
+
+    def fit(text: str, font: str, room: float) -> str:
+        """Cut the text with an ellipsis so that it fits the cell (cells do not wrap)."""
+        text = text[:PDF_CELL_CHARS]
+        if stringWidth(text, font, PDF_FONT_SIZE) <= room:
+            return text
+        while text and stringWidth(text + "…", font, PDF_FONT_SIZE) > room:
+            text = text[:-1]
+        return text + "…"
+
+    def cut(value: Any, room: float) -> str:
+        return fit(pdf_value(value), regular, room)
 
     for n, group in enumerate(groups):
         cols = [key, *group]
         if len(groups) > 1:
             story.append(Paragraph(f"{n + 1} / {len(groups)}", small))
-        data = [[c.name for c in cols]] + [[cut(r[c.name]) for c in cols] for r in rows]
-        table = LongTable(data, repeatRows=1, colWidths=[width / len(cols)] * len(cols))
+        col_width = width / len(cols)
+        room = col_width - 2 * PDF_CELL_PADDING
+        data = [[fit(c.name, bold, room) for c in cols]] + [[cut(r[c.name], room) for c in cols] for r in rows]
+        table = LongTable(data, repeatRows=1, colWidths=[col_width] * len(cols))
         table.setStyle(TableStyle([
             ("FONTNAME", (0, 0), (-1, -1), regular), ("FONTNAME", (0, 0), (-1, 0), bold),
-            ("FONTSIZE", (0, 0), (-1, -1), 6.5), ("LEADING", (0, 0), (-1, -1), 8),
+            ("FONTSIZE", (0, 0), (-1, -1), PDF_FONT_SIZE), ("LEADING", (0, 0), (-1, -1), 8),
+            ("LEFTPADDING", (0, 0), (-1, -1), PDF_CELL_PADDING), ("RIGHTPADDING", (0, 0), (-1, -1), PDF_CELL_PADDING),
             ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#dfe6ee")),
             ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#9aa7b5")),
             ("VALIGN", (0, 0), (-1, -1), "TOP")]))

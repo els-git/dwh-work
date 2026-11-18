@@ -73,7 +73,19 @@
   font-size: 12px;
 }
 
-/* I22: marts in "Reporting" */
+/* I22: marts in "Reporting". Grid items may shrink below their content, so a wide table scrolls inside its
+   own frame instead of stretching the page. */
+.saved-reports-grid > * {
+  min-width: 0;
+}
+
+.mart-view .saved-result-table {
+  max-width: 100%;
+}
+
+.mart-view .data-table td {
+  white-space: nowrap;
+}
 .mart-filters {
   display: flex;
   flex-direction: column;
