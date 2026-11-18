@@ -180,6 +180,21 @@ sudo journalctl -u dwh-llm -n 50 --no-pager
 
 Новый пароль `dwh_ai_ro`: `dwh_ai_setup.py --apply --rotate-password`.
 
+## 4c. Витрины по SQL-запросу: роль `dwh_dm_sql_ro` (I23)
+
+Запросы витрин по SQL выполняет роль `dwh_dm_sql_ro` (пакет 023: только `SELECT` на `ods`, транзакции только на чтение). Вход ей настраивает `tools/server/dwh_dm_sql_setup.py`:
+- Q1 — случайный пароль только в `/etc/dwh/dwh.env` (`DWH_DM_SQL_DB_PASSWORD`), на экран не выводится; перезапуск `dwh-api`, `dwh-dispatcher`;
+- Q2 — `GRANT CONNECT ON DATABASE dwh` (в `dwh` у PUBLIC нет `CONNECT`).
+
+Без `--apply` инструмент только показывает план:
+```bash
+sudo python3 /opt/dwh/current/src/tools/server/dwh_dm_sql_setup.py
+```
+```bash
+sudo python3 /opt/dwh/current/src/tools/server/dwh_dm_sql_setup.py --apply
+```
+Итог — `DM_SQL_SETUP_RESULT: PASS`: роль входит только на чтение, читает таблицу `ods`, отказ на `app` и на запись в `ods`. Проверка без изменений — `--check`, новый пароль — `--apply --rotate-password`.
+
 ## 5. Проверки и задачи
 
 - Сеть (шаг 5), только чтение:

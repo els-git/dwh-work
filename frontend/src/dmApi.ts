@@ -112,7 +112,15 @@ export interface DmDefinition {
 }
 
 export interface DmVersionDetail {
-  version: DmVersionSummary & { mart_code: string, ddl_text: string | null, ddl_sha256: string | null }
+  version: DmVersionSummary & {
+    mart_code: string
+    ddl_text: string | null
+    ddl_sha256: string | null
+    // I23 (package 023): a mart built from a ready SQL query.
+    version_kind?: 'BUILDER' | 'SQL'
+    sql_text?: string | null
+    sql_tables?: string[] | null
+  }
   definition: DmDefinition
   fill_sql: string | null
   fill_sql_error: string | null
@@ -239,6 +247,25 @@ export const deleteDmMart = (martId: number, confirm: boolean) =>
   post<DmDeleteResult>(`${BASE}/marts/${martId}/delete`, { confirm })
 export const createDmRunRequest = (martId: number) => post<{ request_id: number }>(`${BASE}/run-requests`, { mart_id: martId })
 export const cancelDmRunRequest = (requestId: number) => post<{ cancelled: boolean }>(`${BASE}/run-requests/${requestId}/cancel`)
+// I23: check of a ready query (dwh_dm_sql_ro on the server) and saving a draft as a SQL version.
+export interface DmSqlColumn {
+  name: string
+  source_type: string
+  type: string
+  problem: string | null
+}
+
+export interface DmSqlCheck {
+  sql_text: string
+  tables: string[]
+  columns: DmSqlColumn[]
+  rows: Record<string, unknown>[]
+  problems: string[]
+}
+
+export const checkDmSql = (sqlText: string) => post<DmSqlCheck>(`${BASE}/sql/check`, { sql_text: sqlText })
+export const saveDmSql = (versionId: number, body: { sql_text: string, key: string, titles: Record<string, string> }) =>
+  post<{ version_id: number, tables: string[], problems: string[] }>(`${BASE}/versions/${versionId}/sql`, body)
 export const getDmMartStatus = () => request<DmMartStatus[]>('/api/integrations/loads/marts')
 
 

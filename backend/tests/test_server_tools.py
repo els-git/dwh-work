@@ -366,6 +366,17 @@ class AiSetupTests(Temp):
         self.assertIn("DWH_AI_DB_PASSWORD=p", out)
         self.assertEqual(aisetup.read_env_text(out)["DWH_AI_DB_PASSWORD"], "p")
 
+    def test_dm_sql_setup_plan(self):
+        import dwh_dm_sql_setup as dmsql
+        out = aisetup.env_with("DWH_DB_HOST=127.0.0.1\n", {dmsql.KEY: "p"}, dmsql.HEADER)
+        self.assertEqual(out.splitlines(), ["DWH_DB_HOST=127.0.0.1", dmsql.HEADER, "DWH_DM_SQL_DB_PASSWORD=p"])
+        with mock.patch.object(dmsql.ai, "read_env", return_value={}), \
+                mock.patch.object(dmsql, "has_connect", return_value=False):
+            self.assertEqual([c for c, _ in dmsql.plan(mock.Mock(rotate_password=False))], ["Q1", "Q2"])
+        with mock.patch.object(dmsql.ai, "read_env", return_value={dmsql.KEY: "x"}), \
+                mock.patch.object(dmsql, "has_connect", return_value=True):
+            self.assertEqual(dmsql.plan(mock.Mock(rotate_password=False)), [])
+
     def test_llm_env_and_unit(self):
         text = aisetup.llm_env_text(self.args())
         self.assertIn("LLM_MODEL=/var/lib/m/m.gguf", text)

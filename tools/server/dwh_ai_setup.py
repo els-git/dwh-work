@@ -67,7 +67,7 @@ def read_env(path: Path) -> dict[str, str]:
     return read_env_text(path.read_text()) if path.is_file() else {}
 
 
-def env_with(text: str, updates: dict[str, str]) -> str:
+def env_with(text: str, updates: dict[str, str], header: str = "# I17 AI assistant (tools/server/dwh_ai_setup.py)") -> str:
     """dwh.env with the keys set; other lines (and their order) unchanged."""
     lines, seen = [], set()
     for line in text.splitlines():
@@ -79,7 +79,7 @@ def env_with(text: str, updates: dict[str, str]) -> str:
             lines.append(line)
     missing = [k for k in updates if k not in seen]
     if missing:
-        lines.append("# I17 AI assistant (tools/server/dwh_ai_setup.py)")
+        lines.append(header)
         lines += [f"{k}={updates[k]}" for k in missing]
     return "\n".join(lines) + "\n"
 

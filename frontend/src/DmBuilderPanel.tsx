@@ -10,6 +10,7 @@ import { useTranslation } from 'react-i18next'
 import { confirmAction } from './confirmAction'
 import { formatDateTime } from './dateTime'
 import {
+  checkDmSql,
   createDmVersion,
   deleteDmMart,
   discardDmVersion,
@@ -22,6 +23,7 @@ import {
   saveDmEntity,
   saveDmEntityKey,
   saveDmMart,
+  saveDmSql,
   saveDmVersion,
   type DmAggregate,
   type DmCatalog,
@@ -34,6 +36,7 @@ import {
   type DmPlan,
   type DmSourceDef,
   type DmSourceKind,
+  type DmSqlCheck,
   type DmVersionDetail,
 } from './dmApi'
 import './AiAssistantPanel.css'
@@ -46,6 +49,9 @@ import './DmBuilderPanel.css'
 // and roles of one table), fields with priority, filters, preview of the fill SQL and of the table structure,
 // publication (a new structure is built aside and swapped in by the dispatcher, package 019) and deletion of a
 // mart, both with the list of saved reports and AI settings they affect. The database checks every call.
+// I23: a draft can instead be built from a ready SQL query ("Ready SQL query"): the server checks it under the
+// read-only role dwh_dm_sql_ro (tables of ods only), shows the columns with their mart types and the first rows;
+// the user picks the key column and titles, and the server checks the query again when saving it.
 
 const KINDS: DmSourceKind[] = ['GRAIN', 'SAME_KEY', 'CHILD', 'LOOKUP']
 const AGGREGATES: DmAggregate[] = ['SUM', 'COUNT', 'COUNT_DISTINCT', 'MIN', 'MAX', 'AVG']
@@ -112,6 +118,14 @@ function toDefinition(draft: Draft): DmDefinition {
 }
 
 
+// A cell of the preview rows of a query (values come as JSON).
+function cellText(value: unknown): string {
+  if (value === null || value === undefined) {
+    return ''
+  }
+  return typeof value === 'object' ? JSON.stringify(value) : String(value)
+}
+
 function DmBuilderPanel() {
   const { t } = useTranslation()
   const [catalog, setCatalog] = useState<DmCatalog | null>(null)
@@ -127,6 +141,13 @@ function DmBuilderPanel() {
   const [draft, setDraft] = useState<Draft | null>(null)
   const [problems, setProblems] = useState<string[] | null>(null)
   const [plan, setPlan] = useState<DmPlan | null>(null)
+  // I23: SQL mode of the open version: text, result of the last check, key column and titles.
+  const [sqlMode, setSqlMode] = useState(false)
+  const [sqlText, setSqlText] = useState('')
+  const [sqlCheck, setSqlCheck] = useState<DmSqlCheck | null>(null)
+  const [sqlKey, setSqlKey] = useState('')
+  const [sqlTitles, setSqlTitles] = useState<Record<string, string>>({})
+  const sqlSeq = useRef(0)
   const loadSeq = useRef(0)
   const versionSeq = useRef(0)
   const messageRef = useRef<HTMLDivElement | null>(null)
@@ -198,6 +219,15 @@ function DmBuilderPanel() {
       setDraft(toDraft(next.definition))
       setProblems(null)
       setError(null)
+      const isSql = next.version.version_kind === 'SQL'
+      sqlSeq.current += 1
+      setSqlMode(isSql)
+      setSqlText(isSql ? next.version.sql_text ?? '' : '')
+      setSqlCheck(null)
+      setSqlKey(isSql ? next.definition.fields.find(item => item.is_key)?.name ?? '' : '')
+      setSqlTitles(isSql
+        ? Object.fromEntries(next.definition.fields.filter(item => item.title).map(item => [item.name, item.title ?? '']))
+        : {})
     } catch (exc) {
       if (seq === versionSeq.current) {
         setError(exc instanceof Error ? exc.message : String(exc))
@@ -450,6 +480,69 @@ function DmBuilderPanel() {
         setDraft(null)
       }
     }, message)
+  }
+
+  // ------------------------------------------------------------------ SQL query (I23)
+
+  async function switchMode(toSql: boolean) {
+    if (toSql === sqlMode) {
+      return
+    }
+    const confirmed = await confirmAction({
+      title: t('dm.version.sql.mode'),
+      message: t(toSql ? 'dm.version.sql.switchToSql' : 'dm.version.sql.switchToBuilder'),
+      confirmLabel: t(toSql ? 'dm.version.sql.modeSql' : 'dm.version.sql.modeBuilder'),
+      cancelLabel: t('loads.cancel'),
+    })
+    if (confirmed) {
+      sqlSeq.current += 1
+      setSqlMode(toSql)
+      setSqlCheck(null)
+      setProblems(null)
+    }
+  }
+
+  function changeSqlText(text: string) {
+    sqlSeq.current += 1
+    setSqlText(text)
+    setSqlCheck(null)
+  }
+
+  // Checks the text as it is now; a response for an older text is ignored.
+  async function checkSql() {
+    const seq = ++sqlSeq.current
+    const text = sqlText
+    let message = ''
+    await run(async () => {
+      const result = await checkDmSql(text)
+      if (seq !== sqlSeq.current) {
+        return
+      }
+      setSqlCheck(result)
+      const names = result.columns.map(item => item.name)
+      if (!names.includes(sqlKey)) {
+        setSqlKey(names.find(name => name === 'id') ?? names.find(name => name.endsWith('_id')) ?? names[0] ?? '')
+      }
+      message = t('dm.version.sql.checked', { columns: names.length,
+        tables: result.tables.map(name => `ods.${name}`).join(', ') })
+    })
+    if (message) {
+      setNotice(message)
+    }
+  }
+
+  function saveSql() {
+    if (!detail) {
+      return
+    }
+    const versionId = detail.version.version_id
+    const titles = Object.fromEntries(Object.entries(sqlTitles).filter(([name, title]) =>
+      title.trim() !== '' && (sqlCheck?.columns.some(item => item.name === name) ?? false)))
+    void run(() => saveDmSql(versionId, { sql_text: sqlText, key: sqlKey, titles }), async result => {
+      const saved = result as { problems: string[] }
+      await openVersion(versionId)
+      setProblems(saved.problems)
+    }, t('dm.version.saved'))
   }
 
   // Text of the changes and of the saved reports / AI settings they affect, for the confirmation dialog.
@@ -796,6 +889,129 @@ function DmBuilderPanel() {
     )
   }
 
+  function renderBuilder(current: Draft) {
+    return (
+      <>
+        <label className="dm-grain">{t('dm.version.grain')}
+          <select disabled={readOnly} value={current.grain_entity_id ?? ''}
+            onChange={e => patch({ grain_entity_id: e.target.value === '' ? null : Number(e.target.value) })}>
+            <option value="" />
+            {entities.filter(item => item.is_active).map(item => (
+              <option key={item.entity_id} value={item.entity_id}>{item.title} ({item.entity_code})</option>
+            ))}
+          </select>
+        </label>
+
+        {renderSources(current)}
+        {renderFields(current)}
+        {renderFilters(current)}
+      </>
+    )
+  }
+
+  // I23: query, its columns (mart type, title, key) and first rows; read-only for a published SQL version.
+  function renderSql(storedTables: string[]) {
+    const stored = sqlText === (detail?.version.sql_text ?? '')
+    const columns = sqlCheck?.columns ?? (stored
+      ? (draft?.fields ?? []).map(item => ({ name: item.name, source_type: '', type: item.type, problem: null as string | null }))
+      : [])
+    const tablesRead = sqlCheck?.tables ?? (stored ? storedTables : [])
+    return (
+      <>
+        <div className="dm-block">
+          <h5>{readOnly ? t('dm.version.sql.stored') : t('dm.version.sql.text')}</h5>
+          {!readOnly ? <p className="loads-muted">{t('dm.version.sql.hint')}</p> : null}
+          {readOnly
+            ? <pre className="dm-sql">{sqlText}</pre>
+            : (
+              <textarea className="dm-sql-text" rows={14} spellCheck={false} value={sqlText}
+                placeholder={'SELECT c.id, c.full_name\n  FROM ods.app_retail_applicant c'}
+                onChange={e => changeSqlText(e.target.value)} />
+            )}
+          {tablesRead.length > 0
+            ? <p className="loads-muted">{t('dm.version.sql.tables', { list: tablesRead.map(name => `ods.${name}`).join(', ') })}</p>
+            : null}
+          {!readOnly
+            ? (
+              <div className="loads-actions">
+                <button type="button" disabled={saving || sqlText.trim() === ''} onClick={() => { void checkSql() }}>
+                  {t('dm.version.sql.check')}
+                </button>
+              </div>
+            )
+            : null}
+        </div>
+        {columns.length > 0
+          ? (
+            <div className="dm-block">
+              <h5>{t('dm.version.sql.columns')}</h5>
+              <p className="loads-muted">{t('dm.version.sql.keyHint')}</p>
+              <table className="data-table dm-edit-table">
+                <thead>
+                  <tr>
+                    <th>{t('dm.version.sql.key')}</th><th>{t('dm.version.sql.column')}</th>
+                    {sqlCheck ? <th>{t('dm.version.sql.sourceType')}</th> : null}
+                    <th>{t('dm.version.sql.type')}</th><th>{t('dm.version.sql.title')}</th>
+                    {sqlCheck ? <th>{t('dm.version.sql.problem')}</th> : null}
+                  </tr>
+                </thead>
+                <tbody>
+                  {columns.map((column, index) => (
+                    <tr key={`${column.name}-${index}`}>
+                      <td>
+                        <input type="radio" name="dm-sql-key" aria-label={`${t('dm.version.sql.key')} ${column.name}`}
+                          disabled={readOnly || column.problem !== null}
+                          checked={sqlKey === column.name} onChange={() => setSqlKey(column.name)} />
+                      </td>
+                      <td><code>{column.name}</code></td>
+                      {sqlCheck ? <td>{column.source_type}</td> : null}
+                      <td>{column.type}</td>
+                      <td>
+                        <input disabled={readOnly} maxLength={200} value={sqlTitles[column.name] ?? ''}
+                          aria-label={`${t('dm.version.sql.title')} ${column.name}`}
+                          onChange={e => setSqlTitles({ ...sqlTitles, [column.name]: e.target.value })} />
+                      </td>
+                      {sqlCheck
+                        ? <td>{column.problem ? <span className="dm-warning">{column.problem}</span> : null}</td>
+                        : null}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )
+          : null}
+        {sqlCheck
+          ? (
+            <div className="dm-block">
+              <h5>{t('dm.version.sql.rows', { count: sqlCheck.rows.length })}</h5>
+              {sqlCheck.rows.length === 0
+                ? <span className="loads-muted">{t('dm.version.sql.noRows')}</span>
+                : (
+                  <div className="dm-sql-rows">
+                    <table className="data-table">
+                      <thead>
+                        <tr>{sqlCheck.columns.map((column, index) => <th key={`${column.name}-${index}`}>{column.name}</th>)}</tr>
+                      </thead>
+                      <tbody>
+                        {sqlCheck.rows.map((row, rowIndex) => (
+                          <tr key={rowIndex}>
+                            {sqlCheck.columns.map((column, index) => (
+                              <td key={`${column.name}-${index}`}>{cellText(row[column.name])}</td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+            </div>
+          )
+          : null}
+      </>
+    )
+  }
+
   function renderVersion() {
     if (!detail || !draft) {
       return null
@@ -810,19 +1026,25 @@ function DmBuilderPanel() {
         </h4>
         {version.status !== 'DRAFT' ? <p className="loads-muted">{t('dm.version.readOnly')}</p> : null}
 
-        <label className="dm-grain">{t('dm.version.grain')}
-          <select disabled={readOnly} value={draft.grain_entity_id ?? ''}
-            onChange={e => patch({ grain_entity_id: e.target.value === '' ? null : Number(e.target.value) })}>
-            <option value="" />
-            {entities.filter(item => item.is_active).map(item => (
-              <option key={item.entity_id} value={item.entity_id}>{item.title} ({item.entity_code})</option>
-            ))}
-          </select>
-        </label>
+        {!readOnly
+          ? (
+            <div className="dm-mode" role="radiogroup" aria-label={t('dm.version.sql.mode')}>
+              <span>{t('dm.version.sql.mode')}</span>
+              <label className="dm-check">
+                <input type="radio" name="dm-mode" checked={!sqlMode} disabled={saving}
+                  onChange={() => { void switchMode(false) }} />
+                {t('dm.version.sql.modeBuilder')}
+              </label>
+              <label className="dm-check">
+                <input type="radio" name="dm-mode" checked={sqlMode} disabled={saving}
+                  onChange={() => { void switchMode(true) }} />
+                {t('dm.version.sql.modeSql')}
+              </label>
+            </div>
+          )
+          : null}
 
-        {renderSources(draft)}
-        {renderFields(draft)}
-        {renderFilters(draft)}
+        {sqlMode ? renderSql(version.sql_tables ?? []) : renderBuilder(draft)}
 
         {problems !== null
           ? problems.length === 0
@@ -863,7 +1085,14 @@ function DmBuilderPanel() {
           {!readOnly
             ? (
               <>
-                <button type="button" disabled={saving} onClick={saveVersion}>{t('dm.version.save')}</button>
+                {sqlMode
+                  ? (
+                    <button type="button" disabled={saving || sqlCheck === null || sqlCheck.problems.length > 0 || sqlKey === ''}
+                      title={sqlCheck === null ? t('dm.version.sql.needCheck') : undefined} onClick={saveSql}>
+                      {t('dm.version.sql.save')}
+                    </button>
+                  )
+                  : <button type="button" disabled={saving} onClick={saveVersion}>{t('dm.version.save')}</button>}
                 <button type="button" disabled={saving} onClick={() => { void publish() }}>
                   {t('dm.version.publish')}
                 </button>
@@ -899,13 +1128,17 @@ function DmBuilderPanel() {
             </div>
           )
           : null}
-        <div className="dm-block">
-          <h5>{t('dm.version.fillSql')}</h5>
-          <p className="loads-muted">{t('dm.version.fillSqlHint')}</p>
-          {detail.fill_sql
-            ? <pre className="dm-sql">{detail.fill_sql}</pre>
-            : <span className="loads-muted">{detail.fill_sql_error ?? t('dm.version.fillSqlEmpty')}</span>}
-        </div>
+        {!sqlMode
+          ? (
+            <div className="dm-block">
+              <h5>{t('dm.version.fillSql')}</h5>
+              <p className="loads-muted">{t('dm.version.fillSqlHint')}</p>
+              {detail.fill_sql
+                ? <pre className="dm-sql">{detail.fill_sql}</pre>
+                : <span className="loads-muted">{detail.fill_sql_error ?? t('dm.version.fillSqlEmpty')}</span>}
+            </div>
+          )
+          : null}
       </div>
     )
   }
