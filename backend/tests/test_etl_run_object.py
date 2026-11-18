@@ -570,3 +570,15 @@ class StageBatchTest(unittest.TestCase):
     def test_driver_error_names_its_class(self):
         err = ro.database_error(psycopg.OperationalError("number of parameters must be between 0 and 65535"), "stage")
         self.assertEqual(err.message, "stage: DATABASE_ERROR (SQLSTATE unknown, OperationalError)")
+
+
+class JsonbObjectTest(unittest.TestCase):
+    """I18: jsonb_build_object accepts at most 100 arguments — wide tables are built in chunks of 50 pairs."""
+
+    def test_chunks(self):
+        from psycopg import sql
+        pairs = [sql.SQL("'c{}', s.c{}".format(i, i)) for i in range(120)]
+        text = ro._jsonb_object(pairs).as_string(None)
+        self.assertEqual(text.count("jsonb_build_object("), 3)
+        self.assertEqual(text.count(" || "), 2)
+        self.assertEqual(ro._jsonb_object([]).as_string(None), "'{}'::jsonb")
