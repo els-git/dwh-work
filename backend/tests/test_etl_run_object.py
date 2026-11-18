@@ -554,3 +554,19 @@ class NullKeyReportTest(unittest.TestCase):
         self.assertIn("no identifier column", err.message)
         self.assertEqual(len(cur.sql), 1)  # personal columns are never read
         self.assertIsNone(err.record_key)
+
+
+class StageBatchTest(unittest.TestCase):
+    """I18: wide tables (applicant ~100 columns) — rows x columns per INSERT stays within 65535 parameters."""
+
+    def test_batch_rows(self):
+        self.assertEqual(ro.stage_batch_rows(17), 1000)
+        self.assertEqual(ro.stage_batch_rows(100), 655)
+        self.assertEqual(ro.stage_batch_rows(1600), 40)
+        self.assertEqual(ro.stage_batch_rows(70000), 1)
+        for columns in (1, 65, 66, 100, 400, 1600):
+            self.assertLessEqual(ro.stage_batch_rows(columns) * columns, ro.MAX_BIND_PARAMETERS)
+
+    def test_driver_error_names_its_class(self):
+        err = ro.database_error(psycopg.OperationalError("number of parameters must be between 0 and 65535"), "stage")
+        self.assertEqual(err.message, "stage: DATABASE_ERROR (SQLSTATE unknown, OperationalError)")

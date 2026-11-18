@@ -190,7 +190,9 @@ def database_error(exc: psycopg.Error, stage: str) -> RunError:
         context = getattr(getattr(exc, "diag", None), "context", None) or ""
         match = _COPY_COLUMN.search(context)
         column = match.group(1) if match else None
-    message = f"{stage}: {code} (SQLSTATE {state or 'unknown'})" + (f", column {column}" if column else "")
+    # Without SQLSTATE the error comes from the driver, not from the server: name its class (no message text).
+    message = f"{stage}: {code} (SQLSTATE {state or 'unknown, ' + type(exc).__name__})" + (
+        f", column {column}" if column else "")
     return RunError(code, message, column=column)
 
 
@@ -483,6 +485,13 @@ def _ident(name: str) -> sql.Identifier:
 
 
 STAGE_BATCH = 1_000
+# One bind parameter per value; the PostgreSQL protocol allows at most 65535 per statement (I18, wide tables).
+MAX_BIND_PARAMETERS = 65_535
+
+
+def stage_batch_rows(columns: int) -> int:
+    """Rows per INSERT so that rows x columns stays within the parameter limit."""
+    return max(1, min(STAGE_BATCH, MAX_BIND_PARAMETERS // max(1, columns)))
 
 
 def stage_rows(dwh, plan: Plan, rows, log: Callable[[str], None] = lambda m: None) -> int:
@@ -500,6 +509,7 @@ def stage_rows(dwh, plan: Plan, rows, log: Callable[[str], None] = lambda m: Non
             sql.SQL(", ").join(_ident(c) for c in plan.columns))
         batch: list = []
         count = 0
+        batch_rows = stage_batch_rows(len(plan.written))
 
         def flush():
             if batch:
@@ -509,9 +519,9 @@ def stage_rows(dwh, plan: Plan, rows, log: Callable[[str], None] = lambda m: Non
         for row in rows:
             batch.append(row)
             count += 1
-            if len(batch) >= STAGE_BATCH:
+            if len(batch) >= batch_rows:
                 flush()
-                if count % 50_000 == 0:
+                if count % 50_000 < batch_rows:
                     log(f"STAGE: {count} rows staged")
         flush()
     check_values(dwh, plan, count)
