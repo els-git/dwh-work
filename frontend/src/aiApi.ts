@@ -9,6 +9,8 @@ export interface AiStatus {
   can_admin: boolean
   average_answer_seconds: number | null
   can_save_reports?: boolean
+  // I17-10: diagnosis of load errors (ETL_VIEW).
+  can_diagnose?: boolean
   average_answer_count: number
 }
 
@@ -132,11 +134,45 @@ function post<T>(path: string, body: unknown, signal?: AbortSignal): Promise<T> 
 
 export const getAiStatus = () => request<AiStatus>('/api/ai/status')
 
-export const askAiHelp = (question: string, image: string | null, clientId: string, signal: AbortSignal) =>
-  post<AiHelpAnswer>('/api/ai/help', { question, image, client_id: clientId }, signal)
+// I17-10: the last messages of the dialogue go with the question (the server keeps none of them).
+export interface AiHistoryItem {
+  role: 'user' | 'assistant'
+  text: string
+}
 
-export const askAiReport = (question: string, clientId: string, signal: AbortSignal) =>
-  post<AiReportAnswer>('/api/ai/report', { question, client_id: clientId }, signal)
+export const askAiHelp = (question: string, image: string | null, clientId: string, signal: AbortSignal,
+  history: AiHistoryItem[] = []) =>
+  post<AiHelpAnswer>('/api/ai/help', { question, image, client_id: clientId, history }, signal)
+
+export const askAiReport = (question: string, clientId: string, signal: AbortSignal, history: AiHistoryItem[] = []) =>
+  post<AiReportAnswer>('/api/ai/report', { question, client_id: clientId, history }, signal)
+
+// I17-10: diagnosis of a load error, the last error of an object or the last failed run of a mart.
+export type AiDiagnoseKind = 'error' | 'object' | 'mart'
+
+export interface AiDiagnosisCard {
+  code: string | null
+  sqlstate: string | null
+  title: string
+  action: string
+  who: 'USER' | 'SOURCE_OWNER' | 'ADMIN'
+  where: string[]
+  error_id: number | null
+  object_id: number | null
+  mart_code: string | null
+}
+
+export interface AiDiagnosis {
+  status: 'CARD' | 'OK'
+  card: AiDiagnosisCard
+  answer?: string
+  request_id?: number
+  unavailable?: string[]
+}
+
+export const diagnoseAi = (kind: AiDiagnoseKind, id: number, language: string, clientId: string, signal: AbortSignal,
+  cardOnly: boolean) =>
+  post<AiDiagnosis>('/api/ai/diagnose', { kind, id, language, client_id: clientId, card_only: cardOnly }, signal)
 
 // The Stop button: the server stops the question at once and frees the model for the next one.
 export const cancelAiQuestion = (clientId: string) =>

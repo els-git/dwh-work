@@ -1,4 +1,5 @@
-import { Trans } from 'react-i18next'
+import { Trans, useTranslation } from 'react-i18next'
+import { requestDiagnosis } from './aiBus'
 import {
   useEffect,
   useState,
@@ -138,7 +139,13 @@ function diagnosticJson(
 
 
 
-export default function AdminIntegrationHistory() {
+interface AdminIntegrationHistoryProps {
+  // I17-10: "Analyse with the assistant" for an error (AI_ASSISTANT_USE and ETL_VIEW).
+  canDiagnose?: boolean
+}
+
+export default function AdminIntegrationHistory({ canDiagnose = false }: AdminIntegrationHistoryProps) {
+  const { t } = useTranslation()
 
   const [
     mode,
@@ -539,6 +546,20 @@ export default function AdminIntegrationHistory() {
                                           <strong>
                                             #{item.error_id}
                                           </strong>
+                                          {canDiagnose
+                                            ? (
+                                                <div>
+                                                  <button
+                                                    type="button"
+                                                    className="loads-link"
+                                                    onClick={() => requestDiagnosis({ kind: 'error', id: item.error_id,
+                                                      label: `#${item.error_id} ${item.error_code ?? ''}`.trim() })}
+                                                  >
+                                                    {t('ai.diagnose')}
+                                                  </button>
+                                                </div>
+                                              )
+                                            : null}
                                         </td>
 
                                         <td>
