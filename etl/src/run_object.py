@@ -205,6 +205,18 @@ REPORT_VALUE_CHARS = 50
 REPORT_COLUMNS = 4
 
 
+# jsonb_build_object takes at most 100 arguments (SQLSTATE 54023): 50 key/value pairs per call, joined by ||.
+JSONB_PAIRS_PER_CALL = 50
+
+
+def _jsonb_object(pairs: list[sql.Composable]) -> sql.Composable:
+    """jsonb object of "'name', value" pairs for any number of columns (wide tables, I18)."""
+    if not pairs:
+        return sql.SQL("'{}'::jsonb")
+    chunks = [pairs[i:i + JSONB_PAIRS_PER_CALL] for i in range(0, len(pairs), JSONB_PAIRS_PER_CALL)]
+    return sql.SQL(" || ").join(sql.SQL("jsonb_build_object({})").format(sql.SQL(", ").join(c)) for c in chunks)
+
+
 def _shown(value: str) -> str:
     return value if len(value) <= REPORT_VALUE_CHARS else value[:REPORT_VALUE_CHARS] + "…"
 
@@ -549,8 +561,7 @@ def check_values(dwh, plan: Plan, total: int) -> None:
     checks = [(f, sql.SQL("{c} IS NOT NULL AND NOT pg_input_is_valid({c}, {t})").format(
         c=_ident(f["target_column"]), t=sql.Literal(postgres_type(f["target_type"])))) for f in plan.written]
     relation = sql.SQL("dwh_object_run_raw")
-    key_json = sql.SQL("jsonb_build_object({})").format(
-        sql.SQL(", ").join(sql.SQL("{}, {}").format(sql.Literal(k), _ident(k)) for k in plan.key))
+    key_json = _jsonb_object(list(sql.SQL("{}, {}").format(sql.Literal(k), _ident(k)) for k in plan.key))
     key_order = sql.SQL(", ").join(_ident(k) for k in plan.key)
     with dwh.cursor() as cur:
         cur.execute(sql.SQL("SELECT {} FROM dwh_object_run_raw").format(
@@ -606,8 +617,7 @@ def null_key_error(cur, plan: Plan, nulls: int) -> RunError:
 
 def validate_key(dwh, plan: Plan) -> None:
     key = sql.SQL(", ").join(_ident(k) for k in plan.key)
-    key_json = sql.SQL("jsonb_build_object({})").format(
-        sql.SQL(", ").join(sql.SQL("{}, {}").format(sql.Literal(k), _ident(k)) for k in plan.key))
+    key_json = _jsonb_object(list(sql.SQL("{}, {}").format(sql.Literal(k), _ident(k)) for k in plan.key))
     with dwh.cursor() as cur:
         cur.execute(sql.SQL("SELECT count(*) FROM dwh_object_run_stage WHERE {}").format(
             sql.SQL(" OR ").join(sql.SQL("{} IS NULL").format(_ident(k)) for k in plan.key)))
@@ -639,8 +649,7 @@ def apply_rows(dwh, plan: Plan, run_id: int,
     that sets the flag to true is recorded as DELETE (soft delete, D5)."""
     target = sql.SQL("{}.{}").format(_ident(plan.target_schema), _ident(plan.target_table))
     join = sql.SQL(" AND ").join(sql.SQL("t.{k} = s.{k}").format(k=_ident(k)) for k in plan.key)
-    key_json = sql.SQL("jsonb_build_object({})").format(
-        sql.SQL(", ").join(sql.SQL("{}, s.{}").format(sql.Literal(k), _ident(k)) for k in plan.key))
+    key_json = _jsonb_object(list(sql.SQL("{}, s.{}").format(sql.Literal(k), _ident(k)) for k in plan.key))
     updated = stale = deleted = 0
     history_insert = sql.SQL("INSERT INTO etl.{}({}, change_kind, record_key, changes) ").format(
         _ident(history[0]), _ident(history[1]))
@@ -691,7 +700,7 @@ def apply_rows(dwh, plan: Plan, run_id: int,
                     raise RunError("APPLY_MISMATCH", "Updated rows differ from the history rows")
         new_rows = sql.SQL("FROM dwh_object_run_stage s WHERE NOT EXISTS (SELECT 1 FROM {target} t WHERE {join})").format(
             target=target, join=join)
-        after = sql.SQL("jsonb_build_object({})").format(sql.SQL(", ").join(
+        after = _jsonb_object(list(
             sql.SQL("{}, jsonb_build_object('after', to_jsonb(s.{}))").format(sql.Literal(c), _ident(c))
             for c in plan.columns))
         cur.execute(history_insert + sql.SQL("SELECT {run}, 'INSERT', {key_json}, {after} {new_rows}").format(
@@ -939,8 +948,7 @@ def diagnose_ods(dwh, definition: dict, stg_table: str, ods_run_id: int, total: 
         return None
     source = sql.SQL("stg.{}").format(_ident(stg_table))
     relation = sql.SQL("{} s").format(source)
-    key_json = sql.SQL("jsonb_build_object({})").format(
-        sql.SQL(", ").join(sql.SQL("{}, s.{}").format(sql.Literal(k), _ident(k)) for k in key_cols))
+    key_json = _jsonb_object(list(sql.SQL("{}, s.{}").format(sql.Literal(k), _ident(k)) for k in key_cols))
     key_order = sql.SQL(", ").join(sql.SQL("s.{}").format(_ident(k)) for k in key_cols)
     failed = []
     with dwh.cursor() as cur:
