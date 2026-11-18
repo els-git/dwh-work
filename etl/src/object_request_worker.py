@@ -15,7 +15,8 @@ call, on the dispatcher connection (role dwh_etl), which owns the session lock t
 
 Why a child process: on 11.11.2026 a run started inside the API/dispatcher process waited forever on the network
 (no lock in the DWH, step 8 of I08). In a child process a hang cannot block the API or the dispatcher; after
-DWH_OBJECT_RUN_TIMEOUT_SECONDS (default 3600) the child is stopped, the request is closed FAILED / TIMEOUT and
+DWH_OBJECT_RUN_TIMEOUT_SECONDS (default 3600) WITHOUT PROGRESS (I21: a "STAGE:" line, e.g. a committed chunk,
+restarts the count, so a load of many chunks may run longer) the child is stopped, the request is closed FAILED / TIMEOUT and
 the next run of the object closes the open run as ABANDONED. The child prints the stack of every thread after
 DWH_RUN_OBJECT_STACK_DUMP_SECONDS (default 600), so a hang shows where it waits.
 
@@ -29,6 +30,7 @@ import os
 import subprocess
 import sys
 import threading
+import time
 from pathlib import Path
 from typing import Callable
 
@@ -114,20 +116,28 @@ def run_child(source_object_id: int, run_kind: str, *, log: Callable[[str], None
     proc = subprocess.Popen(command or [sys.executable, "-u", str(RUN_OBJECT_SCRIPT)], env=env,
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
     lines: list[str] = []
+    progress = [time.monotonic()]
 
     def reader() -> None:
         for raw in proc.stdout:
             line = raw.decode("utf-8", "replace").rstrip("\r\n")
             lines.append(line)
+            if line.startswith("STAGE:"):  # progress; stack dumps of a hanging child are not
+                progress[0] = time.monotonic()
             log(f"  {line}")
     thread = threading.Thread(target=reader, name="object-run-output", daemon=True)
     thread.start()
-    try:
-        code = proc.wait(timeout=timeout)
-    except subprocess.TimeoutExpired:
-        proc.kill()
-        proc.wait()
-        code = None
+    code = None
+    while True:
+        try:
+            code = proc.wait(timeout=min(5.0, float(timeout)))
+            break
+        except subprocess.TimeoutExpired:
+            if time.monotonic() - progress[0] > timeout:
+                proc.kill()
+                proc.wait()
+                code = None
+                break
     thread.join(timeout=10)
     proc.stdout.close()
     return lines, code
@@ -146,7 +156,7 @@ def execute(source_object_id: int, run_kind: str, *, log: Callable[[str], None],
         ok, stg_id, ods_id, _, message = parse_output(lines, run_kind, None)
         limit = timeout or int(os.environ.get("DWH_OBJECT_RUN_TIMEOUT_SECONDS", "") or DEFAULT_TIMEOUT_SECONDS)
         return (False, stg_id, ods_id, "TIMEOUT",
-                f"Run stopped after {limit} s; the open run is closed as ABANDONED by the next run of the object"
+                f"Run stopped after {limit} s without progress; the open run is closed as ABANDONED by the next run of the object"
                 + (f"; {message}" if message else ""))
     return parse_output(lines, run_kind, code)
 

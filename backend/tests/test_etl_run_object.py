@@ -209,12 +209,13 @@ class FlowTest(unittest.TestCase):
         class Source:
             def close(self):
                 pass
-        original = (ro.source_columns, ro.stage_rows, ro.validate_key, ro.apply_rows, ro.estimated_rows)
+        original = (ro.source_columns, ro.stage_rows, ro.validate_key, ro.apply_rows, ro.estimated_rows, ro.source_chunks)
         try:
             ro.source_columns = lambda c, s, t: {"id": "BIGINT", "amount": "BIGINT", "note": "TEXT"}
             ro.stage_rows = lambda d, p, rows, log=None: 3
             ro.estimated_rows = lambda c, s, t: 3
             ro.validate_key = lambda d, p: None
+            ro.source_chunks = lambda *a, **k: iter([[("1", "2", "x")] * 3])
 
             def apply(d, p, run):
                 raise db_error("23514", message="row (1, 'SECRET-VALUE') violates check")
@@ -222,35 +223,58 @@ class FlowTest(unittest.TestCase):
             result = ro.run_object(16, dwh_connect=lambda: conn, read_credential=lambda c: SECRET,
                                    source_connect_fn=lambda c, p: Source())
         finally:
-            ro.source_columns, ro.stage_rows, ro.validate_key, ro.apply_rows, ro.estimated_rows = original
+            (ro.source_columns, ro.stage_rows, ro.validate_key, ro.apply_rows, ro.estimated_rows,
+             ro.source_chunks) = original
         self.assertEqual((result.status, result.error_code), ("FAILED", "TARGET_CHECK"))
         self.assertGreaterEqual(conn.rollbacks, 1)
         self.assertNotIn("SECRET-VALUE", repr(conn.finished()))
 
-    def test_success_counts_and_single_commit_with_data(self):
-        conn = dwh_conn()
-
+    def run_chunks(self, conn, chunks, apply):
         class Source:
             def close(self):
                 pass
-        original = (ro.source_columns, ro.stage_rows, ro.validate_key, ro.apply_rows, ro.estimated_rows)
+        original = (ro.source_columns, ro.stage_rows, ro.validate_key, ro.apply_rows, ro.estimated_rows, ro.source_chunks)
         try:
             ro.source_columns = lambda c, s, t: {"id": "BIGINT", "amount": "BIGINT", "note": "TEXT"}
-            ro.stage_rows = lambda d, p, rows, log=None: 10
+            ro.stage_rows = lambda d, p, rows, log=None: len(rows)
             ro.estimated_rows = lambda c, s, t: 10
             ro.validate_key = lambda d, p: None
-            ro.apply_rows = lambda d, p, run: (4, 2, 1, 0)
-            result = ro.run_object(16, dwh_connect=lambda: conn, read_credential=lambda c: SECRET,
-                                   source_connect_fn=lambda c, p: Source())
+            ro.apply_rows = apply
+            ro.source_chunks = lambda *a, **k: iter(chunks)
+            return ro.run_object(16, dwh_connect=lambda: conn, read_credential=lambda c: SECRET,
+                                 source_connect_fn=lambda c, p: Source())
         finally:
-            ro.source_columns, ro.stage_rows, ro.validate_key, ro.apply_rows, ro.estimated_rows = original
+            (ro.source_columns, ro.stage_rows, ro.validate_key, ro.apply_rows, ro.estimated_rows,
+             ro.source_chunks) = original
+
+    def test_chunk_failure_keeps_committed_chunks(self):
+        # I21 (B5): chunk 1 is committed; chunk 2 fails: the run is FAILED with the counts of chunk 1.
+        conn = dwh_conn()
+        calls = []
+
+        def apply(d, p, run):
+            calls.append(run)
+            if len(calls) == 2:
+                raise db_error("23514", message="row (1, 'SECRET-VALUE') violates check")
+            return (4, 0, 0, 0)
+        result = self.run_chunks(conn, [[("1", "2", "x")] * 4, [("5", "6", "y")] * 3], apply)
+        self.assertEqual((result.status, result.error_code, result.rows_read, result.rows_inserted),
+                         ("FAILED", "TARGET_CHECK", 4, 4))
+        self.assertIn("[chunk 2; 4 rows of the earlier chunks are written", result.message)
+        (params,) = conn.finished()
+        self.assertEqual(params[1:4], (False, 4, 4))
+        self.assertEqual(conn.commits, 3)  # begin, chunk 1, the failed run
+
+    def test_success_counts_and_single_commit_with_data(self):
+        conn = dwh_conn()
+        result = self.run_chunks(conn, [[("1", "2", "x")] * 10], lambda d, p, run: (4, 2, 1, 0))
         self.assertEqual((result.status, result.rows_read, result.rows_inserted, result.rows_updated,
                           result.rows_unchanged, result.rows_stale), ("SUCCESS", 10, 4, 2, 3, 1))
         (params,) = conn.finished()
         self.assertEqual(params[:6], (7, True, 10, 4, 2, 3))
         (inc,) = [p for t, p in conn.calls if "object_run_record_increment" in t]
         self.assertEqual(inc, (7, None, None, 1, 0))
-        self.assertEqual(conn.commits, 2)  # begin, then data + finish together
+        self.assertEqual(conn.commits, 3)  # begin, the chunk, then the finish (I21: one commit per chunk)
 
 
 def incremental(change="changed_at", change_type="TIMESTAMPTZ", flag=None, overlap=10):
@@ -290,13 +314,14 @@ class IncrementalTest(unittest.TestCase):
         conn = dwh_conn(begin=begin)
         conn.handlers["pg_attribute"] = lambda p: [("id", "bigint"), ("amount", "bigint"),
                                                    ("changed_at", "timestamp with time zone"), ("is_deleted", "boolean")]
-        conn.handlers["max("] = lambda p: ("2026-11-05 12:00:00+04",)
+        conn.handlers["max("] = lambda p: ("2026-11-05 12:00:00+04", "2026-11-05 12:00:00+04")
 
         class Source:
             def close(self):
                 pass
         seen = {}
-        original = (ro.source_columns, ro.stage_rows, ro.validate_key, ro.apply_rows, ro.estimated_rows, ro.read_source)
+        original = (ro.source_columns, ro.stage_rows, ro.validate_key, ro.apply_rows, ro.estimated_rows,
+                    ro.source_chunks)
         try:
             ro.source_columns = lambda c, s, t: {"id": "BIGINT", "amount": "BIGINT", "changed_at": "TIMESTAMPTZ",
                                                  "is_deleted": "BOOLEAN"}
@@ -304,12 +329,12 @@ class IncrementalTest(unittest.TestCase):
             ro.estimated_rows = lambda c, s, t: estimate
             ro.validate_key = lambda d, p: None
             ro.apply_rows = lambda d, p, run: (1, 1, 1, 1)
-            ro.read_source = lambda c, s, t, p, limit, where=None, log=None: seen.update(where=where) or iter(())
+            ro.source_chunks = lambda c, s, t, p, where, log=None: seen.update(where=where) or iter([[()] * 5])
             result = ro.run_object(16, dwh_connect=lambda: conn, read_credential=lambda c: SECRET,
                                    source_connect_fn=lambda c, p: Source())
         finally:
             (ro.source_columns, ro.stage_rows, ro.validate_key, ro.apply_rows, ro.estimated_rows,
-             ro.read_source) = original
+             ro.source_chunks) = original
         return result, conn, seen
 
     def test_incremental_run_records_watermark(self):
@@ -323,9 +348,8 @@ class IncrementalTest(unittest.TestCase):
 
     def test_first_incremental_run_is_full(self):
         begin = dict(BEGIN, definition=incremental(), watermark=None)
-        result, conn, seen = self.run_with(begin, 2_000_000)
-        self.assertEqual((result.error_code, seen), ("ROW_LIMIT", {}))
-        result, conn, seen = self.run_with(begin, 5)
+        result, conn, seen = self.run_with(begin, 2_000_000)  # I21: no row limit any more
+        self.assertEqual(result.status, "SUCCESS")
         self.assertIsNone(seen["where"])
         (inc,) = [p for t, p in conn.calls if "object_run_record_increment" in t]
         self.assertEqual(inc[1:3], (None, "2026-11-05 12:00:00+04"))
@@ -433,26 +457,54 @@ class SourceWaitTest(unittest.TestCase):
 
 
 class EstimateTest(unittest.TestCase):
-    def test_estimate_over_limit_stops_before_read(self):
-        conn = dwh_conn()
+    """I21 (B3): no row limit; the free space of the DWH disk is checked against the source size."""
 
-        class Source:
-            def close(self):
-                pass
-        original = (ro.source_columns, ro.estimated_rows, ro.read_source)
-        read = []
+    class Src:
+        def __init__(self, size):
+            self.size = size
+
+        def cursor(self):
+            outer = self
+
+            class Cur:
+                def __enter__(self):
+                    return self
+
+                def __exit__(self, *a):
+                    return False
+
+                def execute(self, q, p=None):
+                    pass
+
+                def fetchone(self):
+                    return (outer.size,)
+            return Cur()
+
+        def rollback(self):
+            pass
+
+    def test_free_space(self):
+        import shutil
+        original = shutil.disk_usage
+        messages = []
         try:
-            ro.source_columns = lambda c, s, t: {"id": "BIGINT", "amount": "BIGINT", "note": "TEXT"}
-            ro.estimated_rows = lambda c, s, t: 2_000_000
-            ro.read_source = lambda *a: read.append(a) or iter(())
-            messages = []
-            result = ro.run_object(16, dwh_connect=lambda: conn, read_credential=lambda c: SECRET,
-                                   source_connect_fn=lambda c, p: Source(), log=messages.append)
+            shutil.disk_usage = lambda p: shutil._ntuple_diskusage(100 * 2**30, 90 * 2**30, 10 * 2**30)
+            ro.check_free_space(self.Src(1 * 2**30), "s", "t", messages.append)  # 3 GB needed, 10 GB free
+            with self.assertRaises(ro.RunError) as ctx:
+                ro.check_free_space(self.Src(4 * 2**30), "s", "t", messages.append)
+            self.assertEqual(ctx.exception.code, "DISK_SPACE")
+            ro.check_free_space(self.Src(0), "s", "t", messages.append)  # a view: no size, no check
         finally:
-            ro.source_columns, ro.estimated_rows, ro.read_source = original
-        self.assertEqual((result.error_code, read), ("ROW_LIMIT", []))
-        self.assertTrue(any("estimated rows 2000000" in m for m in messages))
-        self.assertNotIn(SECRET, " ".join(messages))
+            shutil.disk_usage = original
+        self.assertTrue(any("free on the DWH disk 10240 MB" in m for m in messages))
+
+    def test_chunk_size_setting(self):
+        os.environ["DWH_LOAD_CHUNK_ROWS"] = "500"
+        try:
+            self.assertEqual(ro.chunk_rows(), 500)
+        finally:
+            del os.environ["DWH_LOAD_CHUNK_ROWS"]
+        self.assertEqual(ro.chunk_rows(), 100_000)
 
 
 if __name__ == "__main__":

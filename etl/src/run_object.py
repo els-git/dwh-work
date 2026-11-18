@@ -39,6 +39,14 @@ here from quoted names and literals only) -> key validation -> the same apply by
 the ODS history -> etl.object_ods_run_finish, one transaction. The ODS step is a run of its own: an
 ODS failure never changes the committed STG result. DWH_RUN_OBJECT_STAGE=ODS runs the ODS step alone.
 
+I21 (plan docs/DWH_I21_LARGE_TABLES_PLAN_APPROVED_20261118.md, B1-B6): steps 4-6 run per CHUNK of
+DWH_LOAD_CHUNK_ROWS rows (default 100 000), each chunk committed on its own; the source is read by key when a
+unique index covers the key (one short query per chunk), otherwise one cursor is cut into chunks; no row limit
+(R6) any more, a free space check instead; a new row is recorded in the history by its key only; a failure keeps
+the committed chunks (the run is FAILED with their counts, a rerun completes the load); the watermark is written
+after the last chunk; staging uses COPY (DWH_STAGE_COPY=0: batched INSERTs). The ODS step is cut by the primary
+key of the STG table the same way.
+
 Usage: set DWH_RUN_OBJECT_ID and run (tools\\run_etl.ps1 -Task run-object -ObjectId <id> [-Stage ODS]).
 """
 
@@ -57,7 +65,9 @@ from psycopg.types.json import Jsonb
 
 from dwh_api.source_gateway import SourceGatewayError  # backend/src is on PYTHONPATH (tools/run_etl.ps1)
 
-ROW_LIMIT = 1_000_000
+ROW_LIMIT = 1_000_000  # I06 R6; I21: no longer applied, kept for callers that pass row_limit
+# I21 (B1): the object is loaded in chunks; each chunk is checked, applied and committed on its own.
+CHUNK_ROWS = 100_000
 FETCH_SIZE = 5_000
 SOURCE_CONNECT_TIMEOUT = 15
 SOURCE_STATEMENT_TIMEOUT_MS = 30 * 60 * 1000
@@ -447,7 +457,114 @@ def source_wait_error(exc: psycopg.Error, watchdog: ReplyWatchdog, schema: str, 
     return None
 
 
-def read_source(conn, schema: str, table: str, plan: Plan, row_limit: int, where: sql.Composable | None = None,
+def chunk_rows() -> int:
+    value = os.environ.get("DWH_LOAD_CHUNK_ROWS", "").strip()
+    return int(value) if value.isdigit() and int(value) > 0 else CHUNK_ROWS
+
+
+def source_key_order(conn, schema: str, table: str, columns: list[str]) -> tuple[list[str], bool] | None:
+    """I21 (B2): a unique index on exactly these columns (no expression, no predicate) allows reading the source by
+    key: (columns in index order, primary key). None — no such index (a view, or no index): one cursor."""
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT i.indisprimary, array_agg(a.attname::text ORDER BY k.n)
+                     FROM pg_index i JOIN pg_class t ON t.oid = i.indrelid
+                     JOIN pg_namespace ns ON ns.oid = t.relnamespace
+                     CROSS JOIN LATERAL unnest(i.indkey::int2[]) WITH ORDINALITY k(attnum, n)
+                     JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = k.attnum
+                    WHERE ns.nspname = %s AND t.relname = %s AND i.indisunique AND i.indisvalid
+                      AND i.indpred IS NULL AND i.indexprs IS NULL AND i.indnkeyatts = %s
+                    GROUP BY i.indexrelid, i.indisprimary
+                    ORDER BY i.indisprimary DESC""",
+                (schema, table, len(columns)))
+            rows = cur.fetchall()
+        conn.rollback()
+    except Exception:  # noqa: BLE001 - without the catalog answer the source is read with one cursor
+        try:
+            conn.rollback()
+        except Exception:  # noqa: BLE001
+            pass
+        return None
+    for primary, names in rows:
+        if sorted(names) == sorted(columns):
+            return list(names), bool(primary)
+    return None
+
+
+def source_chunks(conn, schema: str, table: str, plan: Plan, where: sql.Composable | None,
+                  log: Callable[[str], None] = lambda message: None, size: int | None = None):
+    """I21: lists of at most `size` source rows (text values in plan.written order).
+
+    With a unique index on the key (B2) every chunk is its own short query: rows after the last key of the
+    previous chunk, in key order, LIMIT size; nothing stays open on the source between chunks. Otherwise (a view,
+    no index) one cursor is read and cut into chunks."""
+    size = size or chunk_rows()
+    key_source = {f["target_column"]: f["source_column"] for f in plan.written}
+    columns = [key_source[k] for k in plan.key]
+    order = source_key_order(conn, schema, table, columns)
+    if order is None:
+        log("STAGE: source read with one cursor (no unique index on the key)")
+        chunk: list = []
+        for row in read_source(conn, schema, table, plan, None, where, log):
+            chunk.append(row)
+            if len(chunk) >= size:
+                yield chunk
+                chunk = []
+        if chunk:
+            yield chunk
+        return
+    names, primary = order
+    log(f"STAGE: source read by key ({', '.join(names)}), {size} rows per chunk")
+    position = [next(i for i, f in enumerate(plan.written) if f["source_column"] == n) for n in names]
+    select = sql.SQL("SELECT {} FROM {}.{}").format(
+        sql.SQL(", ").join(sql.SQL("{}::text").format(sql.Identifier(f["source_column"])) for f in plan.written),
+        sql.Identifier(schema), sql.Identifier(table))
+    key_row = sql.SQL("ROW({})").format(sql.SQL(", ").join(sql.Identifier(n) for n in names))
+    order_by = sql.SQL(", ").join(sql.Identifier(n) for n in names)
+    watchdog = ReplyWatchdog(conn, reply_timeout_seconds(), log=log)
+    last: list | None = None
+    try:
+        with conn.cursor() as cur:
+            if not primary:  # a unique index admits NULL keys, which reading by key would skip
+                nulls = sql.SQL("SELECT count(*) FROM {}.{} WHERE {}").format(
+                    sql.Identifier(schema), sql.Identifier(table),
+                    sql.SQL(" OR ").join(sql.SQL("{} IS NULL").format(sql.Identifier(n)) for n in names))
+                if where is not None:
+                    nulls = nulls + sql.SQL(" AND ({})").format(where)
+                (count,), = watchdog.run(cur, nulls, "FETCH")
+                conn.rollback()
+                if count:
+                    raise RunError("KEY_NULL", f"{count} source rows have an empty business key: "
+                                   + ", ".join(names) + " (unique index of the source allows NULL)")
+            while True:
+                conditions = [sql.SQL("({})").format(where)] if where is not None else []
+                if last is not None:
+                    conditions.append(sql.SQL("{} > ROW({})").format(
+                        key_row, sql.SQL(", ").join(sql.Literal(v) for v in last)))
+                statement = select
+                if conditions:
+                    statement = statement + sql.SQL(" WHERE ") + sql.SQL(" AND ").join(conditions)
+                statement = statement + sql.SQL(" ORDER BY {} LIMIT {}").format(order_by, sql.Literal(size))
+                rows = watchdog.run(cur, statement, "FETCH")
+                conn.rollback()
+                if not rows:
+                    return
+                last = [rows[-1][i] for i in position]
+                yield rows
+                if len(rows) < size:
+                    return
+    except psycopg.Error as exc:
+        raise (source_wait_error(exc, watchdog, schema, table) or database_error(exc, "source")) from None
+    finally:
+        try:
+            conn.rollback()
+        except psycopg.Error:
+            if not watchdog.aborted:
+                raise
+
+
+def read_source(conn, schema: str, table: str, plan: Plan, row_limit: int | None, where: sql.Composable | None = None,
                 log: Callable[[str], None] = lambda message: None, reply_timeout: int | None = None):
     """Rows of the mapped columns as text (NULL stays NULL), in published field order.
 
@@ -476,7 +593,7 @@ def read_source(conn, schema: str, table: str, plan: Plan, row_limit: int, where
                     break
                 for row in batch:
                     count += 1
-                    if count > row_limit:
+                    if row_limit is not None and count > row_limit:
                         raise RunError("ROW_LIMIT", f"Source object has more than {row_limit} rows")
                     yield row
     except psycopg.Error as exc:
@@ -501,6 +618,10 @@ STAGE_BATCH = 1_000
 MAX_BIND_PARAMETERS = 65_535
 
 
+def stage_copy_enabled() -> bool:
+    return os.environ.get("DWH_STAGE_COPY", "").strip() != "0"
+
+
 def stage_batch_rows(columns: int) -> int:
     """Rows per INSERT so that rows x columns stays within the parameter limit."""
     return max(1, min(STAGE_BATCH, MAX_BIND_PARAMETERS // max(1, columns)))
@@ -522,6 +643,14 @@ def stage_rows(dwh, plan: Plan, rows, log: Callable[[str], None] = lambda m: Non
         batch: list = []
         count = 0
         batch_rows = stage_batch_rows(len(plan.written))
+        if stage_copy_enabled():
+            # I21 (B6): COPY into the chunk table; DWH_STAGE_COPY=0 returns to batched INSERTs.
+            with cur.copy(sql.SQL("COPY dwh_object_run_raw ({}) FROM STDIN").format(
+                    sql.SQL(", ").join(_ident(c) for c in plan.columns))) as copy:
+                for row in rows:
+                    copy.write_row(row)
+                    count += 1
+            rows = ()
 
         def flush():
             if batch:
@@ -700,9 +829,9 @@ def apply_rows(dwh, plan: Plan, run_id: int,
                     raise RunError("APPLY_MISMATCH", "Updated rows differ from the history rows")
         new_rows = sql.SQL("FROM dwh_object_run_stage s WHERE NOT EXISTS (SELECT 1 FROM {target} t WHERE {join})").format(
             target=target, join=join)
-        after = _jsonb_object(list(
-            sql.SQL("{}, jsonb_build_object('after', to_jsonb(s.{}))").format(sql.Literal(c), _ident(c))
-            for c in plan.columns))
+        # I21 (B4): a new row is recorded by its key only; its values are in the target row, and its first
+        # update records them as "before".
+        after = sql.SQL("'{}'::jsonb")
         cur.execute(history_insert + sql.SQL("SELECT {run}, 'INSERT', {key_json}, {after} {new_rows}").format(
             run=sql.Literal(run_id), key_json=key_json, after=after, new_rows=new_rows))
         inserted = cur.rowcount
@@ -714,6 +843,17 @@ def apply_rows(dwh, plan: Plan, run_id: int,
             if cur.rowcount != inserted:
                 raise RunError("APPLY_MISMATCH", "Inserted rows differ from the history rows")
     return inserted, updated, stale, deleted
+
+
+def chunk_watermark(dwh, plan: Plan) -> tuple[Any, str] | None:
+    """Highest change value of the staged chunk: (typed value for comparison, text for the run)."""
+    if plan.change_field is None:
+        return None
+    with dwh.cursor() as cur:
+        column = _ident(plan.change_field["target_column"])
+        cur.execute(sql.SQL("SELECT max({c}), max({c})::text FROM dwh_object_run_stage").format(c=column))
+        value, text = cur.fetchone()
+    return None if value is None else (value, text)
 
 
 def staged_watermark(dwh, plan: Plan) -> str | None:
@@ -745,6 +885,69 @@ def _finish(dwh, run_id: int, ok: bool, result: RunResult, error: RunError | Non
             (run_id, ok, result.rows_read, result.rows_inserted, result.rows_updated, result.rows_unchanged)
             + _finish_args(ok, error))
         return cur.fetchone()[0]
+
+
+@dataclass
+class ChunkTotals:
+    """Rows of the chunks already committed by this run (I21, B5)."""
+    chunk: int = 0
+    read: int = 0
+    inserted: int = 0
+    updated: int = 0
+    stale: int = 0
+    deleted: int = 0
+    watermark: tuple[Any, str] | None = None
+
+    def add(self, read: int, inserted: int, updated: int, stale: int, deleted: int,
+            mark: tuple[Any, str] | None = None) -> None:
+        self.read += read
+        self.inserted += inserted
+        self.updated += updated
+        self.stale += stale
+        self.deleted += deleted
+        if mark is not None and (self.watermark is None or mark[0] > self.watermark[0]):
+            self.watermark = mark
+
+
+def committed_rows(result, committed: ChunkTotals | None, error: RunError) -> None:
+    """A failed run reports what its committed chunks wrote (B5); the message names the failed chunk."""
+    done = committed if committed is not None else ChunkTotals()
+    result.rows_read, result.rows_inserted, result.rows_updated = done.read, done.inserted, done.updated
+    result.rows_unchanged = max(0, done.read - done.inserted - done.updated - done.stale)
+    if hasattr(result, "rows_stale"):
+        result.rows_stale, result.rows_deleted = done.stale, done.deleted
+    if done.chunk > 1 or (done.chunk == 1 and done.read):
+        error.message = (f"{error.message} [chunk {done.chunk}; {done.read} rows of the earlier chunks are written "
+                         "and stay; run again to load the rest]")
+
+
+def check_free_space(src, schema: str, table: str, log: Callable[[str], None]) -> None:
+    """I21 (B3): the source size times 3 (STG, ODS, history) must fit on the disk of the DWH database, when both
+    are known (DWH_PG_DATA_DIR, default /var/lib/postgresql); otherwise the check is skipped."""
+    import shutil
+
+    path = os.environ.get("DWH_PG_DATA_DIR", "").strip() or "/var/lib/postgresql"
+    try:
+        free = shutil.disk_usage(path).free
+        with src.cursor() as cur:
+            cur.execute("""SELECT pg_total_relation_size(c.oid) FROM pg_class c JOIN pg_namespace n
+                             ON n.oid = c.relnamespace WHERE n.nspname = %s AND c.relname = %s AND c.relkind = 'r'""",
+                        (schema, table))
+            row = cur.fetchone()
+        src.rollback()
+    except Exception:  # noqa: BLE001 - best effort: without both sizes the check is skipped
+        try:
+            src.rollback()
+        except Exception:  # noqa: BLE001
+            pass
+        return
+    if not row or not row[0]:
+        return
+    needed = int(row[0]) * 3
+    log(f"STAGE: source size {int(row[0]) // 2**20} MB, free on the DWH disk {free // 2**20} MB")
+    if needed > free:
+        raise RunError("DISK_SPACE", f"Source object is about {int(row[0]) // 2**20} MB; loading needs about "
+                       f"{needed // 2**20} MB, the DWH disk has {free // 2**20} MB free")
 
 
 def run_object(source_object_id: int, *, dwh_connect: Callable[[], Any], read_credential: Callable[[str], str],
@@ -786,27 +989,36 @@ def run_object(source_object_id: int, *, dwh_connect: Callable[[], Any], read_cr
             src = source_connect_fn(source["connection_config"], password)
             del password
             log("STAGE: source connected (read-only)")
+            committed = ChunkTotals()
             try:
                 check_structure(plan, source_columns(src, source["source_schema"], source["source_object"]))
                 estimate = estimated_rows(src, source["source_schema"], source["source_object"])
                 log(f"STAGE: source structure OK, estimated rows {estimate if estimate is not None else 'unknown'}")
-                if where is None and estimate is not None and estimate > row_limit:
-                    raise RunError("ROW_LIMIT", f"Source object has about {estimate} rows, limit {row_limit}")
-                try:
-                    result.rows_read = stage_rows(dwh, plan, read_source(
-                        src, source["source_schema"], source["source_object"], plan, row_limit, where, log), log)
-                except psycopg.Error as exc:
-                    raise database_error(exc, "stage") from None
+                check_free_space(src, source["source_schema"], source["source_object"], log)
+                for number, rows in enumerate(source_chunks(src, source["source_schema"], source["source_object"],
+                                                            plan, where, log), 1):
+                    committed.chunk = number
+                    try:
+                        staged = stage_rows(dwh, plan, rows, log)
+                    except psycopg.Error as exc:
+                        raise database_error(exc, "stage") from None
+                    validate_key(dwh, plan)
+                    try:
+                        inserted, updated, stale, deleted = apply_rows(dwh, plan, result.run_id)
+                        mark = chunk_watermark(dwh, plan)
+                    except psycopg.Error as exc:
+                        raise database_error(exc, "apply") from None
+                    dwh.commit()  # I21 (B1, B5): the chunk is written; a later failure keeps it
+                    committed.add(staged, inserted, updated, stale, deleted, mark)
+                    log(f"STAGE: chunk {number}: {staged} rows, {inserted} inserted, {updated} updated; "
+                        f"total {committed.read} rows")
             finally:
                 src.close()
-            log(f"STAGE: {result.rows_read} rows read and converted")
-            validate_key(dwh, plan)
-            log("STAGE: business key OK")
+            result.rows_read, result.rows_inserted, result.rows_updated = committed.read, committed.inserted, committed.updated
+            result.rows_stale, result.rows_deleted = committed.stale, committed.deleted
+            log(f"STAGE: {result.rows_read} rows read and applied in {committed.chunk} chunk(s)")
             try:
-                result.rows_inserted, result.rows_updated, result.rows_stale, result.rows_deleted = apply_rows(
-                    dwh, plan, result.run_id)
-                staged = staged_watermark(dwh, plan)
-                result.watermark_to = staged if staged is not None else result.watermark_from
+                result.watermark_to = committed.watermark[1] if committed.watermark else result.watermark_from
                 with dwh.cursor() as cur:
                     cur.execute("SELECT etl.object_run_record_increment(%s, %s, %s, %s, %s)",
                                 (result.run_id, result.watermark_from, result.watermark_to,
@@ -823,7 +1035,7 @@ def run_object(source_object_id: int, *, dwh_connect: Callable[[], Any], read_cr
                      else RunError(caught.code, caught.message) if isinstance(caught, SourceGatewayError)
                      else database_error(caught, "dwh"))
             dwh.rollback()
-            result.rows_inserted = result.rows_updated = result.rows_unchanged = result.rows_stale = result.rows_deleted = 0
+            committed_rows(result, locals().get("committed"), error)
             result.status = _finish(dwh, result.run_id, False, result, error)
             dwh.commit()
             result.error_code, result.message = error.code, error.message
@@ -831,7 +1043,7 @@ def run_object(source_object_id: int, *, dwh_connect: Callable[[], Any], read_cr
         except Exception as exc:  # unexpected: close the run, re-raise without data
             dwh.rollback()
             error = RunError("INTERNAL_ERROR", f"Unexpected {type(exc).__name__}")
-            result.rows_inserted = result.rows_updated = result.rows_unchanged = result.rows_stale = result.rows_deleted = 0
+            committed_rows(result, locals().get("committed"), error)
             result.status = _finish(dwh, result.run_id, False, result, error)
             dwh.commit()
             result.error_code, result.message = error.code, error.message
@@ -898,24 +1110,62 @@ def ods_expression(f: dict, ods_run_id: int) -> sql.Composable:
     return sql.SQL("CAST({} AS {})").format(value, target)
 
 
-def stage_ods(dwh, plan: Plan, definition: dict, stg_table: str, ods_run_id: int, row_limit: int) -> int:
-    """STG rows -> temporary table with the ODS types (inside the DWH, one statement)."""
+def stg_primary_key(dwh, stg_table: str) -> list[str]:
+    """Columns of the primary key of the STG table, in key order ([] without a primary key)."""
+    with dwh.cursor() as cur:
+        cur.execute("""SELECT array_agg(a.attname::text ORDER BY k.n)
+                         FROM pg_index i JOIN pg_class t ON t.oid = i.indrelid
+                         JOIN pg_namespace ns ON ns.oid = t.relnamespace
+                         CROSS JOIN LATERAL unnest(i.indkey::int2[]) WITH ORDINALITY k(attnum, n)
+                         JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = k.attnum
+                        WHERE ns.nspname = 'stg' AND t.relname = %s AND i.indisprimary""", (stg_table,))
+        row = cur.fetchone()
+    return list(row[0]) if row and row[0] else []
+
+
+def ods_ranges(dwh, stg_table: str, size: int):
+    """I21: conditions on the STG primary key that cut the STG table into chunks of `size` rows, in key order
+    (each a SQL condition on the STG row "s"); one condition TRUE without a primary key."""
+    key = stg_primary_key(dwh, stg_table)
+    if not key:
+        yield sql.SQL("TRUE")
+        return
+    row = sql.SQL("ROW({})").format(sql.SQL(", ").join(sql.SQL("s.{}").format(_ident(k)) for k in key))
+    columns = sql.SQL(", ").join(_ident(k) for k in key)
+    source = sql.SQL("stg.{}").format(_ident(stg_table))
+    last = None
+    while True:
+        after = (sql.SQL("ROW({}) > ROW({})").format(columns, sql.SQL(", ").join(sql.Literal(v) for v in last))
+                 if last is not None else sql.SQL("TRUE"))
+        with dwh.cursor() as cur:
+            cur.execute(sql.SQL("SELECT {} FROM {} WHERE {} ORDER BY {} OFFSET {} LIMIT 1").format(
+                columns, source, after, columns, sql.Literal(size - 1)))
+            upper = cur.fetchone()
+        lower = (sql.SQL("{} > ROW({})").format(row, sql.SQL(", ").join(sql.Literal(v) for v in last))
+                 if last is not None else sql.SQL("TRUE"))
+        if upper is None:
+            yield lower
+            return
+        yield sql.SQL("{} AND {} <= ROW({})").format(lower, row, sql.SQL(", ").join(sql.Literal(v) for v in upper))
+        last = list(upper)
+
+
+def stage_ods(dwh, plan: Plan, definition: dict, stg_table: str, ods_run_id: int, row_limit: int | None = None,
+              condition: sql.Composable | None = None) -> int:
+    """STG rows (of one chunk: `condition` on the STG row "s") -> temporary table with the ODS types."""
     from dwh_api.field_types import postgres_type
 
     fields = definition["fields"]
     source = sql.SQL("stg.{}").format(_ident(stg_table))
+    where = condition if condition is not None else sql.SQL("TRUE")
     with dwh.cursor() as cur:
-        cur.execute(sql.SQL("SELECT count(*) FROM {}").format(source))
-        count = cur.fetchone()[0]
-        if count > row_limit:
-            raise RunError("ROW_LIMIT", f"STG table has {count} rows, limit {row_limit}")
         cur.execute(sql.SQL("CREATE TEMP TABLE dwh_object_run_stage ({}) ON COMMIT DROP").format(
             sql.SQL(", ").join(sql.SQL("{} {}").format(_ident(f["target_column"]), sql.SQL(postgres_type(f["target_type"])))
                                for f in fields)))
-        cur.execute(sql.SQL("INSERT INTO dwh_object_run_stage ({}) SELECT {} FROM {} s").format(
+        cur.execute(sql.SQL("INSERT INTO dwh_object_run_stage ({}) SELECT {} FROM {} s WHERE {}").format(
             sql.SQL(", ").join(_ident(f["target_column"]) for f in fields),
-            sql.SQL(", ").join(ods_expression(f, ods_run_id) for f in fields), source))
-    return count
+            sql.SQL(", ").join(ods_expression(f, ods_run_id) for f in fields), source, where))
+        return cur.rowcount
 
 
 def _ods_finish(dwh, result: OdsResult, ok: bool, error: RunError | None = None) -> str:
@@ -1001,30 +1251,38 @@ def run_ods(source_object_id: int, stg_run_id: int | None, *, dwh_connect: Calla
         try:
             plan = ods_plan(definition)
             check_target(dwh, plan)  # every ODS column exists with the published type
-            try:
-                result.rows_read = stage_ods(dwh, plan, definition, stg_table, result.ods_run_id, row_limit)
-            except psycopg.Error as exc:
-                error = database_error(exc, "ods")
-                state = getattr(getattr(exc, "diag", None), "sqlstate", None) or ""
-                if state.startswith("22"):  # data exception: report it field by field (I13-08)
-                    dwh.rollback()
-                    log("STAGE: ODS data error, checking each field")
-                    with dwh.cursor() as cur:
-                        cur.execute(sql.SQL("SELECT count(*) FROM stg.{}").format(_ident(stg_table)))
-                        total = cur.fetchone()[0]
-                    try:
-                        error = diagnose_ods(dwh, definition, stg_table, result.ods_run_id, total) or error
-                    except psycopg.Error:  # the report is optional: keep the original coded error
-                        log("STAGE: ODS field check failed, original error kept")
-                    dwh.rollback()
-                raise error from None
-            log(f"STAGE: ODS {result.rows_read} STG rows transformed")
-            validate_key(dwh, plan)
-            try:
-                result.rows_inserted, result.rows_updated, _, _ = apply_rows(
-                    dwh, plan, result.ods_run_id, history=("object_ods_record_change", "ods_run_id"))
-            except psycopg.Error as exc:
-                raise database_error(exc, "apply") from None
+            committed = ChunkTotals()
+            for number, condition in enumerate(ods_ranges(dwh, stg_table, chunk_rows()), 1):
+                committed.chunk = number
+                try:
+                    staged = stage_ods(dwh, plan, definition, stg_table, result.ods_run_id, condition=condition)
+                except psycopg.Error as exc:
+                    error = database_error(exc, "ods")
+                    state = getattr(getattr(exc, "diag", None), "sqlstate", None) or ""
+                    if state.startswith("22"):  # data exception: report it field by field (I13-08)
+                        dwh.rollback()
+                        log("STAGE: ODS data error, checking each field")
+                        with dwh.cursor() as cur:
+                            cur.execute(sql.SQL("SELECT count(*) FROM stg.{}").format(_ident(stg_table)))
+                            total = cur.fetchone()[0]
+                        try:
+                            error = diagnose_ods(dwh, definition, stg_table, result.ods_run_id, total) or error
+                        except psycopg.Error:  # the report is optional: keep the original coded error
+                            log("STAGE: ODS field check failed, original error kept")
+                        dwh.rollback()
+                    raise error from None
+                validate_key(dwh, plan)
+                try:
+                    inserted, updated, _, _ = apply_rows(
+                        dwh, plan, result.ods_run_id, history=("object_ods_record_change", "ods_run_id"))
+                except psycopg.Error as exc:
+                    raise database_error(exc, "apply") from None
+                dwh.commit()  # I21: the chunk is written; a later failure keeps it
+                committed.add(staged, inserted, updated, 0, 0)
+                log(f"STAGE: ODS chunk {number}: {staged} rows, {inserted} inserted, {updated} updated; "
+                    f"total {committed.read} rows")
+            result.rows_read, result.rows_inserted, result.rows_updated = committed.read, committed.inserted, committed.updated
+            log(f"STAGE: ODS {result.rows_read} STG rows transformed and applied in {committed.chunk} chunk(s)")
             result.rows_unchanged = result.rows_read - result.rows_inserted - result.rows_updated
             result.status = _ods_finish(dwh, result, True)
             dwh.commit()
@@ -1033,7 +1291,7 @@ def run_ods(source_object_id: int, stg_run_id: int | None, *, dwh_connect: Calla
         except (RunError, psycopg.Error) as caught:
             error = caught if isinstance(caught, RunError) else database_error(caught, "dwh")
             dwh.rollback()
-            result.rows_inserted = result.rows_updated = result.rows_unchanged = 0
+            committed_rows(result, locals().get("committed"), error)
             result.status = _ods_finish(dwh, result, False, error)
             dwh.commit()
             result.error_code, result.message = error.code, error.message
@@ -1041,7 +1299,7 @@ def run_ods(source_object_id: int, stg_run_id: int | None, *, dwh_connect: Calla
         except Exception as exc:  # unexpected: close the run, without data
             dwh.rollback()
             error = RunError("INTERNAL_ERROR", f"Unexpected {type(exc).__name__}")
-            result.rows_inserted = result.rows_updated = result.rows_unchanged = 0
+            committed_rows(result, locals().get("committed"), error)
             result.status = _ods_finish(dwh, result, False, error)
             dwh.commit()
             result.error_code, result.message = error.code, error.message
