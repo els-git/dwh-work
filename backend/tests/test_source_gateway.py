@@ -241,6 +241,7 @@ class ConnectTest(unittest.TestCase):
 ALLOWED_DIRECT = {
     "backend/src/dwh_api/source_gateway.py": "the gateway itself",
     "backend/src/dwh_api/db.py": "DWH database (API roles)",
+    "backend/src/dwh_api/sql_mart.py": "DWH database as dwh_dm_sql_ro (I23: query of a SQL mart, reads ods only)",
     "backend/src/dwh_api/secret_admin_executor.py": "DWH database (operator of SecretStore)",
     "backend/src/dwh_api/postgres_connector.py": "passes psycopg.connect to the gateway as connect_fn",
     "etl/src/dwh/db.py": "connect(): DWH database (the CRM connection of the old contour was removed in I18)",

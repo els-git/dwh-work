@@ -18,6 +18,11 @@ finish swaps it in and publishes the version in one transaction, or drops it whe
 
 Only the DWH database is read and written (no source system), so the run stays in the dispatcher process;
 DWH_DM_STATEMENT_TIMEOUT_SECONDS (default 1800) limits each statement.
+
+A SQL version (I23, package 023) is filled by build_sql(): the stored query is read on a separate connection of
+dwh_dm_sql_ro (SELECT on ods only, read-only, one REPEATABLE READ snapshot for the checks and the rows), the
+key must be filled and unique, and the rows go into dm.<code> / dm.<code>__next by COPY under dwh_etl in the
+transaction of the DELETE.
 """
 
 from __future__ import annotations
@@ -30,6 +35,7 @@ import psycopg
 from psycopg.types.json import Jsonb
 
 from dwh_api import dm_sql  # backend/src is on PYTHONPATH (tools/run_etl.ps1, dispatcher service)
+from dwh_api import sql_mart
 
 DEFAULT_TIMEOUT_SECONDS = 1800
 
@@ -115,6 +121,92 @@ def build(conn, defn: dm_sql.Definition, *, timeout: int | None = None, target: 
         return MartResult(False, error_code=code, message=_primary(exc), diagnostic={"sqlstate": state})
 
 
+def _sql_error(exc: psycopg.Error) -> MartResult:
+    state = getattr(getattr(exc, "diag", None), "sqlstate", None) or getattr(exc, "sqlstate", None) or ""
+    code = ("DM_TIMEOUT" if state == "57014" else "DM_SQL_NOT_ALLOWED" if state in ("42501", "25006")
+            else "DM_DATA_ERROR" if state[:2] in ("22", "23")
+            else "DM_TABLE_MISMATCH" if state in ("42703", "42P01", "42804") else "DM_DATABASE_ERROR")
+    return MartResult(False, error_code=code, message=_primary(exc), diagnostic={"sqlstate": state})
+
+
+def build_sql(conn, defn: dm_sql.Definition, sql_text: str, *, timeout: int | None = None, target: str | None = None,
+              log: Callable[[str], None] = lambda m: None, ro_connect: Callable[[int], Any] | None = None) -> MartResult:
+    """Checks and reloads a mart of a SQL version (I23); commits the data on success, rolls back otherwise.
+
+    ro_connect(timeout_ms) opens the dwh_dm_sql_ro connection (default: the DWH database of conn)."""
+    table = target or defn.mart_code
+    if timeout is None:
+        timeout = int(os.environ.get("DWH_DM_STATEMENT_TIMEOUT_SECONDS", "") or DEFAULT_TIMEOUT_SECONDS)
+    keys = [f for f in defn.fields if f.is_key]
+    if len(keys) != 1 or not sql_text:
+        return MartResult(False, error_code="DM_DEFINITION_INVALID", message="a SQL version needs its query and one key field")
+    key = keys[0].name
+    fields = [(f.name, f.data_type) for f in defn.fields]
+    try:
+        if ro_connect is None:
+            info = conn.info
+            ro = sql_mart.connect(info.host, info.port, info.dbname, int(timeout) * 1000)
+        else:
+            ro = ro_connect(int(timeout) * 1000)
+    except sql_mart.SqlMartError as exc:
+        return MartResult(False, error_code=exc.code, message=str(exc))
+    except psycopg.Error as exc:
+        return MartResult(False, error_code="DM_SQL_CONNECT_FAILED", message=f"{sql_mart.ROLE}: {_primary(exc)}")
+    try:
+        ro.isolation_level = psycopg.IsolationLevel.REPEATABLE_READ
+        with ro.cursor() as rc:
+            rc.execute(sql_mart.wrapped(sql_text) + " LIMIT 0")
+            names = [d.name for d in (rc.description or [])]
+            missing = [name for name, _ in fields if name not in names]
+            if missing:
+                ro.rollback()
+                return MartResult(False, error_code="DM_SQL_COLUMNS_CHANGED",
+                                  message="the query no longer returns the columns of the mart: " + ", ".join(missing[:20]),
+                                  diagnostic={"missing": missing[:50]})
+            rc.execute(sql_mart.key_null_sql(sql_text, key))
+            row = rc.fetchone()
+            nulls = int(row["n"] if isinstance(row, dict) else row[0])
+            if nulls:
+                ro.rollback()
+                return MartResult(False, error_code="DM_KEY_NULL",
+                                  message=f"{nulls} rows of the query have an empty key {key}",
+                                  diagnostic={"column": key, "rows": nulls})
+            rc.execute(sql_mart.key_duplicates_sql(sql_text, key, dm_sql.KEY_EXAMPLES))
+            dups = _rows(rc)
+            if dups:
+                examples = [{"key": r["key_value"], "rows": int(r["rows"])} for r in dups]
+                total = int(dups[0]["duplicate_keys"])
+                shown = ", ".join(f"{e['key']} x{e['rows']}" for e in examples)
+                ro.rollback()
+                return MartResult(False, error_code="DM_KEY_NOT_UNIQUE",
+                                  message=f"{total} values of the key {key} occur more than once in the query: {shown}",
+                                  diagnostic={"column": key, "duplicate_keys": total, "examples": examples})
+        log(f"STAGE: DM SQL keys checked (key {key})")
+        columns = ", ".join(sql_mart.qi(name) for name, _ in fields)
+        with conn.cursor() as cur, ro.cursor() as rc:
+            cur.execute("SELECT set_config('statement_timeout', %s, true)", (f"{int(timeout) * 1000}",))
+            cur.execute(f'DELETE FROM "dm".{dm_sql.qi(table)}')
+            deleted = cur.rowcount
+            with rc.copy(f"COPY ({sql_mart.read_sql(sql_text, fields)}) TO STDOUT") as src, \
+                    cur.copy(f'COPY "dm".{dm_sql.qi(table)} ({columns}, "dm_loaded_at") FROM STDIN') as dst:
+                for block in src:
+                    dst.write(block)
+            inserted = cur.rowcount
+        conn.commit()
+        ro.rollback()
+        log(f"STAGE: DM dm.{table} reloaded from SQL: deleted={deleted} inserted={inserted}")
+        return MartResult(True, rows_deleted=deleted, rows_inserted=inserted)
+    except psycopg.Error as exc:
+        conn.rollback()
+        try:
+            ro.rollback()
+        except psycopg.Error:
+            pass
+        return _sql_error(exc)
+    finally:
+        ro.close()
+
+
 def _finish(conn, run_id: int, result: MartResult) -> str:
     conn.rollback()
     with conn.cursor() as cur:
@@ -149,10 +241,17 @@ def process_one(conn, worker: str, *, log: Callable[[str], None] = lambda m: pri
     try:
         with conn.cursor() as cur:
             defn = dm_sql.load_definition(cur, version_id)
+            # to_jsonb: a database without package 023 has no version_kind (every version is a builder one).
+            cur.execute("SELECT to_jsonb(v) ->> 'version_kind' AS version_kind, to_jsonb(v) ->> 'sql_text' AS sql_text "
+                        "FROM meta.dm_mart_version v WHERE v.version_id = %s", (version_id,))
+            kind_row = _rows(cur)
         conn.rollback()
         # PUBLISH (package 019): fill the table built aside; the finish swaps it in and publishes the version.
         target = f"{defn.mart_code}__next" if trigger == "PUBLISH" else None
-        result = build(conn, defn, timeout=timeout, target=target, log=log)
+        if kind_row and kind_row[0]["version_kind"] == "SQL":
+            result = build_sql(conn, defn, kind_row[0]["sql_text"], timeout=timeout, target=target, log=log)
+        else:
+            result = build(conn, defn, timeout=timeout, target=target, log=log)
     except dm_sql.DefinitionError as exc:
         conn.rollback()
         result = MartResult(False, error_code="DM_DEFINITION_INVALID", message=str(exc))

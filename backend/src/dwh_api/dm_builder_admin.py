@@ -14,6 +14,10 @@ Administration (ADMIN_INTEGRATION_MANAGE, checked by the middleware and again by
   POST /api/admin/integrations/dm/versions/{id}/publish      {confirm}: publish; a new structure is built aside
                                                              and swapped in by the dispatcher (019)
   POST /api/admin/integrations/dm/marts/{id}/delete          {confirm}: drop the mart table, deactivate (019)
+  POST /api/admin/integrations/dm/sql/check                  I23: check a ready query under dwh_dm_sql_ro ->
+                                                             ods tables, columns with mart types, first 50 rows
+  POST /api/admin/integrations/dm/versions/{id}/sql          I23: {sql_text, key, titles}: the server checks the
+                                                             query again and saves the draft as a SQL version
   POST /api/admin/integrations/dm/run-requests               manual run request of a mart
   POST /api/admin/integrations/dm/run-requests/{id}/cancel   cancel a QUEUED request
 State (INTEGRATION_VIEW):
@@ -21,7 +25,9 @@ State (INTEGRATION_VIEW):
 
 Every change goes through the app.dm_* functions of 018 and app.mart_builder_* of 019 (session, validation,
 audit). The DDL text is built by the database from the whitelisted field types and executed by the database
-functions of 019 only for tables of the builder's marts; no SQL text from the client is executed.
+functions of 019 only for tables of the builder's marts. The only client SQL text that runs is the query of a
+SQL mart (I23), and only on a connection of dwh_dm_sql_ro (SELECT on ods, read-only; dwh_api.sql_mart); the
+fields saved for it come from the server's check, not from the client.
 """
 from __future__ import annotations
 
@@ -36,7 +42,7 @@ from fastapi.encoders import jsonable_encoder
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel, Field
 
-from dwh_api import dm_sql
+from dwh_api import dm_sql, sql_mart
 from dwh_api.config import get_api_config
 from dwh_api.db import connect_control, connect_readonly
 from dwh_api.integration_admin import _db_message, _raise_database_error, _session_token_hash, _set_request_context
@@ -128,6 +134,15 @@ class VersionSave(BaseModel):
 
 class Confirm(BaseModel):
     confirm: bool = False
+
+
+class SqlCheck(BaseModel):
+    sql_text: str = Field(min_length=1, max_length=sql_mart.MAX_SQL_CHARS + 1000)
+
+
+class SqlSave(SqlCheck):
+    key: str = Field(pattern=r"^[a-z][a-z0-9_]{0,62}$")
+    titles: dict[str, str] = Field(default_factory=dict, max_length=sql_mart.MAX_COLUMNS)
 
 
 class RunRequestCreate(BaseModel):
@@ -349,6 +364,40 @@ def version_publish(request: Request, payload: Confirm | None = None, version_id
 def mart_delete(request: Request, payload: Confirm | None = None, mart_id: int = PathParam(ge=1)) -> dict:
     confirm = bool(payload and payload.confirm)
     return jsonable_encoder(_json(call_db(request, "SELECT app.mart_builder_delete(%s, %s, %s)", (mart_id, confirm))))
+
+
+# ------------------------------------------------------------------ SQL marts (I23)
+
+def _sql_check(sql_text: str) -> sql_mart.CheckResult:
+    try:
+        with closing(sql_mart.connect(config.db_host, config.db_port, config.db_name)) as conn:
+            return sql_mart.check(conn, sql_text)
+    except sql_mart.SqlMartError as exc:
+        status = 503 if exc.code == "DM_SQL_NOT_CONFIGURED" else 422
+        raise HTTPException(status_code=status, detail=f"{exc.code}: {exc}") from exc
+    except psycopg.OperationalError as exc:
+        raise HTTPException(status_code=503, detail=f"DM_SQL_CONNECT_FAILED: {sql_mart.ROLE} cannot connect") from exc
+
+
+@admin_router.post("/sql/check")
+def sql_check(payload: SqlCheck) -> dict:
+    result = _sql_check(payload.sql_text)
+    return jsonable_encoder({"sql_text": result.sql_text, "tables": result.tables,
+                             "columns": [{"name": c.name, "source_type": c.source_type, "type": c.type,
+                                          "problem": c.problem} for c in result.columns],
+                             "rows": result.rows, "problems": result.problems})
+
+
+@admin_router.post("/versions/{version_id}/sql")
+def sql_save(payload: SqlSave, request: Request, version_id: int = PathParam(ge=1)) -> dict:
+    result = _sql_check(payload.sql_text)
+    try:
+        fields = sql_mart.fields_document(result, payload.key, payload.titles)
+    except sql_mart.SqlMartError as exc:
+        raise HTTPException(status_code=422, detail=f"{exc.code}: {exc}") from exc
+    row = call_db(request, "SELECT app.sql_mart_save(%s, %s, %s, %s, %s)",
+                  (version_id, result.sql_text, result.tables, Jsonb(fields)))
+    return {"version_id": version_id, "tables": result.tables, "problems": list(_value(row) or [])}
 
 
 # ------------------------------------------------------------------ runs
