@@ -205,5 +205,35 @@
       "label": "020",
       "expected": 8
     }
+  },
+  "022": {
+    "number": "022",
+    "owner": "dwh_admin",
+    "marker": "app.mart_view_begin(text, bigint, jsonb)",
+    "copy_db": "dwh_i22_022_test",
+    "check_expected": 6,
+    "added_rows": {},
+    "migration": {
+      "path": "database/migrations/022_mart_view_log.sql",
+      "sha256": "76822EFA05318D2356A4A5129B5FF0CF7570FE455C4DEF0ABF5BF2734837AF51"
+    },
+    "down": {
+      "path": "database/migrations/022_mart_view_log.down.sql",
+      "sha256": "D2F88CA50C008863AF57EC0F95E2B269D6FC9931BB0170D4A6AF9283280906B9"
+    },
+    "check": {
+      "path": "database/checks/022_mart_view_log_check.sql",
+      "sha256": "7C0667FBB52709A1F99C0E27E93661CB688F8AB35279818D010E527FB505432D"
+    },
+    "test": {
+      "path": "database/tests/022_mart_view_log_test.sql",
+      "sha256": "17A96A1E9DB072C0A86AE724D4C7DDE7C6FD337FE2AEB72DBB15C702AA0897DD"
+    },
+    "previous_check": {
+      "path": "database/checks/017_ai_saved_reports_check.sql",
+      "sha256": "5DA8A570EF9DB37D8F8219CB6C6E571DFD70BD429B81D3C09389BD09203ADEB8",
+      "label": "017",
+      "expected": 8
+    }
   }
 }
