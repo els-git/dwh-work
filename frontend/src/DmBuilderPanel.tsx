@@ -1039,7 +1039,9 @@ function DmBuilderPanel() {
         <form className="ai-admin-form" onSubmit={submitMart}>
           <label>{t('dm.martCode')}
             <input required disabled={martForm.mart_id !== null} value={martForm.mart_code ?? ''} placeholder="pension_requests"
-              onChange={e => setMartForm({ ...martForm, mart_code: e.target.value.trim().toLowerCase() })} />
+              pattern="[a-z][a-z0-9_]{0,49}" title={t('dm.martCodeHint')}
+              onChange={e => setMartForm({ ...martForm, mart_code: e.target.value.trim().toLowerCase().replace(/^dm\./, '') })} />
+            <span className="loads-muted">{t('dm.martCodeHint')}</span>
           </label>
           <label>{t('dm.martTitle')}
             <input required value={martForm.title} onChange={e => setMartForm({ ...martForm, title: e.target.value })} />
