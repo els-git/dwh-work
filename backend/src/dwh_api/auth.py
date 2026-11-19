@@ -28,6 +28,9 @@ from pydantic import (
     Field,
 )
 
+import logging
+
+from dwh_api import directory_login
 from dwh_api.config import get_api_config
 from dwh_api.db import connect_control
 from dwh_api.security_password import (
@@ -434,6 +437,95 @@ def _load_auth_state(
     return state
 
 
+logger = logging.getLogger("dwh.auth")
+
+
+def _directory_login(
+    conn,
+    cursor,
+    request: Request,
+    login_name: str,
+    password: str,
+):
+    """I20 (D2-D6, D8): (user row, reason, name for the failure journal) of a domain login.
+
+    reason None: not a DWH user with domain login (the caller reports INVALID_CREDENTIALS as for any unknown
+    name). The password goes only to the domain controller (directory_login), never to the database or a log.
+    """
+    try:
+        settings = directory_login.settings_from_env()
+    except directory_login.DirectoryError as exc:
+        logger.warning("domain login not configured: %s", exc)
+        return None, None, login_name
+
+    name = directory_login.normalize_username(
+        login_name,
+        settings,
+    )
+
+    if name is None:
+        return None, None, login_name
+
+    cursor.execute(
+        """
+        SELECT *
+        FROM app.auth_get_directory_user(%s)
+        """,
+        (
+            name,
+        ),
+    )
+
+    row = cursor.fetchone()
+
+    if row is None:
+        return None, None, login_name
+
+    if row["is_active"] is not True:
+        return None, "INVALID_CREDENTIALS", name
+
+    # No open transaction while the controller answers (up to the network timeouts).
+    conn.commit()
+
+    result = directory_login.authenticate(
+        name,
+        password,
+        settings,
+    )
+
+    _set_request_context(
+        cursor,
+        request,
+        "AUTH_API",
+    )
+
+    if not result.ok:
+        if result.reason == directory_login.LDAP_UNAVAILABLE:
+            logger.warning(
+                "domain login unavailable: %s",
+                result.details.get("error", ""),
+            )
+
+        return None, result.reason, name
+
+    cursor.execute(
+        """
+        SELECT app.auth_bind_external_subject(%s, %s) AS bind_result
+        """,
+        (
+            row["user_id"],
+            result.guid,
+        ),
+    )
+
+    bind_result = cursor.fetchone()["bind_result"]
+
+    if bind_result not in ("BOUND", "MATCH"):
+        return None, directory_login.LDAP_GUID_MISMATCH, name
+
+    return row, directory_login.OK, name
+
+
 @router.post(
     "/login",
     response_model=AuthState,
@@ -454,6 +546,7 @@ def login(
     raw_token: str | None = None
     auth_state: AuthState | None = None
     login_failed = False
+    directory_unavailable = False
 
     try:
         with conn.cursor() as cursor:
@@ -478,6 +571,21 @@ def login(
             user = cursor.fetchone()
 
 
+            # I20: no local user of that name -> a DWH user with domain login (LDAP / AD), when enabled.
+            directory_reason: str | None = None
+            directory_user = None
+            failure_name = username
+
+            if user is None and directory_login.enabled():
+                directory_user, directory_reason, failure_name = _directory_login(
+                    conn,
+                    cursor,
+                    request,
+                    username,
+                    payload.password,
+                )
+
+
             encoded_hash = (
                 user["password_hash"]
                 if user is not None
@@ -500,6 +608,13 @@ def login(
             )
 
 
+            if directory_reason is not None:
+                valid_user = directory_reason == directory_login.OK
+
+                if valid_user:
+                    user = directory_user
+
+
             if not valid_user:
 
                 cursor.execute(
@@ -510,13 +625,18 @@ def login(
                     )
                     """,
                     (
-                        username,
-                        "INVALID_CREDENTIALS",
+                        failure_name,
+                        directory_reason
+                        or "INVALID_CREDENTIALS",
                     ),
                 )
 
                 conn.commit()
                 login_failed = True
+                directory_unavailable = (
+                    directory_reason
+                    == directory_login.LDAP_UNAVAILABLE
+                )
 
             else:
 
@@ -649,6 +769,14 @@ def login(
 
     finally:
         conn.close()
+
+
+    if login_failed and directory_unavailable:
+        # D6: the domain cannot check the password; local users are not affected.
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Domain login service is unavailable",
+        )
 
 
     if login_failed:

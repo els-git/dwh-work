@@ -427,7 +427,11 @@ export default function AuthGate({
                     className="auth-login-error"
                     role="alert"
                   >
-                    {loginError}
+                    {
+                      loginError === 'Domain login service is unavailable'
+                        ? <Trans i18nKey="batch.authDomainUnavailable" />
+                        : loginError
+                    }
                   </div>
                 )
                 : null
