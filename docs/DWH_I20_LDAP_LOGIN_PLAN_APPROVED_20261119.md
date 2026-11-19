@@ -1,6 +1,6 @@
 # I20 — Вход через LDAP / Active Directory
 
-<sub>Проект плана · 19.11.2026 · сведения инфраструктуры получены (раздел 3.1); шаг 2 выполнен (разделы 6.2, 6.3); ждёт утверждения пользователя (Д1–Д9, состав пакета 024) (решения Д1–Д9)</sub>
+<sub>Утверждён пользователем 19.11.2026 (Д1–Д9 по рекомендациям, состав пакета 024 — раздел 6.3) · I20 `IN_PROGRESS`</sub>
 
 ## 1. Требование пользователя (17.11.2026)
 
@@ -43,7 +43,7 @@
 | И5 | Вход как `vtbaze\user` или `user@vtbaze.local`; пользователей искать в двух папках (OU) | Д2: принимаются оба вида и просто `user`; поиск по `sAMAccountName` в обеих OU |
 | И6 | Группа не нужна | проверки группы нет |
 
-## 4. Решения (на утверждение)
+## 4. Решения (утверждены 19.11.2026)
 
 | № | Вопрос | Рекомендация | Другой вариант |
 |---|---|---|---|
@@ -121,4 +121,15 @@
 - `app.auth_bind_external_subject(p_user_id bigint, p_subject text)` — при пустом `external_subject` записывает GUID, при заполненном только сверяет (несовпадение → `false`, вход отклоняется `LDAP_GUID_MISMATCH`); журнал события;
 - `EXECUTE` только `dwh_app`, права по умолчанию снимаются; откат удаляет только эти функции.
 Прежние функции не меняются.
+
+### 6.4. Шаг 3 — пакет 024, E0 PASS (19.11.2026, песочница)
+
+Файлы: `database/migrations/024_auth_directory_login.sql` (+ `.down.sql`), проверка `database/checks/024_auth_directory_login_check.sql`, тест `database/tests/024_auth_directory_login_test.sql`, фикстура E0 `database/tests/fixtures/e0_024_auth_stub.sql` (структура `app.user_account` и текст `app.auth_get_local_user` — по описи 6.3), запись в `tools/server/sql_packages.json` (копия E1 — `dwh_i20_024_test`, прежняя проверка — 023, 7/7).
+
+- `app.auth_get_directory_user(text)` — пользователь `LDAP`/`AD` по имени без учёта регистра и пробелов; возвращает `external_subject`, активность; пароля не возвращает.
+- `app.auth_bind_external_subject(bigint, text) → text`: `BOUND` (первый вход, GUID записан в нижнем регистре), `MATCH`, `MISMATCH` (записанный GUID не меняется), `IN_USE` (GUID у другого пользователя), `NOT_DIRECTORY_USER` (локальный, отключённый, неизвестный); строка блокируется (`FOR UPDATE`); `BOUND`/`MISMATCH`/`IN_USE` пишутся в журнал безопасности (`DIRECTORY_SUBJECT_BOUND` / `LDAP_GUID_MISMATCH`) без GUID.
+- `EXECUTE` — только `dwh_app`; права по умолчанию снимаются (`DEFAULT_GRANT_REVOKED`).
+- Откат удаляет только две функции; записанные GUID остаются (столбец был до 024).
+
+E0 (`scratchpad/e0_024.sh`): проверка до пакета 2/6 → после 6/6 (под `dwh_app`, только чтение), тест A01–A14 `ALL_TESTS_PASS`, после теста строки не изменились, повторное применение отклонено, откат → 2/6, повторное применение → 6/6 и тест PASS. Тесты backend 585 OK.
 
