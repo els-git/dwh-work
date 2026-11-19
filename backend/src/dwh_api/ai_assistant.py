@@ -4,6 +4,10 @@ GET  /api/ai/status                 the model answers; reports are configured; w
 POST /api/ai/help                   question (+ optional screenshot, I17-07) -> answer from the guide sections
                                     the user may read (I17-08)
 POST /api/ai/report                 description -> SQL over the whitelist objects allowed to the user -> rows
+POST /api/ai/diagnose               I17-10: diagnosis of a load error / object / mart (AI_ASSISTANT_USE + ETL_VIEW):
+                                    the server collects a dossier of facts (ai_diagnosis), the model writes the
+                                    diagnosis; card_only returns the instant card without the model
+Help and report take the last messages of the dialogue (I17-10, at most 10, kept in the browser only).
 GET  /api/ai/admin/config           whitelist, reference columns, glossary, examples   (AI_ADMIN_MANAGE)
 POST /api/ai/admin/report-objects | value-columns | glossary | examples   save one entry (AI_ADMIN_MANAGE)
 GET  /api/ai/admin/requests         request journal                                     (AI_ADMIN_MANAGE)
@@ -34,7 +38,7 @@ from fastapi.encoders import jsonable_encoder
 from psycopg import sql as pgsql
 from pydantic import BaseModel, Field
 
-from dwh_api import ai_llm
+from dwh_api import ai_diagnosis, ai_llm
 from dwh_api.ai_core import (DENIED_TEXT, MAX_ROWS, NO_HELP_TEXT, TRANSLATE_SYSTEM, describe_report_data, help_prompt,
                              repair_message, report_system, run_checked)
 from dwh_api.ai_knowledge import KnowledgeIndex, UserScope, is_russian
@@ -64,15 +68,55 @@ def knowledge() -> KnowledgeIndex:
 CLIENT_ID = r"^[A-Za-z0-9-]{8,64}$"
 
 
+HISTORY_MESSAGES = 10
+HISTORY_MESSAGE_CHARS = 2000
+HISTORY_TOTAL_CHARS = 12000
+
+
+class HistoryItem(BaseModel):
+    role: Literal["user", "assistant"]
+    text: str = Field(max_length=20000)
+
+
 class HelpRequest(BaseModel):
     question: str = Field(min_length=1, max_length=4000)
     image: str | None = Field(default=None, description="data:image/png|jpeg|webp;base64,... screenshot (I17-07)")
     client_id: str | None = Field(default=None, pattern=CLIENT_ID, description="id for the Stop button")
+    history: list[HistoryItem] = Field(default_factory=list, max_length=40, description="I17-10: earlier messages")
 
 
 class ReportRequest(BaseModel):
     question: str = Field(min_length=1, max_length=4000)
     client_id: str | None = Field(default=None, pattern=CLIENT_ID, description="id for the Stop button")
+    history: list[HistoryItem] = Field(default_factory=list, max_length=40, description="I17-10: earlier messages")
+
+
+class DiagnoseRequest(BaseModel):
+    kind: Literal["error", "object", "mart"]
+    id: int = Field(ge=1, description="error_id, source_object_id or mart_id")
+    question: str | None = Field(default=None, max_length=2000)
+    language: Literal["ru", "en", "az"] = "ru"
+    client_id: str | None = Field(default=None, pattern=CLIENT_ID, description="id for the Stop button")
+    card_only: bool = False
+
+
+def dialogue(items: list[HistoryItem]) -> list[tuple[str, str]]:
+    """The last messages of the dialogue, cut to the limits (newest kept), oldest first; empty texts dropped."""
+    kept: list[tuple[str, str]] = []
+    total = 0
+    for item in reversed(items[-HISTORY_MESSAGES:]):
+        text = item.text.strip()[:HISTORY_MESSAGE_CHARS]
+        if not text:
+            continue
+        if total + len(text) > HISTORY_TOTAL_CHARS:
+            break
+        kept.append((item.role, text))
+        total += len(text)
+    return list(reversed(kept))
+
+
+def last_user_text(history: list[tuple[str, str]]) -> str:
+    return next((text for role, text in reversed(history) if role == "user"), "")
 
 
 class CancelRequest(BaseModel):
@@ -228,10 +272,10 @@ class Stoppable:
 
 def ask_model(request: Request, request_id: int, settings: ai_llm.LlmSettings, system: str, user: str,
               image: str | None = None, max_tokens: int = 700, cancel: ai_llm.CancelToken | None = None,
-              timed: bool = True) -> str:
+              timed: bool = True, history: list[tuple[str, str]] | None = None) -> str:
     started = time.monotonic()
     try:
-        answer = ai_llm.chat(settings, system, user, image, max_tokens, cancel)
+        answer = ai_llm.chat(settings, system, user, image, max_tokens, cancel, history)
         if timed:
             record_answer_time(time.monotonic() - started)
         return answer
@@ -269,6 +313,8 @@ def status(request: Request) -> dict:
             "average_answer_seconds": average, "average_answer_count": count,
             "can_help": "AI_ASSISTANT_USE" in user.permissions, "can_report": "AI_REPORT_RUN" in user.permissions,
             "can_admin": "AI_ADMIN_MANAGE" in user.permissions,
+            # I17-10: diagnosis of load errors needs the right to see them (ETL_VIEW).
+            "can_diagnose": "ETL_VIEW" in user.permissions,
             # I17-09: a report can be saved to "Reporting" (folders need REPORT_VIEW, saving AI_REPORT_RUN).
             "can_save_reports": {"AI_REPORT_RUN", "REPORT_VIEW"} <= user.permissions}
 
@@ -295,6 +341,7 @@ def help_answer(payload: HelpRequest, request: Request) -> dict:
     image = check_image(payload.image)
     settings = llm_settings()
     request_id = begin(request, "HELP", payload.question, image is not None, settings)
+    history = dialogue(payload.history)
     with Stoppable(request, payload.client_id) as token:
         translated = None
         if not is_russian(payload.question):
@@ -302,7 +349,8 @@ def help_answer(payload: HelpRequest, request: Request) -> dict:
             # the answer is given in the language of the question.
             translated = ask_model(request, request_id, settings, TRANSLATE_SYSTEM, payload.question,
                                    max_tokens=150, cancel=token, timed=False).strip()[:1000] or None
-        found = knowledge().search(f"{payload.question} {translated or ''}", user)
+        # A follow-up question ("and how do I delete it?") is searched together with the previous question.
+        found = knowledge().search(f"{payload.question} {translated or ''} {last_user_text(history)}", user)
         if found.only_denied and image is None:
             finish(request, request_id, "DENIED", "AI_SECTION_NOT_ALLOWED",
                    message="; ".join(found.denied_titles)[:4000])
@@ -316,8 +364,9 @@ def help_answer(payload: HelpRequest, request: Request) -> dict:
         system, user_text = help_prompt(found, payload.question, screen_map, translated)
         # Help answers are longer than reports and Azerbaijani/English text takes more tokens: 1200, not 700.
         answer = ask_model(request, request_id, settings, system, user_text, image, max_tokens=HELP_MAX_TOKENS,
-                           cancel=token)
-    finish(request, request_id, "OK", None, message=", ".join(s.number for s in found.sections)[:4000])
+                           cancel=token, history=history)
+    finish(request, request_id, "OK", None, message=(", ".join(s.number for s in found.sections)
+                                                     + (f"; history {len(history)}" if history else ""))[:4000])
     return {"request_id": request_id, "status": "OK", "answer": answer,
             "sections": [{"number": s.number, "title": s.title} for s in found.sections],
             "closed_nearby": found.closed_nearby > 0}
@@ -363,17 +412,19 @@ def report(payload: ReportRequest, request: Request) -> dict:
         finish(request, request_id, "DENIED", "AI_OBJECT_NOT_ALLOWED", message="no reporting object for the role")
         return {"request_id": request_id, "status": "DENIED", "code": "AI_OBJECT_NOT_ALLOWED", "message": DENIED_TEXT}
     with Stoppable(request, payload.client_id) as token:
-        return report_attempts(request, request_id, settings, payload.question, allowed, context, dm_relations, token)
+        return report_attempts(request, request_id, settings, payload.question, allowed, context, dm_relations, token,
+                               dialogue(payload.history))
 
 
 def report_attempts(request: Request, request_id: int, settings: ai_llm.LlmSettings, question: str,
                     allowed: list[AllowedObject], context: str, dm_relations: set[str],
-                    token: ai_llm.CancelToken) -> dict:
+                    token: ai_llm.CancelToken, history: list[tuple[str, str]] | None = None) -> dict:
     user_text = question
     started = time.monotonic()
     for attempt in (1, 2):
+        # The dialogue (earlier questions and their SQL) lets the user refine a report: "and now by month".
         answer = ask_model(request, request_id, settings, report_system(context), user_text, max_tokens=600,
-                           cancel=token)
+                           cancel=token, history=history)
         sql_text = extract_sql(answer)
         try:
             statement, object_ids = check_text(sql_text, allowed, dm_relations)
@@ -408,6 +459,43 @@ def report_attempts(request: Request, request_id: int, settings: ai_llm.LlmSetti
                 "rows": jsonable_encoder(rows), "truncated": truncated, "repaired": attempt == 2,
                 "seconds": round(time.monotonic() - started, 2)}
     raise HTTPException(status_code=500, detail="report attempts exhausted")
+
+
+# ------------------------------------------------------------------ diagnosis of load errors (I17-10)
+
+DIAGNOSE_MAX_TOKENS = 900
+
+
+@router.post("/diagnose")
+def diagnose(payload: DiagnoseRequest, request: Request) -> dict:
+    user = user_scope(request)
+    if "ETL_VIEW" not in user.permissions:
+        raise HTTPException(status_code=403, detail="AI_DIAGNOSE_NOT_ALLOWED: ETL_VIEW is required")
+    with closing(connect_readonly(config)) as conn:
+        try:
+            if payload.kind == "mart":
+                dossier = ai_diagnosis.mart_dossier(conn, payload.id)
+            elif payload.kind == "object":
+                dossier = ai_diagnosis.error_dossier(conn, _session_token_hash(request), object_id=payload.id)
+            else:
+                dossier = ai_diagnosis.error_dossier(conn, _session_token_hash(request), error_id=payload.id)
+        except ai_diagnosis.DiagnosisError as exc:
+            raise HTTPException(status_code=404, detail=f"AI_DIAGNOSE_NOT_FOUND: {exc}") from exc
+        finally:
+            conn.rollback()
+    card = ai_diagnosis.card(dossier, payload.language)
+    if payload.card_only:
+        return {"status": "CARD", "card": card}
+    settings = llm_settings()
+    subject = (f"mart {dossier.mart_code}" if dossier.kind == "MART" else f"error {dossier.error_id}")
+    # The journal keeps what was analysed, not the dossier (values of the data stay out of it).
+    request_id = begin(request, "HELP", f"[diagnose {subject}] {payload.question or ''}".strip()[:4000], False, settings)
+    system, text = ai_diagnosis.prompt(dossier, payload.language, payload.question)
+    with Stoppable(request, payload.client_id) as token:
+        answer = ask_model(request, request_id, settings, system, text, max_tokens=DIAGNOSE_MAX_TOKENS, cancel=token)
+    finish(request, request_id, "OK", None, message=f"diagnose {subject} code {dossier.code or '-'}")
+    return {"request_id": request_id, "status": "OK", "card": card, "answer": answer,
+            "facts": len(dossier.facts), "unavailable": dossier.unavailable}
 
 
 # ------------------------------------------------------------------ administration (checked in the database)

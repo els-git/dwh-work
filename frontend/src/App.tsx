@@ -187,6 +187,15 @@ function App() {
       'ADMIN_INTEGRATION_MANAGE',
     )
 
+  // I17-10: "Analyse with the assistant" needs the chat (AI_ASSISTANT_USE) and the right to see load errors.
+  const canAiDiagnose =
+    hasPermission(
+      'AI_ASSISTANT_USE',
+    )
+    && hasPermission(
+      'ETL_VIEW',
+    )
+
   const loadsTabs: LoadsTab[] = [
     ...(canIntegration ? ['objects' as const] : []),
     ...(canIntegration ? ['marts' as const] : []),
@@ -475,13 +484,13 @@ function App() {
 
         {
           current === 'objects'
-            ? <LoadsObjectsPanel canRun={canIntegrationAdmin} />
+            ? <LoadsObjectsPanel canRun={canIntegrationAdmin} canDiagnose={canAiDiagnose} />
             : current === 'marts'
-              ? <DmMartsPanel canRun={canIntegrationAdmin} />
+              ? <DmMartsPanel canRun={canIntegrationAdmin} canDiagnose={canAiDiagnose} />
             : current === 'runs'
               ? renderEtlPage()
               : current === 'errors'
-                ? <AdminIntegrationHistory />
+                ? <AdminIntegrationHistory canDiagnose={canAiDiagnose} />
                 : null
         }
       </>

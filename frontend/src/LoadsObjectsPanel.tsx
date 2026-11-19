@@ -7,6 +7,7 @@ import {
 import { useTranslation } from 'react-i18next'
 
 import { confirmAction } from './confirmAction'
+import { requestDiagnosis } from './aiBus'
 import { formatDateTime } from './dateTime'
 import './LoadsPage.css'
 import {
@@ -41,10 +42,12 @@ function badgeClass(status: string | null): string {
 
 interface LoadsObjectsPanelProps {
   canRun: boolean
+  // I17-10: "Analyse with the assistant" for a failed object (AI_ASSISTANT_USE and ETL_VIEW).
+  canDiagnose?: boolean
 }
 
 
-function LoadsObjectsPanel({ canRun }: LoadsObjectsPanelProps) {
+function LoadsObjectsPanel({ canRun, canDiagnose = false }: LoadsObjectsPanelProps) {
   const { t } = useTranslation()
   const [objects, setObjects] = useState<ObjectLoadStatus[]>([])
   const [loading, setLoading] = useState(true)
@@ -248,6 +251,17 @@ function LoadsObjectsPanel({ canRun }: LoadsObjectsPanelProps) {
                             >
                               {isExpanded || errorText.length <= 160 ? errorText : `${errorText.slice(0, 160)}…`}
                             </button>
+                          )
+                          : null}
+                        {errorText && canDiagnose
+                          ? (
+                            <div>
+                              <button type="button" className="loads-link"
+                                onClick={() => requestDiagnosis({ kind: 'object', id: item.source_object_id,
+                                  label: `${item.source_schema}.${item.source_object}` })}>
+                                {t('ai.diagnose')}
+                              </button>
+                            </div>
                           )
                           : null}
                       </td>

@@ -125,11 +125,14 @@ def _read_answer(response: http.client.HTTPResponse) -> str:
 
 
 def chat(settings: LlmSettings, system: str, user: str, image_data_url: str | None = None,
-         max_tokens: int = 700, cancel: CancelToken | None = None) -> str:
+         max_tokens: int = 700, cancel: CancelToken | None = None,
+         history: list[tuple[str, str]] | None = None) -> str:
+    """history (I17-10): earlier (role, text) pairs of the dialogue, role "user" or "assistant", oldest first."""
     content: object = user
     if image_data_url:
         content = [{"type": "text", "text": user}, {"type": "image_url", "image_url": {"url": image_data_url}}]
-    body = json.dumps({"messages": [{"role": "system", "content": system}, {"role": "user", "content": content}],
+    earlier = [{"role": role, "content": text} for role, text in (history or []) if role in ("user", "assistant") and text]
+    body = json.dumps({"messages": [{"role": "system", "content": system}, *earlier, {"role": "user", "content": content}],
                        "temperature": 0.1, "max_tokens": max_tokens, "stream": True}).encode()
     parsed = urlparse(settings.url)
     token = cancel or CancelToken()

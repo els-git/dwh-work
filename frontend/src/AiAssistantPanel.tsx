@@ -14,11 +14,15 @@ import {
   askAiHelp,
   askAiReport,
   cancelAiQuestion,
+  diagnoseAi,
   getAiStatus,
+  type AiDiagnosisCard,
   type AiHelpAnswer,
+  type AiHistoryItem,
   type AiReportAnswer,
   type AiStatus,
 } from './aiApi'
+import { AI_DIAGNOSE_EVENT, type AiDiagnoseRequest } from './aiBus'
 import './AiAssistantPanel.css'
 import { cellText, downloadReportCsv } from './reportCsv'
 import SaveReportForm from './SaveReportForm'
@@ -27,6 +31,11 @@ import SaveReportForm from './SaveReportForm'
 // I17: chat of the AI assistant, available on every screen. Help answers come from the user guide
 // sections the user's role may read; a screenshot (I17-07) is sent once with the question and kept
 // only in this page. Reports from a description show the SQL, the rows and a CSV download.
+// I17-10: the last 10 messages go with every question (memory of the dialogue, kept only in this page; a
+// screenshot is not sent again, the answer about it stays in the memory); "New dialogue" clears them. The window
+// is minimized, not closed: an answer prepared meanwhile is announced by a notification and a dot on the button.
+// Screens ask for the diagnosis of a load error by a window event (aiBus): first the card without the model,
+// then the diagnosis of the model from the facts collected by the server.
 
 type Mode = 'help' | 'report'
 
@@ -41,12 +50,26 @@ interface ChatMessage {
   closedNearby?: boolean
   report?: AiReportAnswer
   seconds?: number
+  unavailable?: string[]
 }
 
 const IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp']
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024
 const MAX_SHOT_WIDTH = 1600
 const SHOWN_ROWS = 100
+const HISTORY_MESSAGES = 10
+
+
+// Memory of the dialogue sent with a question: the last messages, the SQL of a report with its answer, a mark
+// instead of a screenshot.
+function historyOf(list: ChatMessage[], shotMark: string): AiHistoryItem[] {
+  return list.slice(-HISTORY_MESSAGES).map(message => ({
+    role: message.role,
+    text: message.role === 'assistant' && message.report?.sql
+      ? `${message.text}\nSQL: ${message.report.sql}`
+      : message.image ? `${message.text}\n${shotMark}` : message.text,
+  })).filter(item => item.text.trim() !== '')
+}
 
 
 function readFile(file: File): Promise<string> {
@@ -144,8 +167,13 @@ function downloadCsv(answer: AiReportAnswer) {
 
 
 function AiAssistantPanel() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const [open, setOpen] = useState(false)
+  // I17-10: an answer arrived while the window was minimized.
+  const [unread, setUnread] = useState(false)
+  const [toast, setToast] = useState(false)
+  const openRef = useRef(false)
+  const diagnoseRef = useRef<(request: AiDiagnoseRequest) => void>(() => undefined)
   const [wide, setWide] = useState(() => {
     try {
       return window.localStorage.getItem('dwh.ai.wide') === '1'
@@ -200,7 +228,31 @@ function AiAssistantPanel() {
 
   useEffect(() => {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight })
-  }, [messages, busy])
+  }, [messages, busy, open])
+
+  useEffect(() => {
+    openRef.current = open
+  }, [open])
+
+  useEffect(() => {
+    const handler = (event: Event) => diagnoseRef.current((event as CustomEvent<AiDiagnoseRequest>).detail)
+    window.addEventListener(AI_DIAGNOSE_EVENT, handler)
+    return () => window.removeEventListener(AI_DIAGNOSE_EVENT, handler)
+  }, [])
+
+  function openPanel() {
+    setOpen(true)
+    setUnread(false)
+    setToast(false)
+  }
+
+  // An answer that arrives while the window is minimized is announced.
+  function announce() {
+    if (!openRef.current) {
+      setUnread(true)
+      setToast(true)
+    }
+  }
 
   // Seconds counter while the model is answering.
   useEffect(() => {
@@ -254,16 +306,9 @@ function AiAssistantPanel() {
     }
   }
 
-  async function send() {
-    const text = question.trim()
-    if (!text || busy) {
-      return
-    }
+  // Runs one question: busy state and timer, Stop, protection against answers of an older question.
+  async function ask(work: (seq: number, clientId: string, signal: AbortSignal, spent: () => number) => Promise<void>) {
     const seq = ++askSeq.current
-    const sentImage = mode === 'help' ? image : null
-    push({ role: 'user', text, image: sentImage ?? undefined })
-    setQuestion('')
-    setImage(null)
     setError(null)
     const startedAt = clockMs()
     setBusySince(startedAt)
@@ -274,25 +319,11 @@ function AiAssistantPanel() {
     const abort = new AbortController()
     running.current = { clientId, abort }
     try {
-      if (mode === 'help') {
-        const answer = await askAiHelp(text, sentImage, clientId, abort.signal)
-        if (seq !== askSeq.current) {
-          return
-        }
-        push({ role: 'assistant', text: helpText(answer), status: answer.status,
-               sections: answer.sections.map(s => s.title), closedNearby: answer.closed_nearby === true,
-               seconds: spent() })
-      } else {
-        const answer = await askAiReport(text, clientId, abort.signal)
-        if (seq !== askSeq.current) {
-          return
-        }
-        push({ role: 'assistant', text: reportText(answer), status: answer.status, report: answer, seconds: spent(),
-               question: text })
-      }
+      await work(seq, clientId, abort.signal, spent)
     } catch (exc) {
       if (seq === askSeq.current) {
         push({ role: 'assistant', text: errorText(exc), status: 'ERROR', seconds: spent() })
+        announce()
       }
     } finally {
       if (running.current?.clientId === clientId) {
@@ -309,6 +340,79 @@ function AiAssistantPanel() {
           })
           .catch(() => undefined)
       }
+    }
+  }
+
+  async function send() {
+    const text = question.trim()
+    if (!text || busy) {
+      return
+    }
+    const sentImage = mode === 'help' ? image : null
+    const earlier = historyOf(messages, t('ai.historyShot'))
+    push({ role: 'user', text, image: sentImage ?? undefined })
+    setQuestion('')
+    setImage(null)
+    await ask(async (seq, clientId, signal, spent) => {
+      if (mode === 'help') {
+        const answer = await askAiHelp(text, sentImage, clientId, signal, earlier)
+        if (seq !== askSeq.current) {
+          return
+        }
+        push({ role: 'assistant', text: helpText(answer), status: answer.status,
+               sections: answer.sections.map(s => s.title), closedNearby: answer.closed_nearby === true,
+               seconds: spent() })
+      } else {
+        const answer = await askAiReport(text, clientId, signal, earlier)
+        if (seq !== askSeq.current) {
+          return
+        }
+        push({ role: 'assistant', text: reportText(answer), status: answer.status, report: answer, seconds: spent(),
+               question: text })
+      }
+      announce()
+    })
+  }
+
+  function cardText(card: AiDiagnosisCard): string {
+    const lines = [`**${card.title}**${card.code ? ` (\`${card.code}\`)` : ''}`]
+    if (card.where.length > 0) {
+      lines.push(`${t('ai.diagWhere')}: ${card.where.join(' → ')}`)
+    }
+    lines.push(`${t('ai.diagAction')}: ${card.action}`, t(`ai.diagWho.${card.who}`), '', t('ai.diagWait'))
+    return lines.join('\n')
+  }
+
+  // I17-10: card at once (no model), then the diagnosis written by the model from the facts of the server.
+  async function runDiagnosis(request: AiDiagnoseRequest) {
+    openPanel()
+    if (busy) {
+      setError(t('ai.diagBusy'))
+      return
+    }
+    const language = ['ru', 'en', 'az'].includes(i18n.language?.slice(0, 2)) ? i18n.language.slice(0, 2) : 'ru'
+    push({ role: 'user', text: t('ai.diagRequest', { subject: request.label }) })
+    await ask(async (seq, clientId, signal, spent) => {
+      const first = await diagnoseAi(request.kind, request.id, language, clientId, signal, true)
+      if (seq !== askSeq.current) {
+        return
+      }
+      push({ role: 'assistant', text: cardText(first.card), status: 'CARD' })
+      const full = await diagnoseAi(request.kind, request.id, language, clientId, signal, false)
+      if (seq !== askSeq.current) {
+        return
+      }
+      push({ role: 'assistant', text: full.answer ?? '', status: 'OK', seconds: spent(),
+             unavailable: full.unavailable ?? [] })
+      announce()
+    })
+  }
+
+  function newDialogue() {
+    if (!busy) {
+      askSeq.current += 1
+      setMessages([])
+      setError(null)
     }
   }
 
@@ -371,6 +475,13 @@ function AiAssistantPanel() {
     }
   }
 
+  // Screens ask for a diagnosis by a window event; the handler always uses the current state of the chat.
+  useEffect(() => {
+    diagnoseRef.current = request => {
+      void runDiagnosis(request)
+    }
+  })
+
   function renderReport(report: AiReportAnswer) {
     const columns = report.columns ?? []
     const rows = report.rows ?? []
@@ -418,9 +529,24 @@ function AiAssistantPanel() {
 
   if (!open) {
     return (
-      <button type="button" className="ai-launcher" onClick={() => setOpen(true)}>
-        {t('ai.open')}
-      </button>
+      <>
+        <div className="ai-launcher-row">
+          {busy ? <button type="button" className="ai-stop ai-launcher-stop" onClick={stop}>{t('ai.stop')}</button> : null}
+          <button type="button" className="ai-launcher" onClick={openPanel}>
+            {t('ai.open')}{busy ? ` · ${t('ai.answering')}` : ''}
+            {unread ? <span className="ai-dot" aria-label={t('ai.answerReady')} /> : null}
+          </button>
+        </div>
+        {toast
+          ? (
+              <div className="ai-toast" role="status">
+                <span>{t('ai.answerReady')}</span>
+                <button type="button" onClick={openPanel}>{t('ai.openAnswer')}</button>
+                <button type="button" className="ai-toast-close" aria-label={t('ai.close')} onClick={() => setToast(false)}>×</button>
+              </div>
+            )
+          : null}
+      </>
     )
   }
 
@@ -435,7 +561,12 @@ function AiAssistantPanel() {
                 title={wide ? t('ai.collapse') : t('ai.expand')} aria-label={wide ? t('ai.collapse') : t('ai.expand')}>
           {wide ? '⤡' : '⤢'}
         </button>
-        <button type="button" className="ai-close" onClick={() => setOpen(false)} aria-label={t('ai.close')}>×</button>
+        <button type="button" className="ai-new" disabled={busy || messages.length === 0} onClick={newDialogue}
+                title={t('ai.newDialogueHint')}>
+          {t('ai.newDialogue')}
+        </button>
+        <button type="button" className="ai-close" onClick={() => setOpen(false)}
+                title={t('ai.minimize')} aria-label={t('ai.minimize')}>—</button>
       </header>
 
       <nav className="ai-modes">
@@ -461,6 +592,9 @@ function AiAssistantPanel() {
               ? <div className="ai-sources">{t('ai.sources')}: {message.sections.join('; ')}</div>
               : null}
             {message.closedNearby ? <div className="ai-closed-note">{t('ai.closedNearby')}</div> : null}
+            {message.unavailable && message.unavailable.length > 0
+              ? <div className="ai-closed-note">{t('ai.diagUnavailable', { list: message.unavailable.join(', ') })}</div>
+              : null}
             {message.report ? renderReport(message.report) : null}
             {message.report?.status === 'OK' && status?.can_save_reports
               ? <SaveReportForm requestId={message.report.request_id} defaultTitle={message.question ?? ''} />

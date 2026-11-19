@@ -372,3 +372,60 @@
   display: flex;
   gap: 8px;
 }
+
+/* I17-10: minimized chat — a dot on the button when an answer is ready, a notification, Stop while answering. */
+.ai-launcher {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ai-dot {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.ai-launcher-stop {
+  position: fixed;
+  right: 20px;
+  bottom: 68px;
+  z-index: 900;
+}
+
+.ai-toast {
+  position: fixed;
+  right: 20px;
+  bottom: 72px;
+  z-index: 901;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: calc(100vw - 40px);
+  padding: 10px 12px;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: var(--bg-panel);
+  color: var(--text-main);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35);
+}
+
+.ai-launcher-row + .ai-toast {
+  bottom: 72px;
+}
+
+.ai-toast-close {
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 18px;
+  cursor: pointer;
+}
+
+.ai-new {
+  padding: 2px 8px;
+  font-size: 12px;
+}

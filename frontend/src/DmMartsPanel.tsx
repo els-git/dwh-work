@@ -7,6 +7,7 @@ import {
 import { useTranslation } from 'react-i18next'
 
 import { confirmAction } from './confirmAction'
+import { requestDiagnosis } from './aiBus'
 import { formatDateTime } from './dateTime'
 import {
   cancelDmRunRequest,
@@ -40,10 +41,12 @@ function badgeClass(status: string | null): string {
 
 interface DmMartsPanelProps {
   canRun: boolean
+  // I17-10: "Analyse with the assistant" for a failed run (AI_ASSISTANT_USE and ETL_VIEW).
+  canDiagnose?: boolean
 }
 
 
-function DmMartsPanel({ canRun }: DmMartsPanelProps) {
+function DmMartsPanel({ canRun, canDiagnose = false }: DmMartsPanelProps) {
   const { t } = useTranslation()
   const [marts, setMarts] = useState<DmMartStatus[]>([])
   const [loading, setLoading] = useState(true)
@@ -231,6 +234,17 @@ function DmMartsPanel({ canRun }: DmMartsPanelProps) {
                                         {t('dm.loads.examples')}{' '}
                                         {examples.map(example => `${example.key} ×${example.rows}`).join(', ')}
                                       </small>
+                                    </div>
+                                  )
+                                  : null}
+                                {canDiagnose
+                                  ? (
+                                    <div>
+                                      <button type="button" className="loads-link"
+                                        onClick={() => requestDiagnosis({ kind: 'mart', id: item.mart_id,
+                                          label: `dm.${item.mart_code}` })}>
+                                        {t('ai.diagnose')}
+                                      </button>
                                     </div>
                                   )
                                   : null}
