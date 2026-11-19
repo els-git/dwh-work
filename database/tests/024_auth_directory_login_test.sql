@@ -36,7 +36,9 @@ BEGIN
 END
 $setup$;
 
+-- user_id is GENERATED ALWAYS in dwh: fixed test ids need OVERRIDING SYSTEM VALUE (the sequence is not used).
 INSERT INTO app.user_account (user_id, username, display_name, account_level, auth_provider, password_hash, is_active)
+OVERRIDING SYSTEM VALUE
 VALUES (900101, 'i20_test_ldap', 'LDAP user', 'USER', 'LDAP', NULL, true),
        (900102, 'i20_test_ad', 'AD user', 'USER', 'AD', NULL, true),
        (900103, 'i20_test_local', 'Local user', 'USER', 'LOCAL', 'x', true),
