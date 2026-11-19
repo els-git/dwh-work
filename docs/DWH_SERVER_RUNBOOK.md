@@ -195,6 +195,25 @@ sudo python3 /opt/dwh/current/src/tools/server/dwh_dm_sql_setup.py --apply
 ```
 Итог — `DM_SQL_SETUP_RESULT: PASS`: роль входит только на чтение, читает таблицу `ods`, отказ на `app` и на запись в `ods`. Проверка без изменений — `--check`, новый пароль — `--apply --rotate-password`.
 
+## 4d. Вход через домен (I20)
+
+Вход пользователей учётной записью домена настраивает `tools/server/dwh_ldap_setup.py` (план `docs/DWH_I20_LDAP_LOGIN_PLAN_APPROVED_20261119.md`):
+- P1 — параметры в `/etc/dwh/dwh.env` (`DWH_LDAP_*`): контроллеры (первый — основной), отпечатки SHA-256 их сертификатов, папки (OU), домен, логин служебной учётной записи (спрашивается при первом запуске);
+- P2 — пароль служебной учётной записи: вводится без показа, шифруется `systemd-creds` в `/etc/dwh/ldap/dwh-ldap-bind.cred`, открытым текстом нигде не хранится;
+- P3 — drop-in `/etc/systemd/system/dwh-api.service.d/20-ldap.conf` (пароль получает только `dwh-api`);
+- P4 — перезапуск `dwh-api`.
+Затем проверка каждого контроллера (шифрование, отпечаток, вход служебной учётной записи, поиск в папках). Вход через домен включается (`DWH_LDAP_ENABLED=true`) только после `PASS`.
+
+Без `--apply` — только план. Имена контроллеров, порт, отпечатки и папки — ваши (в документы не пишутся):
+```bash
+sudo python3 /opt/dwh/current/src/tools/server/dwh_ldap_setup.py --server <контроллер 1>:<порт> --server <контроллер 2>:<порт> --pin <SHA-256 контроллера 1> --pin <SHA-256 контроллера 2> --base-dn "<OU 1>" --base-dn "<OU 2>" --domain vtbaze.local --netbios VTBAZE
+```
+Те же параметры с `--apply` — применить. Проверка без изменений (с `--user <логин>` — найти пользователя в домене без пароля):
+```bash
+sudo python3 /opt/dwh/current/src/tools/server/dwh_ldap_setup.py --check --user <логин>
+```
+Выключить вход через домен (локальный вход не меняется): `--disable`. Новый логин/пароль служебной учётной записи: `--apply --rotate-password` с теми же параметрами. Причины отказов входа — в журнале безопасности (`LOGIN_FAILED`: `INVALID_CREDENTIALS`, `LDAP_ACCOUNT_DISABLED`, `LDAP_ACCOUNT_LOCKED`, `LDAP_PASSWORD_EXPIRED`, `LDAP_NOT_FOUND`, `LDAP_GUID_MISMATCH`, `LDAP_UNAVAILABLE`), подробности недоступности — в журнале службы: `journalctl -u dwh-api`.
+
 ## 5. Проверки и задачи
 
 - Сеть (шаг 5), только чтение:

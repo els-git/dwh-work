@@ -1,4 +1,4 @@
-import { Trans } from 'react-i18next'
+import { Trans, useTranslation } from 'react-i18next'
 import {
   useEffect,
   useState,
@@ -129,6 +129,7 @@ function validatePasswordPolicy(
 
 
 function AdminUsersPage() {
+  const { t } = useTranslation()
   const {
     auth,
   } = useAuth()
@@ -879,19 +880,11 @@ function AdminUsersPage() {
                             }
                           >
                             <option value="LOCAL">
-                              LOCAL
+                              {t('batch.authLocal')}
                             </option>
 
                             <option value="LDAP">
-                              LDAP
-                            </option>
-
-                            <option value="AD">
-                              AD
-                            </option>
-
-                            <option value="OIDC">
-                              OIDC
+                              {t('batch.authDomain')}
                             </option>
                           </select>
                         </label>
@@ -946,23 +939,10 @@ function AdminUsersPage() {
                               </>
                             )
                             : (
-                              <label>
-                                <span>
-                                  <Trans i18nKey="batch.tr0321" />
-                                </span>
-
-                                <input
-                                  value={externalSubject}
-                                  maxLength={512}
-                                  onChange={
-                                    event =>
-                                      setExternalSubject(
-                                        event.target.value,
-                                      )
-                                  }
-                                  placeholder="Optional external identity"
-                                />
-                              </label>
+                              // I20: the domain account is tied (objectGUID) on the first login, not typed here.
+                              <div className="admin-form-help">
+                                <Trans i18nKey="batch.authDomainHelp" />
+                              </div>
                             )
                         }
                       </>
