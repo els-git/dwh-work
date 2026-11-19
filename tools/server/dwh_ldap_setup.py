@@ -80,6 +80,21 @@ def validate(args) -> list[str]:
     return problems
 
 
+def bind_login(login: str, args) -> str:
+    """The service login as user@domain. systemd reads dwh.env for dwh-api and drops a backslash (VTBAZE\\user
+    would reach the service as VTBAZEuser: bind result 49), so NETBIOS\\user is rewritten; spaces and quotes are
+    refused for the same reason."""
+    login = login.strip()
+    if "\\" in login:
+        prefix, _, name = login.partition("\\")
+        if prefix.upper() != args.netbios.upper() or not name:
+            raise RuntimeError("the service login is not of this domain (expected user@" + args.domain.lower() + ")")
+        login = f"{name}@{args.domain.lower()}"
+    if not login or any(c in login for c in " \t\"'\\$`"):
+        raise RuntimeError("the service login must be user@" + args.domain.lower() + " (no spaces, quotes or backslash)")
+    return login
+
+
 def plan(args) -> list[tuple[str, str]]:
     env = ai.read_env(DWH_ENV)
     wanted = wanted_settings(args, env)
@@ -111,9 +126,7 @@ def apply(args, steps: list[tuple[str, str]]) -> None:
         updates = wanted_settings(args, ai.read_env(DWH_ENV))
         if "DWH_LDAP_BIND_USER" not in updates:
             login = input("login of the service account (user@vtbaze.local or VTBAZE\\user): ").strip()
-            if not login:
-                raise RuntimeError("empty login of the service account")
-            updates["DWH_LDAP_BIND_USER"] = login
+            updates["DWH_LDAP_BIND_USER"] = bind_login(login, args)
         # Domain login is enabled only after the check below passes.
         updates["DWH_LDAP_ENABLED"] = "false"
         write_env(updates)
@@ -151,6 +164,10 @@ def check(user: str | None) -> list[str]:
         return [str(exc)]
     if settings.problems:
         return settings.problems
+    if any(c in settings.bind_user for c in " \t\"'\\$`"):
+        # The service reads dwh.env through systemd, which would change this value: check what the service sees.
+        return ["DWH_LDAP_BIND_USER has a space, quote or backslash: systemd changes it for dwh-api; "
+                "run --apply --rotate-password and type the login as user@" + (settings.domain or "domain")]
     try:
         secret = service_secret()
     except dl.DirectoryError as exc:
