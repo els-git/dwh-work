@@ -66,6 +66,7 @@ class UserCatalogItem(BaseModel):
     business_role_count: int
     can_manage: bool
     can_reset_password: bool
+    can_change_auth_provider: bool = False
 
 
 class UserCreateRequest(BaseModel):
@@ -132,6 +133,16 @@ class UserAccountLevelRequest(BaseModel):
 
 class UserPasswordResetRequest(BaseModel):
     password: SecretStr
+
+
+class UserAuthProviderRequest(BaseModel):
+    # I20 (package 025): LOCAL <-> domain login of an existing user. LOCAL needs a temporary password.
+    auth_provider: str = Field(
+        min_length=1,
+        max_length=32,
+    )
+
+    password: SecretStr | None = None
 
 
 def _normalize_account_level(
@@ -267,6 +278,9 @@ def _raise_database_error(
         or
         "system account password reset is server-side only"
         in lowered
+        or
+        "system account authentication is server-side only"
+        in lowered
     ):
         raise HTTPException(
             status_code=403,
@@ -318,6 +332,9 @@ def _raise_database_error(
         or
         "invalid local password hash"
         in lowered
+        or
+        "target user is required"
+        in lowered
     ):
         raise HTTPException(
             status_code=422,
@@ -361,6 +378,14 @@ def _with_user_capabilities(
     result["can_reset_password"] = bool(
         result.get("can_manage")
         and result.get("auth_provider") == "LOCAL"
+        and result.get("is_system") is not True
+        and result.get("account_level") != "SUPERADMIN"
+    )
+
+    # I20: the login method of ordinary users can be switched (package 025 checks the same in the database).
+    result["can_change_auth_provider"] = bool(
+        result.get("can_manage")
+        and result.get("auth_provider") in ("LOCAL", "LDAP", "AD")
         and result.get("is_system") is not True
         and result.get("account_level") != "SUPERADMIN"
     )
@@ -1064,3 +1089,168 @@ def set_user_account_level(
     raise RuntimeError(
         "Unreachable user level state"
     )
+
+
+@router.post(
+    "/{user_id}/auth-provider",
+    response_model=UserCatalogItem,
+)
+def set_user_auth_provider(
+    request: Request,
+    payload: UserAuthProviderRequest,
+    user_id: int = Path(
+        ge=1,
+    ),
+) -> dict:
+    """I20 (package 025): switch the login method of an existing user.
+
+    LOCAL -> LDAP: the local password is erased; the domain account is tied at the next login.
+    LDAP / AD -> LOCAL: a temporary password (policy checked, hashed here) that must be changed at login.
+    Sessions of the user end; the database writes AUTH_PROVIDER_CHANGED.
+    """
+    token_hash = _session_token_hash(
+        request
+    )
+
+    provider = payload.auth_provider.strip().upper()
+
+    if provider not in ("LOCAL", "LDAP"):
+        raise HTTPException(
+            status_code=422,
+            detail="Invalid authentication provider. Allowed values: LOCAL, LDAP.",
+        )
+
+    plaintext_password = (
+        payload.password.get_secret_value()
+        if payload.password is not None
+        else ""
+    )
+
+    if provider == "LOCAL" and not plaintext_password:
+        raise HTTPException(
+            status_code=422,
+            detail="Temporary password is required",
+        )
+
+    if provider != "LOCAL" and plaintext_password:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "External authentication account "
+                "must not include a local password"
+            ),
+        )
+
+    request_id = str(
+        uuid4()
+    )
+
+    try:
+        with closing(
+            connect_control(config)
+        ) as conn:
+            try:
+                with conn.cursor() as cur:
+                    _set_request_context(
+                        cur,
+                        request_id,
+                    )
+
+                    target = _require_existing_user(
+                        cur,
+                        token_hash,
+                        user_id,
+                    )
+
+                    if not target["can_change_auth_provider"]:
+                        raise HTTPException(
+                            status_code=403,
+                            detail="Login method change denied",
+                        )
+
+                    password_hash = None
+
+                    if provider == "LOCAL":
+                        password_errors = validate_new_password(
+                            plaintext_password,
+                            target["username"],
+                        )
+
+                        if password_errors:
+                            raise HTTPException(
+                                status_code=422,
+                                detail={
+                                    "code": "PASSWORD_POLICY_FAILED",
+                                    "message": (
+                                        "Password does not meet "
+                                        "policy requirements"
+                                    ),
+                                    "errors": password_errors,
+                                },
+                            )
+
+                        password_hash = hash_password(
+                            plaintext_password
+                        )
+
+                    plaintext_password = ""
+
+                    cur.execute(
+                        """
+                        SELECT
+                            app.user_catalog_set_auth_provider(
+                                %s,
+                                %s,
+                                %s,
+                                %s
+                            ) AS changed
+                        """,
+                        (
+                            token_hash,
+                            user_id,
+                            provider,
+                            password_hash,
+                        ),
+                    )
+
+                    changed = cur.fetchone()
+
+                    password_hash = None
+
+                    if (
+                        changed is None
+                        or changed["changed"] is not True
+                    ):
+                        raise RuntimeError(
+                            "Login method change returned "
+                            "unexpected result"
+                        )
+
+                    row = _fetch_user(
+                        cur,
+                        token_hash,
+                        user_id,
+                    )
+
+                    if row is None:
+                        raise RuntimeError(
+                            "Changed user could not be read"
+                        )
+
+                conn.commit()
+
+                return row
+
+            except Exception:
+                conn.rollback()
+                raise
+
+    except psycopg.Error as exc:
+        _raise_database_error(
+            exc
+        )
+
+    raise RuntimeError(
+        "Unreachable login method state"
+    )
+

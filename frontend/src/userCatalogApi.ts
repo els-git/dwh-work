@@ -38,6 +38,7 @@ export interface UserCatalogItem {
   business_role_count: number
   can_manage: boolean
   can_reset_password: boolean
+  can_change_auth_provider?: boolean
 }
 
 
@@ -191,6 +192,29 @@ export function resetUserPassword(
     {
       method: 'POST',
       body: JSON.stringify({
+        password,
+      }),
+    },
+  )
+}
+
+
+// I20 (package 025): switch the login method; LOCAL needs a temporary password, the domain login none.
+export function setUserAuthProvider(
+  userId: number,
+  authProvider: 'LOCAL' | 'LDAP',
+  password: string | null,
+): Promise<UserCatalogItem> {
+  return apiRequest<UserCatalogItem>(
+    '/api/admin/users/'
+    + encodeURIComponent(
+      String(userId),
+    )
+    + '/auth-provider',
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        auth_provider: authProvider,
         password,
       }),
     },

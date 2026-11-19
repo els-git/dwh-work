@@ -182,3 +182,24 @@ E0 (`scratchpad/e0_024.sh`): проверка до пакета 2/6 → посл
   - только обычные пользователи (не `superadmin` и не системные), права — как у сброса пароля; каждое переключение — в журнале безопасности.
   Порядок проверок и прав берётся из действующих функций каталога — сначала опись (шаг 5а).
 
+### 6.11. Шаги 5а–5б: опись и пакет 025 — E0 PASS; код переключения в песочнице (19.11.2026)
+
+**Опись (шаг 5а, сервер, только чтение)** — `i20_step6_switch_inventory.sql`:
+- права администратора — `app.user_admin_session_user` (сессия, уровень `ADMIN`/`SUPERADMIN`, `ADMIN_USER_MANAGE`), затем `app.can_manage_user`;
+- сброс пароля — только `LOCAL`, не системные и не `SUPERADMIN`, хеш `scrypt_v1`, `must_change_password = true`, сессии пользователя завершаются, событие `PASSWORD_RESET`;
+- триггеры `app.user_account`: `trg_audit_user_account` (каждое изменение, в том числе `auth_provider` и `external_subject`, — событие `USER_UPDATED`; именно оно добавляло события в E1 024, попытка 2), `trg_protect_superadmin` (запись `SUPERADMIN` неизменна), `trg_user_account_no_delete`.
+
+**Пакет 025** (`database/migrations/025_auth_provider_switch.sql`, откат, проверка 5 пунктов, тест P01–P15, фикстура `database/tests/fixtures/e0_025_user_admin_stub.sql` с текстами функций и триггеров из описи):
+- `app.user_catalog_set_auth_provider(token, user_id, provider, password_hash) → boolean`, правила — как у сброса пароля;
+- `LOCAL` → `LDAP`/`AD`: пароль стирается, `must_change_password = false`, GUID снимается (привязка — при следующем входе, пакет 024);
+- `LDAP`/`AD` → `LOCAL`: нужен хеш временного пароля `scrypt_v1`, `must_change_password = true`, GUID снимается;
+- тот же вид входа — без изменений; сессии пользователя завершаются; событие `AUTH_PROVIDER_CHANGED` без хешей; `EXECUTE` — только `dwh_app`; откат удаляет только функцию.
+- **E0 PASS** (`scratchpad/e0_025.sh`): проверка 5/5 под `dwh_app`, тест `ALL_TESTS_PASS`, повтор отклонён, откат и повторное применение.
+
+**Код (шаг 5в, песочница):**
+- API `POST /api/admin/users/{id}/auth-provider` (`user_catalog.py`): `LOCAL` — временный пароль по политике, хеш в API; домен — без пароля; признак `can_change_auth_provider` в списке пользователей.
+- Интерфейс «Пользователи»: «Перевести на домен» (подтверждение с последствиями) и «Перевести на локальный пароль» (панель временного пароля), ru/en/az; справка 1.10.0 (4.1), `DWH_ENGINES.md` 1.2.0.
+- Проверки: тесты backend OK; API + вход `scratchpad/i20/e2e_switch.py` 14/14 (база `e2e_i20s`, `scratchpad/i20/switch_setup.sh`): переведённый на домен входит паролем домена (GUID привязан), переведённый на локальный — временным паролем со сменой, `superadmin` — 403, паролей и хешей в журнале нет; браузер `scratchpad/i20/ui_switch.cjs` 6/6; сборка OK, ESLint 0/0.
+
+Далее: выпуск, E1 и E2 пакета 025 (с разрешения), приёмка переключения на сервере, затем I20 `DONE`.
+
