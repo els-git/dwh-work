@@ -44,7 +44,8 @@ VALUES (900101, 'i20_test_ldap', 'LDAP user', 'USER', 'LDAP', NULL, true),
        (900103, 'i20_test_local', 'Local user', 'USER', 'LOCAL', 'x', true),
        (900104, 'i20_test_off', 'Inactive LDAP', 'USER', 'LDAP', NULL, false),
        (900105, 'i20_test_other', 'Other LDAP', 'USER', 'LDAP', NULL, true);
-SELECT count(*) AS events_before FROM audit.security_event \gset
+SELECT coalesce(max(security_event_id), 0) AS events_max FROM audit.security_event \gset
+SELECT set_config('i20.events_max', :'events_max', true);
 
 SET LOCAL ROLE dwh_app;
 SELECT pg_temp.ok('A01 domain user found without case and spaces',
@@ -76,13 +77,30 @@ SELECT pg_temp.expect_fail('A11 malformed GUID refused', $s$SELECT app.auth_bind
 SELECT pg_temp.expect_fail('A12 dwh_app cannot read app.user_account directly', $s$SELECT 1 FROM app.user_account LIMIT 1$s$);
 RESET ROLE;
 
-SELECT pg_temp.ok('A13 journal: BOUND, MISMATCH and IN_USE written (3 events), MATCH and refusals not',
-  (SELECT count(*) FROM audit.security_event) - :events_before = 3
-  AND (SELECT count(*) FROM audit.security_event WHERE event_type = 'DIRECTORY_SUBJECT_BOUND' AND entity_key = '900101') = 1
-  AND (SELECT count(*) FROM audit.security_event WHERE event_type = 'LDAP_GUID_MISMATCH'
+-- For the report: every new journal event of the test, by type (no details, no GUID).
+DO $diag$
+DECLARE r record;
+BEGIN
+  FOR r IN SELECT event_type, entity_key, count(*) AS n FROM audit.security_event
+            WHERE security_event_id > current_setting('i20.events_max')::bigint GROUP BY 1, 2 ORDER BY 1, 2 LOOP
+    RAISE NOTICE 'EVENT % % x%', r.event_type, r.entity_key, r.n;
+  END LOOP;
+END
+$diag$;
+-- Only the events of 024 are counted: in dwh other triggers (for example on app.user_account) may write their own
+-- events in the same journal (E1 attempt 2, 19.11.2026).
+SELECT pg_temp.ok('A13 journal: BOUND, MISMATCH and IN_USE written (3 events of 024), MATCH and refusals not',
+  (SELECT count(*) FROM audit.security_event WHERE security_event_id > :events_max
+      AND event_type IN ('DIRECTORY_SUBJECT_BOUND', 'LDAP_GUID_MISMATCH')) = 3
+  AND (SELECT count(*) FROM audit.security_event WHERE security_event_id > :events_max
+        AND event_type = 'DIRECTORY_SUBJECT_BOUND' AND entity_key = '900101') = 1
+  AND (SELECT count(*) FROM audit.security_event WHERE security_event_id > :events_max
+        AND event_type = 'LDAP_GUID_MISMATCH' AND entity_key IN ('900101', '900105')
         AND details->>'result' IN ('MISMATCH', 'IN_USE')) = 2);
-SELECT pg_temp.ok('A14 journal holds no GUID',
-  NOT EXISTS (SELECT 1 FROM audit.security_event WHERE details::text LIKE '%0a1b2c3d%' OR details::text LIKE '%11111111%'));
+SELECT pg_temp.ok('A14 events of 024 hold no GUID',
+  NOT EXISTS (SELECT 1 FROM audit.security_event WHERE security_event_id > :events_max
+               AND event_type IN ('DIRECTORY_SUBJECT_BOUND', 'LDAP_GUID_MISMATCH')
+               AND (details::text LIKE '%0a1b2c3d%' OR details::text LIKE '%11111111%')));
 
 SELECT 'ALL_TESTS_PASS' AS result;
 ROLLBACK;

@@ -287,7 +287,7 @@
     },
     "test": {
       "path": "database/tests/024_auth_directory_login_test.sql",
-      "sha256": "D68B00B84049B95D5C017AF3180295AEA2BAF2C20E41790DACC2407678B0B654"
+      "sha256": "07621AB79431D857622E4AA3757A2F2EACC3E0D9446DAB78157D7A7E3430AD90"
     },
     "previous_check": {
       "path": "database/checks/023_sql_mart_check.sql",
