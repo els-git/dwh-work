@@ -295,5 +295,35 @@
       "label": "023",
       "expected": 7
     }
+  },
+  "025": {
+    "number": "025",
+    "owner": "dwh_admin",
+    "marker": "app.user_catalog_set_auth_provider(text, bigint, text, text)",
+    "copy_db": "dwh_i20_025_test",
+    "check_expected": 5,
+    "added_rows": {},
+    "migration": {
+      "path": "database/migrations/025_auth_provider_switch.sql",
+      "sha256": "F22677FDEE3E77F7E216E2CBDD2320E00720CC60133C22AC2D5F8002D4A631F5"
+    },
+    "down": {
+      "path": "database/migrations/025_auth_provider_switch.down.sql",
+      "sha256": "AA4DE71B2040C6E33F2BB9BCA29A6EF955451986DA2CCCC94CAB4B6FBE7647E0"
+    },
+    "check": {
+      "path": "database/checks/025_auth_provider_switch_check.sql",
+      "sha256": "D4757B1D335817CDA6E3B491FE6675F955310FFA928516E6651D0F5C6E614477"
+    },
+    "test": {
+      "path": "database/tests/025_auth_provider_switch_test.sql",
+      "sha256": "FAD256D030B82178A029BC1325447EF8F2ECEC9C360998B0891A8871A695E824"
+    },
+    "previous_check": {
+      "path": "database/checks/024_auth_directory_login_check.sql",
+      "sha256": "098485BCBDF4F21CD8DB7E2F370D505D139311E83E3E078ED8F1542A7005E273",
+      "label": "024",
+      "expected": 6
+    }
   }
 }

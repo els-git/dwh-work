@@ -14,6 +14,7 @@ import {
   createUser,
   getUsers,
   resetUserPassword,
+  setUserAuthProvider,
   setUserAccountLevel,
   setUserActive,
   updateUser,
@@ -232,6 +233,12 @@ function AdminUsersPage() {
     resettingPassword,
     setResettingPassword,
   ] = useState(false)
+
+  // I20: the password panel either resets a LOCAL password or switches a domain user to LOCAL.
+  const [
+    passwordPanelMode,
+    setPasswordPanelMode,
+  ] = useState<'reset' | 'toLocal'>('reset')
 
 
   async function loadUsers() {
@@ -492,10 +499,74 @@ function AdminUsersPage() {
     setEditorMode(null)
     setEditingUser(null)
 
+    setPasswordPanelMode('reset')
     setPasswordResetUser(user)
     setTemporaryPassword('')
     setConfirmTemporaryPassword('')
     setError(null)
+  }
+
+
+  function openSwitchToLocal(
+    user: UserCatalogItem,
+  ) {
+    if (!user.can_change_auth_provider) {
+      return
+    }
+
+    setEditorMode(null)
+    setEditingUser(null)
+
+    setPasswordPanelMode('toLocal')
+    setPasswordResetUser(user)
+    setTemporaryPassword('')
+    setConfirmTemporaryPassword('')
+    setError(null)
+  }
+
+
+  async function switchToDomain(
+    user: UserCatalogItem,
+  ) {
+    if (!user.can_change_auth_provider) {
+      return
+    }
+
+    const confirmed =
+      await confirmAction({
+        title: t('batch.authSwitchToDomainTitle'),
+        message: t('batch.authSwitchToDomainMessage', { username: user.username }),
+        detail: t('batch.authSwitchToDomainDetail'),
+        confirmLabel: t('batch.authSwitchConfirm'),
+      })
+
+    if (!confirmed) {
+      return
+    }
+
+    try {
+      setChangingUserId(
+        user.user_id,
+      )
+
+      setError(null)
+
+      await setUserAuthProvider(
+        user.user_id,
+        'LDAP',
+        null,
+      )
+
+      await loadUsers()
+    } catch (switchError) {
+      setError(
+        errorMessage(
+          switchError,
+        ),
+      )
+    } finally {
+      setChangingUserId(null)
+    }
   }
 
 
@@ -549,10 +620,18 @@ function AdminUsersPage() {
       setResettingPassword(true)
       setError(null)
 
-      await resetUserPassword(
-        passwordResetUser.user_id,
-        temporaryPassword,
-      )
+      if (passwordPanelMode === 'toLocal') {
+        await setUserAuthProvider(
+          passwordResetUser.user_id,
+          'LOCAL',
+          temporaryPassword,
+        )
+      } else {
+        await resetUserPassword(
+          passwordResetUser.user_id,
+          temporaryPassword,
+        )
+      }
 
       setPasswordResetUser(null)
       setTemporaryPassword('')
@@ -1015,7 +1094,11 @@ function AdminUsersPage() {
           ? (
             <section className="admin-user-editor">
               <div className="admin-user-editor-title">
-                <Trans i18nKey="batch.tr0336" /> {passwordResetUser.username}
+                {
+                  passwordPanelMode === 'toLocal'
+                    ? <Trans i18nKey="batch.authSwitchToLocalTitle" />
+                    : <Trans i18nKey="batch.tr0336" />
+                } {passwordResetUser.username}
               </div>
 
               <form
@@ -1270,6 +1353,40 @@ function AdminUsersPage() {
                                             }
                                           >
                                             <Trans i18nKey="batch.tr0335" />
+                                          </button>
+                                        )
+                                        : null
+                                    }
+
+                                    {
+                                      user.can_change_auth_provider
+                                        ? (
+                                          <button
+                                            type="button"
+                                            className="admin-users-link-button"
+                                            disabled={
+                                              changingUserId
+                                              === user.user_id
+                                            }
+                                            onClick={
+                                              () => {
+                                                if (user.auth_provider === 'LOCAL') {
+                                                  void switchToDomain(
+                                                    user,
+                                                  )
+                                                } else {
+                                                  openSwitchToLocal(
+                                                    user,
+                                                  )
+                                                }
+                                              }
+                                            }
+                                          >
+                                            {
+                                              user.auth_provider === 'LOCAL'
+                                                ? <Trans i18nKey="batch.authSwitchToDomain" />
+                                                : <Trans i18nKey="batch.authSwitchToLocal" />
+                                            }
                                           </button>
                                         )
                                         : null
