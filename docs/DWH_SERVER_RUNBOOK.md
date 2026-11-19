@@ -204,6 +204,8 @@ sudo python3 /opt/dwh/current/src/tools/server/dwh_dm_sql_setup.py --apply
 - P4 — перезапуск `dwh-api`.
 Затем проверка каждого контроллера (шифрование, отпечаток, вход служебной учётной записи, поиск в папках). Вход через домен включается (`DWH_LDAP_ENABLED=true`) только после `PASS`.
 
+Логин служебной учётной записи вводите как `user@vtbaze.local` (вид `VTBAZE\user` инструмент переводит сам: systemd убирает обратную косую черту из `dwh.env`). `--base-dn` — полный путь папки (DN) вида `OU=…,OU=…,DC=vtbaze,DC=local`, его показывает на ПК в домене `whoami /fqdn` (без первой части `CN=…,`) или `([adsisearcher]"(&(objectCategory=organizationalUnit)(name=<папка>))").FindAll()`.
+
 Без `--apply` — только план. Имена контроллеров, порт, отпечатки и папки — ваши (в документы не пишутся):
 ```bash
 sudo python3 /opt/dwh/current/src/tools/server/dwh_ldap_setup.py --server <контроллер 1>:<порт> --server <контроллер 2>:<порт> --pin <SHA-256 контроллера 1> --pin <SHA-256 контроллера 2> --base-dn "<OU 1>" --base-dn "<OU 2>" --domain vtbaze.local --netbios VTBAZE
