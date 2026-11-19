@@ -389,13 +389,6 @@
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
-.ai-launcher-stop {
-  position: fixed;
-  right: 20px;
-  bottom: 68px;
-  z-index: 900;
-}
-
 .ai-toast {
   position: fixed;
   right: 20px;

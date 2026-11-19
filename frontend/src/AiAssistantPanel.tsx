@@ -531,7 +531,6 @@ function AiAssistantPanel() {
     return (
       <>
         <div className="ai-launcher-row">
-          {busy ? <button type="button" className="ai-stop ai-launcher-stop" onClick={stop}>{t('ai.stop')}</button> : null}
           <button type="button" className="ai-launcher" onClick={openPanel}>
             {t('ai.open')}{busy ? ` · ${t('ai.answering')}` : ''}
             {unread ? <span className="ai-dot" aria-label={t('ai.answerReady')} /> : null}
