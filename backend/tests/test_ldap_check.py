@@ -46,5 +46,28 @@ class BindBerTest(unittest.TestCase):
             ldap.parse_bind_response(ldap._tlv(0x04, b"x"))
 
 
+class StartTlsTest(unittest.TestCase):
+    def test_request_and_response(self):
+        data = ldap.starttls_request(1)
+        tag, message, _ = ldap._read_tlv(data, 0)
+        _, _, pos = ldap._read_tlv(message, 0)
+        tag, request, _ = ldap._read_tlv(message, pos)
+        self.assertEqual(tag, 0x77)
+        self.assertEqual(ldap._read_tlv(request, 0)[:2], (0x80, b"1.3.6.1.4.1.1466.20037"))
+        reply = ldap._tlv(0x30, ldap._integer(1) + ldap._tlv(
+            0x78, ldap._tlv(0x0A, b"\x00") + ldap._tlv(0x04, b"") + ldap._tlv(0x04, b"")))
+        self.assertEqual(ldap.parse_extended_response(reply), 0)
+        with self.assertRaises(ValueError):
+            ldap.parse_extended_response(bind_response(0))
+
+    def test_pin(self):
+        import hashlib
+        der = b"certificate"
+        fp = hashlib.sha256(der).hexdigest().upper()
+        self.assertTrue(ldap.pin_matches(der, ":".join(fp[i:i + 2] for i in range(0, len(fp), 2)).lower()))
+        self.assertFalse(ldap.pin_matches(der, "AA"))
+        self.assertFalse(ldap.pin_matches(der, None))
+
+
 if __name__ == "__main__":
     unittest.main()

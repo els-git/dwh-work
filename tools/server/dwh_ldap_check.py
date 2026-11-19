@@ -1,23 +1,27 @@
-"""I20 preparation: check that the DWH server can reach the domain controller over LDAPS (read-only, no changes).
+r"""I20 preparation: check that the DWH server can reach a domain controller safely (read-only, no changes).
 
-  python3 /srv/dwh/incoming/dwh_ldap_check.py --host dc01.bank.local
-  python3 /srv/dwh/incoming/dwh_ldap_check.py --host dc01.bank.local --ca-file /srv/dwh/incoming/bank-ca.pem
-  python3 /srv/dwh/incoming/dwh_ldap_check.py --host dc01.bank.local --ca-file ... --bind
+  python3 /srv/dwh/incoming/dwh_ldap_check.py --host dc01.vtbaze.local --port 389
+  python3 /srv/dwh/incoming/dwh_ldap_check.py --host dc01.vtbaze.local --port 389 --pin <SHA-256 shown by the run above>
+  python3 /srv/dwh/incoming/dwh_ldap_check.py --host dc01.vtbaze.local --port 389 --pin <...> --bind
 
 Steps (each prints PASS / FAIL with the reason):
   1 DNS        the name resolves (addresses printed)
-  2 TCP        port 636 (LDAPS) answers; 389 (LDAP) is reported for information only
-  3 TLS        handshake with certificate verification: against --ca-file (the domain CA) or the system store;
-               subject, issuer, validity and names of the certificate; the name must match --host
-  4 BIND       only with --bind: simple bind of the integration account over the verified TLS connection.
-               The login (user@domain or DN) and the password are typed at the prompt; the password is not
-               shown, not printed, not written anywhere and not kept after the check.
+  2 TCP        the port answers
+  3 TLS        the connection is encrypted: LDAPS (ports 636, 3269) or StartTLS on a plain LDAP port (389, 3268, other).
+               The certificate of the controller is checked by --ca-file (the domain CA), by --pin (its SHA-256
+               fingerprint, confirmed with the infrastructure team) or by the system store; its subject, issuer,
+               validity, names and SHA-256 fingerprint are printed. A port without encryption is reported as FAIL:
+               passwords would go over the network in clear text.
+  4 BIND       only with --bind and only over a verified encrypted connection: simple bind of the integration
+               account. Login (user@vtbaze.local, VTBAZE\user or a DN) and password are typed at the prompt; the
+               password is not shown, not printed, not written anywhere and not kept after the check.
 Prints LDAP_CHECK_RESULT: PASS / FAIL. Uses the system python3 only (standard library).
 """
 from __future__ import annotations
 
 import argparse
 import getpass
+import hashlib
 import socket
 import ssl
 import sys
@@ -91,6 +95,27 @@ def parse_bind_response(data: bytes) -> tuple[int, str]:
     return int.from_bytes(code, "big"), diagnostic.decode("utf-8", "replace")
 
 
+STARTTLS_OID = b"1.3.6.1.4.1.1466.20037"
+
+
+def starttls_request(message_id: int) -> bytes:
+    """LDAPMessage { messageID, ExtendedRequest [APPLICATION 23] { requestName [0] StartTLS OID } }."""
+    return _tlv(0x30, _integer(message_id) + _tlv(0x77, _tlv(0x80, STARTTLS_OID)))
+
+
+def parse_extended_response(data: bytes) -> int:
+    """resultCode of an ExtendedResponse [APPLICATION 24]."""
+    tag, message, _ = _read_tlv(data, 0)
+    if tag != 0x30:
+        raise ValueError("not an LDAP message")
+    _, _, pos = _read_tlv(message, 0)
+    tag, response, _ = _read_tlv(message, pos)
+    if tag != 0x78:
+        raise ValueError("not an extended response")
+    _, code, _ = _read_tlv(response, 0)
+    return int.from_bytes(code, "big")
+
+
 def _read_message(sock: ssl.SSLSocket) -> bytes:
     data = b""
     while True:
@@ -120,15 +145,51 @@ def describe_bind(code: int, diagnostic: str) -> str:
 # ------------------------------------------------------------------ checks
 
 def tls_context(ca_file: str | None) -> ssl.SSLContext:
-    context = ssl.create_default_context(cafile=ca_file) if ca_file else ssl.create_default_context()
+    """With the domain CA: full verification (chain and name). Without it: the certificate is accepted only to show it
+    and to compare its fingerprint with --pin (decided in main)."""
+    if ca_file:
+        context = ssl.create_default_context(cafile=ca_file)
+    else:
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        context.check_hostname = False
+        context.verify_mode = ssl.CERT_NONE
     context.minimum_version = ssl.TLSVersion.TLSv1_2
     return context
+
+
+def pin_matches(der: bytes, pin: str | None) -> bool:
+    return bool(pin) and pin.replace(":", "").strip().upper() == hashlib.sha256(der).hexdigest().upper()
+
+
+def describe_certificate(der: bytes) -> str:
+    """Subject, issuer, validity and names, decoded by the ssl module from a temporary PEM file."""
+    import tempfile
+    from pathlib import Path
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "cert.pem"
+        path.write_text(ssl.DER_cert_to_PEM_cert(der))
+        try:
+            cert = ssl._ssl._test_decode_cert(str(path))  # noqa: SLF001 - standard library decoder of a PEM file
+        except Exception:  # noqa: BLE001 - informational only
+            return "certificate could not be decoded"
+    subject = ", ".join("=".join(x) for part in cert.get("subject", ()) for x in part)
+    issuer = ", ".join("=".join(x) for part in cert.get("issuer", ()) for x in part)
+    names = ", ".join(v for k, v in cert.get("subjectAltName", ()) if k == "DNS")
+    not_after = cert.get("notAfter", "")
+    days = ""
+    if not_after:
+        expires = datetime.fromtimestamp(ssl.cert_time_to_seconds(not_after), timezone.utc)
+        days = f" ({(expires - datetime.now(timezone.utc)).days} days)"
+    return f"subject: {subject}; issuer: {issuer}; names: {names or '-'}; valid until {not_after}{days}"
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--host", required=True, help="domain controller name (as in its certificate)")
     parser.add_argument("--port", type=int, default=636)
+    parser.add_argument("--tls", choices=("auto", "ldaps", "starttls"), default="auto",
+                        help="auto: LDAPS on 636/3269, StartTLS on other ports")
+    parser.add_argument("--pin", default=None, help="expected SHA-256 fingerprint of the controller certificate")
     parser.add_argument("--ca-file", default=None, help="PEM file of the domain CA (from the infrastructure team)")
     parser.add_argument("--bind", action="store_true", help="also test the integration account (prompts)")
     parser.add_argument("--timeout", type=float, default=5.0)
@@ -143,7 +204,7 @@ def main(argv: list[str] | None = None) -> int:
         print("LDAP_CHECK_RESULT: FAIL")
         return 1
 
-    for port, required in ((args.port, True), (389, False)):
+    for port, required in ((args.port, True),):
         try:
             with socket.create_connection((args.host, port), timeout=args.timeout):
                 print(f"2 TCP  PASS  port {port} answers")
@@ -155,50 +216,60 @@ def main(argv: list[str] | None = None) -> int:
         print("LDAP_CHECK_RESULT: FAIL (" + "; ".join(problems) + ")")
         return 1
 
+    tls_mode = args.tls if args.tls != "auto" else ("ldaps" if args.port in (636, 3269) else "starttls")
     try:
-        context = tls_context(args.ca_file)
         raw = socket.create_connection((args.host, args.port), timeout=args.timeout)
-        tls = context.wrap_socket(raw, server_hostname=args.host)
-    except (OSError, ssl.SSLError) as exc:
-        reason = str(exc)
-        hint = ("; give the domain CA with --ca-file" if "CERTIFICATE_VERIFY_FAILED" in reason and not args.ca_file
-                else "; the name in the certificate differs from --host" if "match" in reason.lower() else "")
-        print(f"3 TLS  FAIL  {reason}{hint}")
+        if tls_mode == "starttls":
+            raw.sendall(starttls_request(1))
+            code = parse_extended_response(_read_message(raw))
+            if code != 0:
+                raw.close()
+                print(f"3 TLS  FAIL  the controller refused StartTLS on port {args.port} (result {code}); without "
+                      "encryption passwords would go over the network in clear text: ask for LDAPS (636) or StartTLS")
+                print("LDAP_CHECK_RESULT: FAIL")
+                return 1
+        tls = tls_context(args.ca_file).wrap_socket(raw, server_hostname=args.host)
+    except (OSError, ssl.SSLError, ValueError, IndexError) as exc:
+        print(f"3 TLS  FAIL  {tls_mode} on port {args.port}: {type(exc).__name__}: {exc}")
         print("LDAP_CHECK_RESULT: FAIL")
         return 1
     with tls:
-        cert = tls.getpeercert() or {}
-        subject = ", ".join("=".join(x) for part in cert.get("subject", ()) for x in part)
-        issuer = ", ".join("=".join(x) for part in cert.get("issuer", ()) for x in part)
-        names = ", ".join(v for k, v in cert.get("subjectAltName", ()) if k == "DNS")
-        not_after = cert.get("notAfter", "")
-        days = None
-        if not_after:
-            expires = datetime.fromtimestamp(ssl.cert_time_to_seconds(not_after), timezone.utc)
-            days = (expires - datetime.now(timezone.utc)).days
-        print(f"3 TLS  PASS  {tls.version()}; subject: {subject}; issuer: {issuer}; names: {names or '-'}; "
-              f"valid until {not_after}" + (f" ({days} days)" if days is not None else ""))
-        if days is not None and days < 30:
-            problems.append(f"the controller certificate expires in {days} days")
+        der = tls.getpeercert(binary_form=True) or b""
+        fingerprint = hashlib.sha256(der).hexdigest().upper()
+        if args.ca_file:
+            verified, how = True, "verified by the domain CA (chain and name)"
+        elif args.pin:
+            verified = pin_matches(der, args.pin)
+            how = "pin matches" if verified else "pin DOES NOT match: a different certificate (or a man in the middle)"
+        else:
+            verified, how = False, ("not verified yet: confirm this SHA-256 with the infrastructure team and repeat "
+                                    "with --pin, or give --ca-file")
+        info = describe_certificate(der)
+        print(f"3 TLS  {'PASS' if verified else 'FAIL'}  {tls_mode}, {tls.version()}; {info}; SHA-256 {fingerprint}; {how}")
+        if not verified:
+            problems.append("the certificate of the controller is not trusted yet (give --ca-file or confirm --pin)")
 
         if args.bind:
-            login = input("integration login (user@domain or DN): ").strip()
-            password = getpass.getpass("password (not shown): ")
-            if not login or not password:
-                print("4 BIND FAIL  empty login or password (an empty password would be an anonymous bind)")
-                problems.append("bind not tested")
+            if not verified:
+                print("4 BIND SKIP  the password is sent only over a verified connection")
             else:
-                try:
-                    tls.sendall(bind_request(1, login, password))
-                    code, diagnostic = parse_bind_response(_read_message(tls))
-                    print(f"4 BIND {'PASS' if code == 0 else 'FAIL'}  {describe_bind(code, diagnostic)}")
-                    if code != 0:
-                        problems.append("the integration account cannot bind")
-                except (OSError, ValueError, IndexError) as exc:
-                    print(f"4 BIND FAIL  {type(exc).__name__}: no valid answer from the controller")
-                    problems.append("bind failed")
-                finally:
-                    password = ""
+                login = input("integration login (user@vtbaze.local, VTBAZE\\user or DN): ").strip()
+                password = getpass.getpass("password (not shown): ")
+                if not login or not password:
+                    print("4 BIND FAIL  empty login or password (an empty password would be an anonymous bind)")
+                    problems.append("bind not tested")
+                else:
+                    try:
+                        tls.sendall(bind_request(2, login, password))
+                        code, diagnostic = parse_bind_response(_read_message(tls))
+                        print(f"4 BIND {'PASS' if code == 0 else 'FAIL'}  {describe_bind(code, diagnostic)}")
+                        if code != 0:
+                            problems.append("the integration account cannot bind")
+                    except (OSError, ValueError, IndexError) as exc:
+                        print(f"4 BIND FAIL  {type(exc).__name__}: no valid answer from the controller")
+                        problems.append("bind failed")
+                    finally:
+                        password = ""
     print("LDAP_CHECK_RESULT: " + ("PASS" if not problems else "FAIL (" + "; ".join(problems) + ")"))
     return 0 if not problems else 1
 
