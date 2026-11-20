@@ -71,7 +71,7 @@
      5. задаёт **новые случайные пароли** `dwh_app` и `dwh_etl` и сам пишет их в `/etc/dwh/dwh.env` — пароли никому не показываются.
    - Повторный перенос (окончательный, перед переходом): с `--replace`, службы DWH остановлены.
 5. Ключи (шаг 8): восстановление из `.dwhkey` и активация — `docs/DWH_SECRETSTORE_KEY_RUNBOOK.md`, раздел «Linux-сервер». Python для команд: `/opt/dwh/current/venv/bin/python`, скрипт `/opt/dwh/current/src/tools/secret_key_tool.py`. Зашифрованные учётные данные источников с ПК (`DWH_SECRET_STORE_DIR`) — в `/var/lib/dwh/secrets`.
-6. nginx: шаблон `/opt/dwh/current/src/deploy/nginx/dwh.conf` скопировать в `/etc/nginx/sites-available/dwh.conf`, вписать DNS-имя, включить. Пока нет сертификата УЦ — временный самоподписанный (браузер предупредит), потом заменить файлы:
+6. nginx: шаблон `/opt/dwh/current/src/deploy/nginx/dwh.conf` скопировать в `/etc/nginx/sites-available/dwh.conf`, вписать DNS-имя, включить. Пока нет сертификата УЦ — временный самоподписанный (браузер предупредит); сертификат УЦ ставит `dwh_tls.py` (раздел 4e):
    ```bash
    sudo openssl req -x509 -newkey rsa:3072 -sha256 -days 365 -nodes -keyout /etc/dwh/tls/dwh.key -out /etc/dwh/tls/dwh.crt -subj "/CN=app-dwh-srv" -addext "subjectAltName=IP:10.1.20.20,DNS:app-dwh-srv" && sudo chmod 600 /etc/dwh/tls/dwh.key
    ```
@@ -215,6 +215,25 @@ sudo python3 /opt/dwh/current/src/tools/server/dwh_ldap_setup.py --server <ко�
 sudo python3 /opt/dwh/current/src/tools/server/dwh_ldap_setup.py --check --user <логин>
 ```
 Выключить вход через домен (локальный вход не меняется): `--disable`. Новый логин/пароль служебной учётной записи: `--apply --rotate-password` с теми же параметрами. Причины отказов входа — в журнале безопасности (`LOGIN_FAILED`: `INVALID_CREDENTIALS`, `LDAP_ACCOUNT_DISABLED`, `LDAP_ACCOUNT_LOCKED`, `LDAP_PASSWORD_EXPIRED`, `LDAP_NOT_FOUND`, `LDAP_GUID_MISMATCH`, `LDAP_UNAVAILABLE`), подробности недоступности — в журнале службы: `journalctl -u dwh-api`.
+
+## 4e. Сертификат HTTPS от УЦ и DNS-имя (I13-10)
+
+Сертификат внутреннего УЦ в файле PFX (от администраторов) ставит `tools/server/dwh_tls.py` (план `docs/DWH_I13_10_TLS_CERTIFICATE_PLAN_APPROVED_20261120.md`). PFX — в `/etc/dwh/tls/pending/` (права 600), пароль PFX вводится без показа.
+
+План без изменений (проверки сертификата и разница файла nginx):
+```bash
+sudo python3 /opt/dwh/current/src/tools/server/dwh_tls.py install --pfx /etc/dwh/tls/pending/dwh.pfx --name dwh.vtbaze.local --ip 10.1.20.20
+```
+Те же параметры с `--apply` — установить: копия текущих файлов в `/etc/dwh/tls/backup/<время>/`, новые `dwh.crt`, `dwh.key`, `ca.crt`, файл nginx из шаблона, `nginx -t`, `reload`, живая проверка; при ошибке — возврат прежних файлов. Результат — `TLS_RESULT`. После `PASS` PFX на сервере не нужен (`sudo rm /etc/dwh/tls/pending/dwh.pfx`).
+
+Проверка без изменений и ручной откат:
+```bash
+sudo python3 /opt/dwh/current/src/tools/server/dwh_tls.py check --name dwh.vtbaze.local --ip 10.1.20.20
+```
+```bash
+sudo python3 /opt/dwh/current/src/tools/server/dwh_tls.py rollback
+```
+Старый адрес `https://10.1.20.20` перенаправляется на `https://dwh.vtbaze.local`. Продление — новый PFX и тот же `install`; срок проверяет `dwh_check_network.py` (за 30 дней).
 
 ## 5. Проверки и задачи
 
