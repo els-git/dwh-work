@@ -385,5 +385,38 @@
       "label": "026",
       "expected": 6
     }
+  },
+  "027": {
+    "number": "027",
+    "owner": "dwh_admin",
+    "marker": "secret_store.legacy_bindings_revoked()",
+    "copy_db": "dwh_i02_06_027_test",
+    "check_expected": 3,
+    "added_rows": {
+      "secret_store.operation_event": 6,
+      "audit.security_event": 3
+    },
+    "migration": {
+      "path": "database/migrations/027_revoke_legacy_bindings.sql",
+      "sha256": "48E418D8766449DF1D85686598AE710F86FEFEE73F2C91BEF4092A5BD385B2B0"
+    },
+    "down": {
+      "path": "database/migrations/027_revoke_legacy_bindings.down.sql",
+      "sha256": "25388F08EB703093F2ECACBD3139EACD82BB916EB3AD64F33E126E7C22C83F17"
+    },
+    "check": {
+      "path": "database/checks/027_revoke_legacy_bindings_check.sql",
+      "sha256": "06B12698CA9EE2BA63DADDCB23B14A01D99E1B4E48A3764D8552D6A545CB7ACD"
+    },
+    "test": {
+      "path": "database/tests/027_revoke_legacy_bindings_test.sql",
+      "sha256": "E0F97BBFF0D133A64FBEE8231694FE4A30951BA0BEE76542E6DB4A05B912B79D"
+    },
+    "previous_check": {
+      "path": "database/checks/028_source_object_identity_check.sql",
+      "sha256": "1107F61BFBCE16E6F0588785B8E4D643F0A057F32558BB0901954E27FD93E05A",
+      "label": "028",
+      "expected": 6
+    }
   }
 }
