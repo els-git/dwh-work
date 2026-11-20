@@ -224,7 +224,7 @@ sudo python3 /opt/dwh/current/src/tools/server/dwh_ldap_setup.py --check --user 
 ```bash
 sudo python3 /opt/dwh/current/src/tools/server/dwh_tls.py install --pfx /etc/dwh/tls/pending/dwh.pfx --name dwh.vtbaze.local --ip 10.1.20.20
 ```
-Те же параметры с `--apply` — установить: копия текущих файлов в `/etc/dwh/tls/backup/<время>/`, новые `dwh.crt`, `dwh.key`, `ca.crt`, файл nginx из шаблона, `nginx -t`, `reload`, живая проверка; при ошибке — возврат прежних файлов. Результат — `TLS_RESULT`. После `PASS` PFX на сервере не нужен (`sudo rm /etc/dwh/tls/pending/dwh.pfx`).
+Те же параметры с `--apply` — установить: копия текущих файлов в `/etc/dwh/tls/backup/<время>/`, новые `dwh.crt`, `dwh.key`, `ca.crt`, файл nginx из шаблона, `nginx -t`, `reload`, живая проверка (ждёт новые процессы nginx до 20 с, `--wait`); при ошибке — возврат прежних файлов. Результат — `TLS_RESULT`. После `PASS` PFX на сервере не нужен (`sudo rm /etc/dwh/tls/pending/dwh.pfx`).
 
 Проверка без изменений и ручной откат:
 ```bash
