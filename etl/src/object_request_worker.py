@@ -102,10 +102,13 @@ def parse_output(lines: list[str], run_kind: str, exit_code: int | None) -> tupl
 
 
 def run_child(source_object_id: int, run_kind: str, *, log: Callable[[str], None],
-              timeout: int | None = None, command: list[str] | None = None) -> tuple[list[str], int | None]:
+              timeout: int | None = None, command: list[str] | None = None,
+              request_id: int | None = None) -> tuple[list[str], int | None]:
     """Runs one object in a child process; streams its lines to log. Returns (lines, exit code or None on timeout)."""
     env = dict(os.environ)
     env["DWH_RUN_OBJECT_ID"] = str(source_object_id)
+    # I02-03 (package 026): the child reads the source password only for this running request
+    env["DWH_RUN_OBJECT_REQUEST_ID"] = str(request_id) if request_id is not None else ""
     env["DWH_RUN_OBJECT_STAGE"] = "ODS" if run_kind == "CONTINUE_ODS" else "ALL"
     env["DWH_RUN_OBJECT_FULL"] = "1" if run_kind == "FULL_RERUN" else ""
     env["PYTHONIOENCODING"] = "utf-8"
@@ -144,12 +147,14 @@ def run_child(source_object_id: int, run_kind: str, *, log: Callable[[str], None
 
 
 def execute(source_object_id: int, run_kind: str, *, log: Callable[[str], None], timeout: int | None = None,
-            command: list[str] | None = None) -> tuple[bool, int | None, int | None, str | None, str]:
+            command: list[str] | None = None,
+            request_id: int | None = None) -> tuple[bool, int | None, int | None, str | None, str]:
     """Runs the steps of one request. Returns (ok, stg_run_id, ods_run_id, result_code, message)."""
     if run_kind not in ("RUN", "FULL_RERUN", "CONTINUE_ODS"):
         return False, None, None, "UNSUPPORTED_RUN_KIND", f"Unsupported run kind {run_kind}"
     try:
-        lines, code = run_child(source_object_id, run_kind, log=log, timeout=timeout, command=command)
+        lines, code = run_child(source_object_id, run_kind, log=log, timeout=timeout, command=command,
+                                request_id=request_id)
     except OSError as exc:
         return False, None, None, "INTERNAL_ERROR", f"Run process could not start ({type(exc).__name__})"
     if code is None:
@@ -176,7 +181,7 @@ def process_one(conn, worker: str, *, log: Callable[[str], None] = lambda m: pri
         cur.execute("SELECT etl.object_run_request_start(%s, %s)", (request_id, worker))
     conn.commit()
     ok, stg_id, ods_id, code, message = execute(source_object_id, run_kind, log=log, timeout=timeout,
-                                                command=command)
+                                                command=command, request_id=request_id)
     status = _finish(conn, request_id, ok, stg_id, ods_id, code, message)
     log(f"OBJECT REQUEST {status} {request_id}" + (f" code={code}" if not ok else "") + f" | {message}")
     return True

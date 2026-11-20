@@ -223,8 +223,12 @@ def check_journal(report: Report, data: dict, files: dict[str, Path], keys: set[
     for r in data["schema_rights"]:
         report.check(not r["usage"] and not r["tables"],
                      f"role {r['role']}: secret_store schema usage {r['usage']}, tables {', '.join(r['tables']) or 'none'}")
+    # package 026: the ETL reads by (code, request); the old read by code alone is closed for dwh_etl
+    by_request = any(f["function"] == "etl.source_secret_read_begin(text,bigint)" for f in data["function_rights"])
     for f in data["function_rights"]:
         expected = next((roles for pattern, roles in EXPECTED_FUNCTION_ROLES if pattern.match(f["function"])), set())
+        if by_request and f["function"] == "etl.source_secret_read_begin(text)":
+            expected = set()
         got = set(f["roles"])
         report.check(got == expected, f"EXECUTE {f['function']}: {', '.join(sorted(got)) or 'nobody'}"
                                       + ("" if got == expected else f" (expected {', '.join(sorted(expected)) or 'nobody'})"))

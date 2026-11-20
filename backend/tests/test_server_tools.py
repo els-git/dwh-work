@@ -182,6 +182,34 @@ class BackupTests(Temp):
         with self.assertRaises(ValueError):
             dwh_backup.make_copy(self.dir, "dwh", "../x", runner=runner)
 
+    def test_secrets_copy(self):
+        import datetime
+        import tarfile
+        source = self.dir / "secrets"
+        source.mkdir()
+        refs = ["11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222"]
+        for ref in refs:
+            (source / f"{ref}.bin").write_bytes(b"cipher-" + ref.encode())
+            os.chmod(source / f"{ref}.bin", 0o600)
+        out = self.dir / "copies"
+        for day in (1, 2, 3):
+            target, count = dwh_backup.copy_secrets(source, out, datetime.datetime(2026, 11, day, 2, 30))
+        self.assertEqual(count, 2)
+        self.assertEqual(target.stat().st_mode & 0o777, 0o600)
+        self.assertEqual(out.stat().st_mode & 0o777, 0o700)
+        with tarfile.open(target) as archive:
+            self.assertEqual(sorted(m.name for m in archive.getmembers()), [f"{r}.bin" for r in refs])
+            self.assertTrue(all(m.mode & 0o777 == 0o600 for m in archive.getmembers()))
+        side = target.with_name(target.name + ".sha256").read_text()
+        self.assertIn(f"{refs[0]}.bin", side)
+        self.assertEqual(len(dwh_backup.prune_secrets(out, 2)), 1)
+        self.assertEqual(sorted(p.name for p in out.glob("*.tar")),
+                         ["secrets_20261102_023000.tar", "secrets_20261103_023000.tar"])
+        os.symlink("/etc/hostname", source / "33333333-3333-4333-8333-333333333333.bin")
+        with self.assertRaisesRegex(ValueError, "unexpected entry"):
+            dwh_backup.copy_secrets(source, out, datetime.datetime(2026, 11, 4, 2, 30))
+        self.assertEqual(len(list(out.glob("*.tar"))), 2)          # nothing written on refusal
+
 
 class TaskCommandTests(Temp):
     def test_unit_carries_settings_keys_and_object(self):

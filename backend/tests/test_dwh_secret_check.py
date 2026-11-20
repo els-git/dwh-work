@@ -159,6 +159,16 @@ class SecretCheckTest(unittest.TestCase):
         self.assertIn("WARN  1 PENDING binding(s) of failed operations (never activated): CRM_RETAIL 77777777", out)
         self.assertIn("PASS  one ACTIVE binding per source: 1", out)
 
+    def test_old_etl_read_closed_after_026(self):
+        data = journal()
+        data["function_rights"].append({"function": "etl.source_secret_read_begin(text,bigint)", "roles": ["dwh_etl"]})
+        code, out = self.run_check(data)
+        self.assertIn("FAIL  EXECUTE etl.source_secret_read_begin(text): dwh_etl (expected nobody)", out)
+        data["function_rights"][3]["roles"] = []
+        code, out = self.run_check(data)
+        self.assertEqual(code, 0, out)
+        self.assertIn("PASS  EXECUTE etl.source_secret_read_begin(text,bigint): dwh_etl", out)
+
     def test_wrong_mode_key_still_counted(self):
         sha = self.active_file()
         os.chmod(self.keyring / "K2026_04.cred", 0o644)

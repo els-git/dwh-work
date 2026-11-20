@@ -1,6 +1,6 @@
 # DWH — движки приложения
 
-<sub>Версия **1.4.1** · **20.11.2026** · Описывает устройство движков по коду репозитория `els-git/dwh-work`. Документ обновляется вместе с изменением движков. Что из этого подтверждено на сервере — см. реестр `docs/DWH_CURRENT_FUNCTIONALITY.md`.</sub>
+<sub>Версия **1.5.0** · **20.11.2026** · Описывает устройство движков по коду репозитория `els-git/dwh-work`. Документ обновляется вместе с изменением движков. Что из этого подтверждено на сервере — см. реестр `docs/DWH_CURRENT_FUNCTIONALITY.md`.</sub>
 
 ## 0. Общая картина
 
@@ -203,13 +203,15 @@
 
 ## 8. SecretStore (пароли источников)
 
-**Файлы:** `backend/src/dwh_api/secret_*.py`, `etl/src/dwh/source_secret.py`; схема `secret_store`.
+**Файлы:** `backend/src/dwh_api/secret_store.py` (AES-256-GCM), `secret_file_store.py` (файлы), `secret_keyring.py`, `secret_key_tools.py`, `secret_systemd_creds_provider.py` (ключи сервера), `secret_dpapi_crypto_provider.py` (ключи DPAPI на ПК); `source_connection_admin.py` (API), `etl/src/dwh/source_secret.py` (ETL); схема `secret_store`. Других модулей `secret_*` нет (21 изолированный модуль октября удалён в I02-03, Р4).
 
 - **Хранение:**
   - пароль источника зашифрован (AES-256-GCM) в файле `/var/lib/dwh/secrets`;
   - мастер-ключи на сервере — `systemd-creds` (`/etc/dwh/keyring`), действующий ключ — `DWH_SECRET_ACTIVE_KEY_ID`.
 - **Журнал операций** (`secret_store`): `CREATE`, `REPLACE`, `REVOKE`, `READ` — с актором и `key_id`.
-- **Чтение пароля** движком — функциями `etl.source_secret_read_begin/_finish` (актор `SERVICE`).
+- **Чтение пароля** движком загрузки — `etl.source_secret_read_begin(код, номер заявки)` / `_finish` (пакет 026, актор `SERVICE`): пароль выдаётся только для заявки в состоянии `RUNNING` (`RUN` / `FULL_RERUN`), чей объект принадлежит источнику, не позднее 15 мин после старта, один раз на заявку; иначе — отказ с кодом (`REQUEST_NOT_FOUND`, `REQUEST_NOT_RUNNING`, `REQUEST_DOES_NOT_READ_SOURCE`, `REQUEST_OF_OTHER_SOURCE`, `REQUEST_STARTED_TOO_LONG_AGO`, `CREDENTIAL_ALREADY_READ`), записанным в журнал как `DENIED`. Номер заявки диспетчер передаёт дочернему процессу (`DWH_RUN_OBJECT_REQUEST_ID`); `run-object` без заявки пароль не получает (`CREDENTIAL_UNAVAILABLE`). Старая `etl.source_secret_read_begin(код)` для `dwh_etl` закрыта.
+- **Копии:** ночная служба `dwh-backup` после копии базы копирует зашифрованные файлы (`dwh_backup.py --secrets`, от root) в `/backup/dwh/secrets/secrets_<время>.tar` (0600, с SHA-256 каждого файла), 14 копий; мастер-ключи не копируются.
+- **Проверка:** `tools/server/dwh_secret_check.py` (только чтение).
 - **Через API и интерфейс** пароль не выдаётся никогда; задать или заменить его может администратор в «Интеграции → источник → Подключение».
 
 ## 8a. Вход пользователей (локальный и через домен, I20)
@@ -248,6 +250,7 @@
 
 | Версия | Дата | Изменения |
 |---|---|---|
+| 1.5.0 | 20.11.2026 | SecretStore (I02-03): чтение пароля ETL только для заявки `RUNNING` (пакет 026), копия зашифрованных файлов в ночной службе, удалены неиспользуемые модули `secret_*` |
 | 1.4.1 | 20.11.2026 | SecretStore: новые файлы ключей и копий создаются с правами 0600; `dwh_secret_check.py` — старые привязки без профиля (G8) и `PENDING` неуспешных операций — `WARN` |
 | 1.4.0 | 20.11.2026 | Раздел 9: `dwh_secret_check.py` — опись SecretStore (I02-03) |
 | 1.3.1 | 20.11.2026 | `dwh_tls.py`: живая проверка ждёт новые процессы nginx после `reload` (до `--wait`, 20 с) |

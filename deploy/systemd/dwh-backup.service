@@ -1,4 +1,5 @@
 # I16: nightly copy of the database dwh (pg_dump -Fc) into /backup/dwh, 14 copies kept.
+# I02-03: then a copy of the encrypted password files into /backup/dwh/secrets (root only).
 [Unit]
 Description=DWH database backup
 After=postgresql.service
@@ -8,6 +9,8 @@ Type=oneshot
 User=postgres
 Group=postgres
 ExecStart=/usr/bin/python3 /opt/dwh/current/src/tools/server/dwh_backup.py --dir /backup/dwh --keep 14
+# I02-03 (F06): encrypted password files of SecretStore, as root ("+"), without master keys
+ExecStartPost=+/usr/bin/python3 /opt/dwh/current/src/tools/server/dwh_backup.py --secrets --dir /backup/dwh/secrets --keep 14
 NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=strict

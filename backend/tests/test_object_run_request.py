@@ -69,9 +69,12 @@ class RunChildTest(unittest.TestCase):
                 "print('ENV', os.environ['DWH_RUN_OBJECT_ID'], os.environ['DWH_RUN_OBJECT_STAGE'], "
                 "repr(os.environ['DWH_RUN_OBJECT_FULL'])); print('RUN_RESULT: SUCCESS'); "
                 "print('ODS_RUN_ID: 6 | BATCH_RUN_ID: 60'); print('ODS_RESULT: SUCCESS')")
-        ok, s, o, code, msg = worker.execute(16, "FULL_RERUN", log=seen.append, timeout=30, command=script(body))
+        body = body.replace("print('ENV'", "print('REQ', os.environ['DWH_RUN_OBJECT_REQUEST_ID']); print('ENV'")
+        ok, s, o, code, msg = worker.execute(16, "FULL_RERUN", log=seen.append, timeout=30, command=script(body),
+                                             request_id=77)
         self.assertEqual((ok, s, o), (True, 5, 6))
         self.assertIn("  ENV 16 ALL '1'", seen)
+        self.assertIn("  REQ 77", seen)                     # I02-03: the child reads the password for this request
         lines, _ = worker.run_child(16, "CONTINUE_ODS", log=lambda m: None, timeout=30,
                                     command=script("import os; print(os.environ['DWH_RUN_OBJECT_STAGE'], "
                                                    "repr(os.environ['DWH_RUN_OBJECT_FULL']))"))
