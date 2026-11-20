@@ -355,5 +355,35 @@
       "label": "025",
       "expected": 5
     }
+  },
+  "028": {
+    "number": "028",
+    "owner": "dwh_admin",
+    "marker": "app.integration_source_object_rename(text, bigint, text, text)",
+    "copy_db": "dwh_i03_05_028_test",
+    "check_expected": 6,
+    "added_rows": {},
+    "migration": {
+      "path": "database/migrations/028_source_object_identity.sql",
+      "sha256": "611B8C0532B4276CF2CD554A9557ACE8E131DFBF7ED9474075257247406A1169"
+    },
+    "down": {
+      "path": "database/migrations/028_source_object_identity.down.sql",
+      "sha256": "5120F7749044B020DC4429E8191ECC3235888C94F4A442C763E099C56F639080"
+    },
+    "check": {
+      "path": "database/checks/028_source_object_identity_check.sql",
+      "sha256": "1107F61BFBCE16E6F0588785B8E4D643F0A057F32558BB0901954E27FD93E05A"
+    },
+    "test": {
+      "path": "database/tests/028_source_object_identity_test.sql",
+      "sha256": "AF543FC5F3448B5F17CD2550CF6BF6C7087F65BBB1E0E6E2A7BCFDE28716AFF8"
+    },
+    "previous_check": {
+      "path": "database/checks/026_etl_secret_read_by_request_check.sql",
+      "sha256": "E93E8879C084ACAFBBDC5774C214D97BD502A57346FC630EDD5736648BBEB6C0",
+      "label": "026",
+      "expected": 6
+    }
   }
 }

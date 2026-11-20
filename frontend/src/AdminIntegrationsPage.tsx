@@ -11,10 +11,13 @@ import type {
 import {
   createIntegrationSourceObject,
   createIntegrationSourceSystem,
+  deleteIntegrationSourceObject,
+  getIntegrationSourceObjectUsage,
   getIntegrationSourceObjects,
   getIntegrationSourceSystems,
   getObjectLoadStatus,
   setIntegrationSourceObjectActive,
+  renameIntegrationSourceObject,
   setIntegrationSourceSystemActive,
   updateIntegrationSourceObject,
   updateIntegrationSourceSystem,
@@ -24,6 +27,7 @@ import type {
   IntegrationSourceObject,
   IntegrationSourceSystem,
   ObjectLoadStatus,
+  SourceObjectUsage,
 } from './integrationAdminApi'
 
 import {
@@ -80,6 +84,8 @@ function nullable(
 
 
 function AdminIntegrationsPage() {
+  const { t } = useTranslation()
+
   const [
     mode,
     setMode,
@@ -244,6 +250,50 @@ function AdminIntegrationsPage() {
     objectDescription,
     setObjectDescription,
   ] = useState('')
+
+  // I03-05: usage of the edited object; schema and name are editable only while it is not used
+  // the answer is kept with its object id, so a late answer for another object is never shown
+  const [
+    usageAnswer,
+    setUsageAnswer,
+  ] = useState<{ id: number, usage: SourceObjectUsage } | null>(null)
+
+  const editingObjectId =
+    editorMode === 'edit'
+      ? editingObject?.source_object_id ?? null
+      : null
+
+  useEffect(() => {
+    if (editingObjectId === null) {
+      return
+    }
+    let cancelled = false
+    getIntegrationSourceObjectUsage(editingObjectId)
+      .then(usage => {
+        if (!cancelled) {
+          setUsageAnswer({ id: editingObjectId, usage })
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          // unknown usage: keep schema and name locked
+          setUsageAnswer({ id: editingObjectId, usage: { in_use: true, tables: [] } })
+        }
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [editingObjectId])
+
+  const objectUsage =
+    usageAnswer !== null && usageAnswer.id === editingObjectId
+      ? usageAnswer.usage
+      : null
+
+  const identityEditable =
+    editorMode === 'edit'
+    && objectUsage !== null
+    && !objectUsage.in_use
 
 
   async function loadAll() {
@@ -489,6 +539,40 @@ function AdminIntegrationsPage() {
   }
 
 
+  async function deleteObject() {
+    if (editingObject === null || !identityEditable) {
+      return
+    }
+
+    const confirmed =
+      await confirmAction({
+        title: t('objectIdentity.deleteTitle'),
+        message: t('objectIdentity.deleteMessage', {
+          object: `${editingObject.source_schema}.${editingObject.source_object}`,
+        }),
+        confirmLabel: t('objectIdentity.delete'),
+        cancelLabel: t('sourceConnection.cancel'),
+      })
+
+    if (!confirmed) {
+      return
+    }
+
+    try {
+      setSaving(true)
+      setError(null)
+      await deleteIntegrationSourceObject(editingObject.source_object_id)
+      setEditorMode(null)
+      setEditingObject(null)
+      await loadAll()
+    } catch (deleteError) {
+      setError(errorMessage(deleteError))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+
   async function submitObject(
     event: FormEvent<HTMLFormElement>,
   ) {
@@ -548,6 +632,14 @@ function AdminIntegrationsPage() {
         editorMode === 'edit'
         && editingObject !== null
       ) {
+        if (identityChanged) {
+          await renameIntegrationSourceObject(
+            editingObject.source_object_id,
+            sourceSchema.trim(),
+            sourceObject.trim(),
+          )
+        }
+        if (objectFieldsChanged) {
         await updateIntegrationSourceObject(
           editingObject.source_object_id,
           {
@@ -567,6 +659,7 @@ function AdminIntegrationsPage() {
               nullable(objectDescription),
           },
         )
+        }
       } else {
         return
       }
@@ -710,12 +803,20 @@ function AdminIntegrationsPage() {
             !== (editingSystem.description ?? null)
         )
 
-  const objectChanged =
-    editorMode === 'create'
-      ? objectSystemId !== null
-        && sourceSchema.trim() !== ''
-        && sourceObject.trim() !== ''
-      : editingObject !== null
+  const identityChanged =
+    editorMode === 'edit'
+    && editingObject !== null
+    && identityEditable
+    && sourceSchema.trim() !== ''
+    && sourceObject.trim() !== ''
+    && (
+      sourceSchema.trim() !== editingObject.source_schema
+      || sourceObject.trim() !== editingObject.source_object
+    )
+
+  const objectFieldsChanged =
+    editorMode === 'edit'
+    && editingObject !== null
         && (
           objectType !== editingObject.object_type
           || loadStrategy !== editingObject.load_strategy
@@ -729,6 +830,13 @@ function AdminIntegrationsPage() {
           || nullable(objectDescription)
             !== (editingObject.description ?? null)
         )
+
+  const objectChanged =
+    editorMode === 'create'
+      ? objectSystemId !== null
+        && sourceSchema.trim() !== ''
+        && sourceObject.trim() !== ''
+      : identityChanged || objectFieldsChanged
 
 
   const filteredObjects =
@@ -1231,6 +1339,7 @@ function AdminIntegrationsPage() {
                                 required
                                 readOnly={
                                   editorMode === 'edit'
+                                  && !identityEditable
                                 }
                                 value={sourceSchema}
                                 onChange={
@@ -1248,6 +1357,7 @@ function AdminIntegrationsPage() {
                                 required
                                 readOnly={
                                   editorMode === 'edit'
+                                  && !identityEditable
                                 }
                                 value={sourceObject}
                                 onChange={
@@ -1280,6 +1390,24 @@ function AdminIntegrationsPage() {
                               </select>
                             </label>
 
+                            {
+                              editorMode === 'edit'
+                                ? (
+                                    <p className="wide admin-integrations-identity-note">
+                                      {
+                                        objectUsage === null
+                                          ? t('objectIdentity.checking')
+                                          : objectUsage.in_use
+                                            ? t('objectIdentity.locked', {
+                                                tables: objectUsage.tables.join(', ') || '—',
+                                              })
+                                            : t('objectIdentity.editable')
+                                      }
+                                    </p>
+                                  )
+                                : null
+                            }
+
                             <label className="wide">
                               <span><Trans i18nKey="batch.tr0223" /></span>
                               <textarea
@@ -1303,6 +1431,21 @@ function AdminIntegrationsPage() {
                               >
                                 <Trans i18nKey="batch.tr0222" />
                               </button>
+
+                              {
+                                identityEditable
+                                  ? (
+                                      <button
+                                        type="button"
+                                        className="admin-secondary-button"
+                                        disabled={saving}
+                                        onClick={() => { void deleteObject() }}
+                                      >
+                                        {t('objectIdentity.delete')}
+                                      </button>
+                                    )
+                                  : null
+                              }
 
                               <button
                                 type="submit"
