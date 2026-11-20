@@ -3,11 +3,18 @@
   dwh_backup.py --dir /backup/dwh --keep 14             nightly copy (systemd timer dwh-backup)
   dwh_backup.py --dir /backup/dwh --keep 14 --label pre-update-<version>   before an update
   dwh_backup.py --verify-restore <file.dump>             test restore into dwh_restore_test
+  dwh_backup.py --secrets --dir /backup/dwh/secrets --keep 14   copy of the encrypted source passwords (root)
 
 A copy: pg_dump -Fc -> <dir>/dwh_<YYYYmmdd_HHMMSS>[_label].dump (+ .sha256), checked with
 pg_restore --list. The oldest copies beyond --keep are removed (copies with a label are
 counted too). Prints BACKUP_RESULT: PASS / FAIL. No passwords: local socket, peer login.
 Uses the system python3 only (no DWH packages).
+
+I02-03 (R3, rule F06): --secrets copies the encrypted password files of SecretStore (/var/lib/dwh/secrets,
+<secret_ref>.bin, AES-256-GCM) into <dir>/secrets_<YYYYmmdd_HHMMSS>.tar (0600, + .sha256 with the SHA-256 of
+every file inside). Master keys are NOT copied (K02: they stay in /etc/dwh/keyring and in the .dwhkey copies of
+the administrator). Runs as root (ExecStartPost=+ of dwh-backup.service). Links and other files are refused.
+Restore: tar -xpf <copy>.tar -C /var/lib/dwh/secrets (owner dwh, 0600 are kept), then dwh_secret_check.py.
 """
 from __future__ import annotations
 
@@ -16,12 +23,17 @@ import datetime
 import hashlib
 import os
 import re
+import stat
 import subprocess
 import sys
+import tarfile
 from pathlib import Path
 
 NAME_RE = re.compile(r"^dwh_\d{8}_\d{6}(_[A-Za-z0-9._-]{1,60})?\.dump$")
 RESTORE_DB = "dwh_restore_test"
+SECRETS_DIR = Path("/var/lib/dwh/secrets")
+SECRET_FILE_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.bin$")
+SECRETS_COPY_RE = re.compile(r"^secrets_\d{8}_\d{6}\.tar$")
 
 
 def sha256_file(path: Path) -> str:
@@ -56,6 +68,50 @@ def make_copy(directory: Path, database: str, label: str | None, now: datetime.d
 
 def prune(directory: Path, keep: int) -> list[Path]:
     copies = sorted(p for p in directory.iterdir() if p.is_file() and NAME_RE.match(p.name))
+    removed = []
+    for old in copies[:-keep] if keep > 0 else []:
+        old.unlink()
+        side = old.with_name(old.name + ".sha256")
+        if side.exists():
+            side.unlink()
+        removed.append(old)
+    return removed
+
+
+def copy_secrets(source: Path, directory: Path, now: datetime.datetime | None = None) -> tuple[Path, int]:
+    """Tar of the encrypted password files; refuses links and unknown files (F04, F07). Returns (copy, files)."""
+    files = []
+    for entry in sorted(source.iterdir()):
+        st = os.lstat(entry)
+        if not stat.S_ISREG(st.st_mode) or not SECRET_FILE_RE.match(entry.name):
+            raise ValueError(f"unexpected entry in {source}: {entry.name[:40]}")
+        files.append(entry)
+    directory.mkdir(mode=0o700, exist_ok=True)
+    os.chmod(directory, 0o700)
+    stamp = (now or datetime.datetime.now()).strftime("%Y%m%d_%H%M%S")
+    target = directory / f"secrets_{stamp}.tar"
+    partial = target.with_name(target.name + ".partial")
+    fd = os.open(partial, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        with os.fdopen(fd, "wb") as handle, tarfile.open(fileobj=handle, mode="w") as archive:
+            for entry in files:
+                archive.add(entry, arcname=entry.name, recursive=False)
+        with tarfile.open(partial) as archive:          # readable, every file inside
+            if sorted(m.name for m in archive.getmembers()) != [f.name for f in files]:
+                raise ValueError("copy of the password files is incomplete")
+        os.replace(partial, target)
+    finally:
+        if partial.exists():
+            partial.unlink()
+    lines = [f"{sha256_file(target)}  {target.name}"] + [f"{sha256_file(f)}  {f.name}" for f in files]
+    side = target.with_name(target.name + ".sha256")
+    side.write_text("\n".join(lines) + "\n")
+    os.chmod(side, 0o600)
+    return target, len(files)
+
+
+def prune_secrets(directory: Path, keep: int) -> list[Path]:
+    copies = sorted(p for p in directory.iterdir() if p.is_file() and SECRETS_COPY_RE.match(p.name))
     removed = []
     for old in copies[:-keep] if keep > 0 else []:
         old.unlink()
@@ -106,8 +162,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--database", default="dwh")
     parser.add_argument("--label")
     parser.add_argument("--verify-restore", metavar="DUMP")
+    parser.add_argument("--secrets", action="store_true", help="copy the encrypted password files (as root)")
+    parser.add_argument("--secrets-dir", default=str(SECRETS_DIR))
     args = parser.parse_args(argv)
     try:
+        if args.secrets:
+            target, count = copy_secrets(Path(args.secrets_dir), Path(args.dir))
+            removed = prune_secrets(Path(args.dir), args.keep)
+            print(f"copy of the password files: {target} ({count} file(s))")
+            print(f"removed old copies: {len(removed)}")
+            print("BACKUP_RESULT: PASS (secrets)")
+            return 0
         if args.verify_restore:
             ok, notes = verify_restore(Path(args.verify_restore), args.database)
             for note in notes:
