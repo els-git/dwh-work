@@ -4,6 +4,38 @@
 BEGIN;
 SET LOCAL search_path = pg_catalog;
 
+-- Test objects: meta.source_object has more NOT NULL columns in dwh than in the E0 base (object_type and others),
+-- so the INSERT fills every NOT NULL column without a default by name or type (as in the tests of 006-021).
+CREATE FUNCTION pg_temp.make_object(p_system bigint, p_name text) RETURNS bigint
+LANGUAGE plpgsql AS $fn$
+DECLARE
+  cols text := 'source_system_id, source_schema, source_object';
+  vals text := format('%s, %L, %L', p_system, 't026', p_name);
+  a record;
+  v bigint;
+BEGIN
+  FOR a IN SELECT att.attname, format_type(att.atttypid, att.atttypmod) AS typ
+             FROM pg_attribute att
+            WHERE att.attrelid = 'meta.source_object'::regclass AND att.attnum > 0 AND NOT att.attisdropped
+              AND att.attnotnull AND att.attidentity = '' AND att.attgenerated = ''
+              AND NOT EXISTS (SELECT 1 FROM pg_attrdef d WHERE d.adrelid = att.attrelid AND d.adnum = att.attnum)
+              AND att.attname NOT IN ('source_object_id', 'source_system_id', 'source_schema', 'source_object')
+  LOOP
+    cols := cols || ', ' || quote_ident(a.attname);
+    vals := vals || ', ' || CASE
+      WHEN a.attname = 'object_type' THEN quote_literal('TABLE')
+      WHEN a.attname = 'load_strategy' THEN quote_literal('FULL')
+      WHEN a.typ IN ('integer', 'bigint', 'smallint', 'numeric') THEN '100'
+      WHEN a.typ = 'boolean' THEN 'false'
+      WHEN a.typ LIKE 'timestamp%' OR a.typ = 'date' THEN 'now()'
+      WHEN a.typ = 'jsonb' OR a.typ = 'json' THEN quote_literal('{}')
+      ELSE quote_literal('t026_' || p_system || '_' || p_name) END;
+  END LOOP;
+  EXECUTE format('INSERT INTO meta.source_object (%s) VALUES (%s) RETURNING source_object_id', cols, vals) INTO v;
+  RETURN v;
+END
+$fn$;
+
 DO $t$
 DECLARE
   v_user bigint := (SELECT min(user_id) FROM app.user_account);
@@ -13,12 +45,10 @@ DECLARE
   v_obj bigint;
   i int;
 BEGIN
-  INSERT INTO meta.source_system(code, name, source_type)
-  SELECT 'T026_SRC', 'test 026', source_type FROM meta.source_system ORDER BY source_system_id LIMIT 1
-  RETURNING source_system_id INTO v_src;
-  INSERT INTO meta.source_system(code, name, source_type)
-  SELECT 'T026_OTHER', 'test 026 other', source_type FROM meta.source_system ORDER BY source_system_id LIMIT 1
-  RETURNING source_system_id INTO v_other;
+  INSERT INTO meta.source_system(code, name, source_type, description, is_active, created_at, updated_at)
+  VALUES ('T026_SRC', 'test 026', 'POSTGRESQL', NULL, true, now(), now()) RETURNING source_system_id INTO v_src;
+  INSERT INTO meta.source_system(code, name, source_type, description, is_active, created_at, updated_at)
+  VALUES ('T026_OTHER', 'test 026 other', 'POSTGRESQL', NULL, true, now(), now()) RETURNING source_system_id INTO v_other;
   INSERT INTO meta.source_connection(source_system_id, source_kind, connection_config, status, created_by, updated_by)
   VALUES (v_src, 'DATABASE', '{}'::jsonb, 'DRAFT', v_user, v_user);
   v_op := secret_store.begin_operation('CREATE', v_src, 'DWH_USER', v_user::text);
@@ -26,9 +56,7 @@ BEGIN
   PERFORM secret_store.finish_operation(v_op, true);
   PERFORM secret_store.activate_binding(v_op, repeat('a', 64), 'K_T026');
   FOR i IN 1..6 LOOP
-    INSERT INTO meta.source_object(source_system_id, source_schema, source_object)
-    VALUES (CASE WHEN i = 5 THEN v_other ELSE v_src END, 't026', 'obj' || i)
-    RETURNING source_object_id INTO v_obj;
+    v_obj := pg_temp.make_object(CASE WHEN i = 5 THEN v_other ELSE v_src END, 'obj' || i);
     o := o || v_obj;
   END LOOP;
   -- 1 RUN running now; 2 QUEUED; 3 CONTINUE_ODS running; 4 started 20 minutes ago; 5 object of another source;

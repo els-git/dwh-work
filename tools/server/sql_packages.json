@@ -347,7 +347,7 @@
     },
     "test": {
       "path": "database/tests/026_etl_secret_read_by_request_test.sql",
-      "sha256": "44B74E63E183FED6B8E002BF2B1FAE0E74C56CA41AAD3210DC691D335E6B3267"
+      "sha256": "D288DB42311D5570877CA3910C33DA1F6E4F0E60A750496C047A8276DD9807F5"
     },
     "previous_check": {
       "path": "database/checks/025_auth_provider_switch_check.sql",
