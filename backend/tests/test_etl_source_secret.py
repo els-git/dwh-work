@@ -48,12 +48,16 @@ class Cur:
             raise Refused("refused")
 
     def fetchone(self):
-        return (OP, REF, "K_T")
+        if self.conn.denied:
+            return (None, None, None, self.conn.denied)
+        return (OP, REF, "K_T", None)
 
 
 class Conn:
-    def __init__(self, refuse=False):
+    def __init__(self, refuse=False, denied=None):
         self.refuse = refuse
+        self.denied = denied
+        self.commits = 0
         self.calls = []
         self.closed = False
 
@@ -61,7 +65,7 @@ class Conn:
         return Cur(self)
 
     def commit(self):
-        pass
+        self.commits += 1
 
     def rollback(self):
         pass
@@ -80,15 +84,16 @@ class EtlSourceSecretTests(unittest.TestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
 
-    def read(self, conn, crypto=None):
-        return ss.read_source_credential("CRM_RETAIL", open_connection=lambda: conn,
+    def read(self, conn, crypto=None, request_id=41):
+        return ss.read_source_credential("CRM_RETAIL", request_id=request_id, open_connection=lambda: conn,
                                          key_loader=lambda k: crypto or self.crypto,
                                          store_factory=EncryptedFileSecretStore)
 
     def test_reads_and_journals(self):
         conn = Conn()
         self.assertEqual(self.read(conn), SYNTHETIC)
-        self.assertEqual(conn.calls[0][1], ("CRM_RETAIL",))
+        self.assertEqual(conn.calls[0][1], ("CRM_RETAIL", 41))
+        self.assertIn("source_secret_read_begin(%s, %s)", conn.calls[0][0])
         self.assertEqual(conn.calls[1][1], (OP, True))
         self.assertTrue(conn.closed)
         for sql, params in conn.calls:
@@ -108,6 +113,24 @@ class EtlSourceSecretTests(unittest.TestCase):
         self.assertIn("disabled", str(ctx.exception))
         self.assertEqual(len(conn.calls), 1)
         self.assertTrue(conn.closed)
+
+    def test_denied_by_request_check_is_committed(self):
+        conn = Conn(denied="REQUEST_NOT_RUNNING")
+        with self.assertRaises(ss.SourceSecretError) as ctx:
+            self.read(conn)
+        self.assertIn("REQUEST_NOT_RUNNING", str(ctx.exception))
+        self.assertEqual(len(conn.calls), 1)          # no file read, no OUTCOME
+        self.assertEqual(conn.commits, 1)             # the DENIED attempt stays in the journal
+        self.assertTrue(conn.closed)
+
+    def test_request_id_from_environment_or_refused(self):
+        conn = Conn()
+        with mock.patch.dict(os.environ, {ss.REQUEST_ENV: "52"}):
+            self.assertEqual(self.read(conn, request_id=None), SYNTHETIC)
+        self.assertEqual(conn.calls[0][1], ("CRM_RETAIL", 52))
+        with mock.patch.dict(os.environ, {ss.REQUEST_ENV: ""}):
+            with self.assertRaisesRegex(ss.SourceSecretError, "load request"):
+                self.read(Conn(), request_id=None)
 
     def test_not_configured(self):
         with mock.patch.dict(os.environ, {ss.SECRET_DIRECTORY_ENV: ""}):

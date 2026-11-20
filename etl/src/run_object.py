@@ -984,8 +984,11 @@ def run_object(source_object_id: int, *, dwh_connect: Callable[[], Any], read_cr
             check_target(dwh, plan)
             try:
                 password = read_credential(source["code"])
-            except Exception:
-                raise RunError("CREDENTIAL_UNAVAILABLE", "Source credential could not be read from SecretStore") from None
+            except Exception as exc:
+                # the reason of a SecretStore refusal (code of the database, no value) is shown; anything else is not
+                reason = str(exc) if type(exc).__name__ == "SourceSecretError" else ""
+                raise RunError("CREDENTIAL_UNAVAILABLE", "Source credential could not be read from SecretStore"
+                               + (f" ({reason})" if reason else "")) from None
             src = source_connect_fn(source["connection_config"], password)
             del password
             log("STAGE: source connected (read-only)")
