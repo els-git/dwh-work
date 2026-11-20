@@ -5,6 +5,8 @@ No FastAPI here; callers pass database cursors.
 """
 from __future__ import annotations
 
+import re
+
 from psycopg import sql as pgsql
 
 from dwh_api.ai_knowledge import SearchResult
@@ -123,6 +125,48 @@ def describe_report_data(meta_cur, values_cur, allowed: list[AllowedObject], des
     if denied:
         lines.append("Недоступны роли пользователя: " + "; ".join(denied))
     return "\n".join(lines), dm_relations
+
+
+TEXT_TYPES = ("text", "character varying", "character")
+_IDENT = r'(?:"[^"]+"|[A-Za-z_][A-Za-z0-9_$]*)'
+_FOLD_RE = re.compile(
+    r"'(?:[^']|'')*'"                                                   # a string elsewhere: left as it is
+    r"|(?P<col>" + _IDENT + r"(?:\." + _IDENT + r")?)"
+    r"(?P<op>\s*(?:=|<>|!=)\s*|\s+(?:NOT\s+)?(?:I?LIKE)\s+|\s+(?:NOT\s+)?IN\s*\(\s*)"
+    r"(?P<lit>'(?:[^']|'')*'(?:\s*,\s*'(?:[^']|'')*')*)",
+    re.IGNORECASE)
+_LIT_RE = re.compile(r"'((?:[^']|'')*)'")
+
+
+def fold_text(value: str) -> str:
+    """Upper case for comparisons in Azerbaijani, Russian and English text: i, ı and İ become I."""
+    return value.upper().replace("İ", "I").replace("İ", "I")
+
+
+def report_text_columns(meta_cur, allowed: list[AllowedObject]) -> set[str]:
+    """Names of the text columns of the allowed objects (for fold_text_equality)."""
+    meta_cur.execute("SELECT DISTINCT column_name FROM information_schema.columns WHERE table_schema = 'dm' "
+                     "AND table_name = ANY(%s) AND data_type = ANY(%s)",
+                     ([o.object_name for o in allowed], list(TEXT_TYPES)))
+    return {(r["column_name"] if isinstance(r, dict) else r[0]).lower() for r in meta_cur.fetchall()}
+
+
+def fold_text_equality(statement: str, text_columns: set[str]) -> str:
+    """Text values named by the user are compared without regard to case (request of the user 20.11.2026: the
+    model wrote last_name = 'Əsgərov' while the mart keeps ƏSGƏROV). For a text column compared with string
+    constants (=, <>, !=, LIKE, ILIKE, IN (...)) the column becomes translate(upper(col), 'İ', 'I') and the
+    constants are folded the same way here. Other expressions and strings are not touched."""
+    def replace(m: re.Match) -> str:
+        if not m.group("col"):
+            return m.group(0)
+        column = m.group("col").split(".")[-1].strip('"').lower()
+        literals = _LIT_RE.findall(m.group("lit"))
+        if column not in text_columns or not any(ch.isalpha() for lit in literals for ch in lit):
+            return m.group(0)
+        op = re.sub(r"\bILIKE\b", "LIKE", m.group("op"), flags=re.IGNORECASE)
+        folded = _LIT_RE.sub(lambda x: "'" + fold_text(x.group(1)) + "'", m.group("lit"))
+        return f"translate(upper({m.group('col')}), 'İ', 'I'){op}{folded}"
+    return _FOLD_RE.sub(replace, statement)
 
 
 def run_checked(cur, statement: str, allowed: list[AllowedObject],
