@@ -516,3 +516,10 @@
   font-weight: 600;
 }
 
+
+/* I03-05: note about the schema/name of the edited source object */
+.admin-integrations-identity-note {
+  margin: 0;
+  font-size: 0.85rem;
+  opacity: 0.85;
+}

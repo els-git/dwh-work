@@ -1,13 +1,23 @@
-import i18n from 'i18next'
-import { initReactI18next } from 'react-i18next'
-
-export const appLanguages = ['ru', 'en', 'az'] as const
-
-export type AppLanguage = (typeof appLanguages)[number]
-
-const storageKey = 'dwh.ui.language'
-const defaultLanguage: AppLanguage = 'en'
-
+import i18n from 'i18next'
+
+import { initReactI18next } from 'react-i18next'
+
+
+
+export const appLanguages = ['ru', 'en', 'az'] as const
+
+
+
+export type AppLanguage = (typeof appLanguages)[number]
+
+
+
+const storageKey = 'dwh.ui.language'
+
+const defaultLanguage: AppLanguage = 'en'
+
+
+
 const resources = {
   "en": {
     "translation": {
@@ -576,6 +586,14 @@ const resources = {
         "driftFound": "Schema drift found: status DRIFT",
         "driftNone": "No schema drift: status READY",
         "error": "Error:"
+      },
+      "objectIdentity": {
+        "checking": "Checking whether the object is used…",
+        "editable": "The object is not used yet (no snapshot, mapping or loads): its schema and name can be changed, or the object can be deleted.",
+        "locked": "Schema and name are locked: the object is used ({{tables}}).",
+        "delete": "Delete object",
+        "deleteTitle": "Delete source object",
+        "deleteMessage": "The unused object {{object}} will be deleted. Continue?"
       },
       "sourceConnection": {
         "open": "Connection",
@@ -1644,6 +1662,14 @@ const resources = {
         "driftNone": "Расхождений нет: статус READY",
         "error": "Ошибка:"
       },
+      "objectIdentity": {
+        "checking": "Проверка, используется ли объект…",
+        "editable": "Объект ещё не используется (нет снимка, маппинга и загрузок): схему и имя можно изменить или удалить объект.",
+        "locked": "Схема и имя закрыты: объект используется ({{tables}}).",
+        "delete": "Удалить объект",
+        "deleteTitle": "Удаление объекта источника",
+        "deleteMessage": "Неиспользуемый объект {{object}} будет удалён. Продолжить?"
+      },
       "sourceConnection": {
         "open": "Подключение",
         "title": "Подключение: {{code}}",
@@ -2711,6 +2737,14 @@ const resources = {
         "driftNone": "Fərq yoxdur: status READY",
         "error": "Xəta:"
       },
+      "objectIdentity": {
+        "checking": "Obyektin istifadə olunub-olunmadığı yoxlanılır…",
+        "editable": "Obyekt hələ istifadə olunmur (snapshot, maplama və yükləmə yoxdur): sxemi və adı dəyişmək və ya obyekti silmək olar.",
+        "locked": "Sxem və ad bağlıdır: obyekt istifadə olunur ({{tables}}).",
+        "delete": "Obyekti sil",
+        "deleteTitle": "Mənbə obyektinin silinməsi",
+        "deleteMessage": "İstifadə olunmayan {{object}} obyekti silinəcək. Davam edilsin?"
+      },
       "sourceConnection": {
         "open": "Qoşulma",
         "title": "Qoşulma: {{code}}",
@@ -3210,51 +3244,99 @@ const resources = {
       }
     }
   }
-} as const
-
-function isAppLanguage(
-  value: string | null,
-): value is AppLanguage {
-  return value === 'ru' || value === 'en' || value === 'az'
-}
-
-function getInitialLanguage(): AppLanguage {
-  try {
-    const stored = window.localStorage.getItem(storageKey)
-
-    if (isAppLanguage(stored)) {
-      return stored
-    }
-  } catch {
-    // Browser storage can be unavailable.
-  }
-
-  return defaultLanguage
-}
-
-i18n.on('languageChanged', (language: string) => {
-  if (!isAppLanguage(language)) {
-    return
-  }
-
-  document.documentElement.lang = language
-
-  try {
-    window.localStorage.setItem(storageKey, language)
-  } catch {
-    // Language switching must work without storage.
-  }
-})
-
-void i18n.use(initReactI18next).init({
-  resources,
-  lng: getInitialLanguage(),
-  fallbackLng: defaultLanguage,
-  supportedLngs: appLanguages,
-  initAsync: false,
-  interpolation: {
-    escapeValue: false,
-  },
-})
-
-export default i18n
+} as const
+
+
+
+function isAppLanguage(
+
+  value: string | null,
+
+): value is AppLanguage {
+
+  return value === 'ru' || value === 'en' || value === 'az'
+
+}
+
+
+
+function getInitialLanguage(): AppLanguage {
+
+  try {
+
+    const stored = window.localStorage.getItem(storageKey)
+
+
+
+    if (isAppLanguage(stored)) {
+
+      return stored
+
+    }
+
+  } catch {
+
+    // Browser storage can be unavailable.
+
+  }
+
+
+
+  return defaultLanguage
+
+}
+
+
+
+i18n.on('languageChanged', (language: string) => {
+
+  if (!isAppLanguage(language)) {
+
+    return
+
+  }
+
+
+
+  document.documentElement.lang = language
+
+
+
+  try {
+
+    window.localStorage.setItem(storageKey, language)
+
+  } catch {
+
+    // Language switching must work without storage.
+
+  }
+
+})
+
+
+
+void i18n.use(initReactI18next).init({
+
+  resources,
+
+  lng: getInitialLanguage(),
+
+  fallbackLng: defaultLanguage,
+
+  supportedLngs: appLanguages,
+
+  initAsync: false,
+
+  interpolation: {
+
+    escapeValue: false,
+
+  },
+
+})
+
+
+
+export default i18n
+

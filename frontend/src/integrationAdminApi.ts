@@ -258,6 +258,54 @@ export function setIntegrationSourceObjectActive(
     },
   )
 }
+
+
+// I03-05 (package 028): schema/name and deletion of a source object while it is not used.
+export interface SourceObjectUsage {
+  in_use: boolean
+  tables: string[]
+}
+
+
+export function getIntegrationSourceObjectUsage(
+  sourceObjectId: number,
+): Promise<SourceObjectUsage> {
+  return apiRequest<SourceObjectUsage>(
+    '/api/admin/integrations/source-objects/'
+    + encodeURIComponent(String(sourceObjectId))
+    + '/usage',
+  )
+}
+
+
+export function renameIntegrationSourceObject(
+  sourceObjectId: number,
+  sourceSchema: string,
+  sourceObject: string,
+): Promise<unknown> {
+  return apiRequest<unknown>(
+    '/api/admin/integrations/source-objects/'
+    + encodeURIComponent(String(sourceObjectId))
+    + '/identity',
+    {
+      method: 'PUT',
+      body: JSON.stringify({ source_schema: sourceSchema, source_object: sourceObject }),
+    },
+  )
+}
+
+
+export function deleteIntegrationSourceObject(
+  sourceObjectId: number,
+): Promise<unknown> {
+  return apiRequest<unknown>(
+    '/api/admin/integrations/source-objects/'
+    + encodeURIComponent(String(sourceObjectId)),
+    {
+      method: 'DELETE',
+    },
+  )
+}
 // ============================================================
 // Contracts
 // ============================================================

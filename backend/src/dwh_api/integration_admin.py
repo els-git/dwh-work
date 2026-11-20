@@ -158,6 +158,23 @@ class SourceObjectUpdateRequest(BaseModel):
     )
 
 
+class SourceObjectIdentityRequest(BaseModel):
+    source_schema: str = Field(
+        min_length=1,
+        max_length=128,
+    )
+
+    source_object: str = Field(
+        min_length=1,
+        max_length=128,
+    )
+
+
+class SourceObjectUsageResponse(BaseModel):
+    in_use: bool
+    tables: list[str]
+
+
 class IdResponse(BaseModel):
     id: int
 
@@ -278,6 +295,8 @@ def _raise_database_error(
         or "invalid" in lowered
         or "unsupported" in lowered
         or "load mode" in lowered
+        or "is required" in lowered
+        or "in use" in lowered
     ):
         raise HTTPException(
             status_code=422,
@@ -955,6 +974,81 @@ def disable_source_object(
         source_object_id=source_object_id,
         is_active=False,
     )
+
+
+# ============================================================
+# I03-05 (package 028): schema/name and deletion of an unused source object
+# ============================================================
+
+
+def _source_object_call(request: Request, sql: str, params: tuple) -> list[dict]:
+    """One statement of the package 028 functions in its own transaction; DB errors mapped to HTTP."""
+    token_hash = _session_token_hash(request)
+    try:
+        with closing(connect_control(config)) as conn:
+            try:
+                with conn.cursor() as cur:
+                    _set_request_context(cur, str(uuid4()))
+                    cur.execute(sql, (token_hash, *params))
+                    rows = cur.fetchall()
+                conn.commit()
+                return rows
+            except Exception:
+                conn.rollback()
+                raise
+    except psycopg.Error as exc:
+        _raise_database_error(exc)
+    raise RuntimeError("Unreachable source object identity state")
+
+
+@router.get(
+    "/source-objects/{source_object_id}/usage",
+    response_model=SourceObjectUsageResponse,
+)
+def get_source_object_usage(
+    request: Request,
+    source_object_id: int = Path(ge=1),
+) -> SourceObjectUsageResponse:
+    rows = _source_object_call(
+        request,
+        "SELECT table_name FROM app.integration_source_object_usage(%s, %s)",
+        (source_object_id,),
+    )
+    tables = [str(row["table_name"]) for row in rows]
+    return SourceObjectUsageResponse(in_use=bool(tables), tables=tables)
+
+
+@router.put(
+    "/source-objects/{source_object_id}/identity",
+    response_model=ChangedResponse,
+)
+def rename_source_object(
+    payload: SourceObjectIdentityRequest,
+    request: Request,
+    source_object_id: int = Path(ge=1),
+) -> ChangedResponse:
+    rows = _source_object_call(
+        request,
+        "SELECT app.integration_source_object_rename(%s, %s, %s, %s) AS changed",
+        (source_object_id, payload.source_schema.strip(), payload.source_object.strip()),
+    )
+    return ChangedResponse(changed=bool(rows and rows[0]["changed"]))
+
+
+@router.delete(
+    "/source-objects/{source_object_id}",
+    response_model=ChangedResponse,
+)
+def delete_source_object(
+    request: Request,
+    source_object_id: int = Path(ge=1),
+) -> ChangedResponse:
+    rows = _source_object_call(
+        request,
+        "SELECT app.integration_source_object_delete(%s, %s) AS changed",
+        (source_object_id,),
+    )
+    return ChangedResponse(changed=bool(rows and rows[0]["changed"]))
 
 
 # ============================================================
