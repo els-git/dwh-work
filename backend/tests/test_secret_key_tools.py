@@ -185,5 +185,22 @@ class DpapiOnlyOnWindows(unittest.TestCase):
             kt.dpapi_protect(os.urandom(32))
 
 
+
+@unittest.skipUnless(os.name == "posix", "file modes (Linux server)")
+class KeyFileModeTest(unittest.TestCase):
+    def test_new_files_are_owner_only(self):
+        import tempfile
+        from dwh_api import secret_key_tools as kt
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "K_TEST.cred"
+            old = os.umask(0o022)
+            try:
+                kt._write_new(path, b"blob")
+            finally:
+                os.umask(old)
+            self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+            with self.assertRaises(FileExistsError):
+                kt._write_new(path, b"again")
+
 if __name__ == "__main__":
     unittest.main()

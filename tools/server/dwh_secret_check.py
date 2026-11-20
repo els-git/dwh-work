@@ -43,7 +43,10 @@ SELECT json_build_object(
   'bindings', (SELECT coalesce(json_agg(json_build_object(
         'ref', b.secret_ref::text, 'source', s.code, 'profile', b.profile_code, 'state', b.state,
         'key_id', b.key_id, 'sha', b.ciphertext_sha256, 'created', b.created_at, 'activated', b.activated_at,
-        'revoked', b.revoked_at) ORDER BY s.code, b.created_at), '[]')
+        'revoked', b.revoked_at,
+        'outcome', (SELECT o.code FROM secret_store.operation_event o
+                     WHERE o.operation_id = b.create_operation_id AND o.phase = 'OUTCOME'))
+        ORDER BY s.code, b.created_at), '[]')
       FROM secret_store.binding b JOIN meta.source_system s ON s.source_system_id = b.source_system_id),
   'open_operations', (SELECT coalesce(json_agg(json_build_object(
         'operation', a.operation_id::text, 'type', a.operation_type, 'source', s.code,
@@ -140,7 +143,6 @@ def file_entries(report: Report, path: Path, mode: int, user: str, suffix: str, 
             report.add("FAIL", f"{label}: {entry.name[:12]}... {oct(stat.S_IMODE(st.st_mode))[2:]} {owner(st)} "
                                f"(expected {oct(mode)[2:]} {user})")
             bad += 1
-            continue
         found[entry.name[: -len(suffix)]] = entry
     if not bad:
         report.add("PASS", f"{label}: {len(found)} file(s), all {oct(mode)[2:]} {user}, no links")
@@ -165,12 +167,19 @@ def read_journal(psql: list[str], database: str) -> dict:
 def check_journal(report: Report, data: dict, files: dict[str, Path], keys: set[str], now: datetime.datetime) -> None:
     report.check(data["read_only"] == "on", f"journal read in a read-only transaction ({data['read_only']})")
     bindings = data["bindings"]
-    print("      bindings (source / profile / state / key / ref / created):")
+    print("      bindings (source / profile / state / key / ref / created / create outcome):")
     for b in bindings:
         print(f"        {b['source']} / {b['profile'] or '-'} / {b['state']} / {b['key_id'] or '-'} / "
-              f"{short(b['ref'])} / {str(b['created'])[:19]}")
+              f"{short(b['ref'])} / {str(b['created'])[:19]} / {b.get('outcome') or '-'}")
+    # Bindings without a profile were made before package 002/005 (28-29.10.2026, finding G8): they are not used
+    # by the API or the ETL; their audited revocation is task I02-06. Reported apart, as WARN.
+    legacy = [b for b in bindings if not b["profile"] and b["state"] != "REVOKED"]
+    if legacy:
+        report.add("WARN", f"{len(legacy)} binding(s) without profile from before package 005 (G8, task I02-06): "
+                   + ", ".join(f"{b['state']} {short(b['ref'])} {str(b['created'])[:10]}" for b in legacy))
+    current = [b for b in bindings if b["profile"]]
     active: dict[tuple, list] = {}
-    for b in bindings:
+    for b in current:
         if b["state"] == "ACTIVE":
             active.setdefault((b["source"], b["profile"]), []).append(b)
     report.check(all(len(v) == 1 for v in active.values()),
@@ -188,7 +197,12 @@ def check_journal(report: Report, data: dict, files: dict[str, Path], keys: set[
     def age(value) -> float:
         return (now - datetime.datetime.fromisoformat(str(value).replace("Z", "+00:00"))).total_seconds()
 
-    pending = [b for b in bindings if b["state"] == "PENDING"]
+    failed = [b for b in current if b["state"] == "PENDING" and b.get("outcome") == "FAILED"]
+    if failed:
+        # S06: a failed CREATE/REPLACE leaves its PENDING binding unused; the previous ACTIVE one stays
+        report.add("WARN", f"{len(failed)} PENDING binding(s) of failed operations (never activated): "
+                   + ", ".join(f"{b['source']} {short(b['ref'])}" for b in failed))
+    pending = [b for b in current if b["state"] == "PENDING" and b.get("outcome") != "FAILED"]
     old = [b for b in pending if age(b["created"]) > STALE_MINUTES * 60]
     # a fresh PENDING is an operation in progress (WARN); an old one is an interrupted operation (S08)
     report.check(not pending, f"PENDING bindings: {len(pending)}, older than {STALE_MINUTES} min: {len(old)}"

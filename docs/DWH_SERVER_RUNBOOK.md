@@ -241,7 +241,7 @@ sudo python3 /opt/dwh/current/src/tools/server/dwh_tls.py rollback
 ```bash
 sudo python3 /opt/dwh/current/src/tools/server/dwh_secret_check.py
 ```
-Итог — `SECRET_CHECK_RESULT` (`WARN` — посмотреть, `FAIL` — разобрать по решению пользователя).
+Итог — `SECRET_CHECK_RESULT` (`WARN` — посмотреть, `FAIL` — разобрать по решению пользователя). Файлы ключей — `0600 root` (ключи до выпуска `2026.11.46` создавались `0644`: `sudo chmod 600 /etc/dwh/keyring/*.cred`).
 
 ## 5. Проверки и задачи
 

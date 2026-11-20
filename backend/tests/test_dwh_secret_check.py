@@ -40,7 +40,7 @@ def journal(**over):
 
 def binding(state="ACTIVE", sha=None, created="2026-11-20T11:58:00+00:00", ref=REF, source="CRM_RETAIL"):
     return {"ref": ref, "source": source, "profile": "SOURCE", "state": state, "key_id": "K2026_04", "sha": sha,
-            "created": created, "activated": None, "revoked": None}
+            "created": created, "activated": None, "revoked": None, "outcome": None}
 
 
 @unittest.skipUnless(os.name == "posix", "server tool (Linux)")
@@ -145,6 +145,27 @@ class SecretCheckTest(unittest.TestCase):
                 redirect_stdout(out):
             self.assertEqual(sc.run(args, now=NOW), 1)
         self.assertIn("FAIL  journal not read", out.getvalue())
+
+    def test_legacy_and_failed_bindings_warn(self):
+        sha = self.active_file()
+        legacy = dict(binding(ref="b6518bd1-0000-4000-8000-000000000000", sha=None), profile=None)
+        legacy_pending = dict(binding("PENDING", ref="60890348-0000-4000-8000-000000000000",
+                                      created="2026-10-28T16:04:10+00:00"), profile=None, outcome="FAILED")
+        failed = dict(binding("PENDING", ref="77777777-0000-4000-8000-000000000000",
+                              created="2026-11-01T00:00:00+00:00"), outcome="FAILED")
+        code, out = self.run_check(journal(bindings=[binding(sha=sha), legacy, legacy_pending, failed]))
+        self.assertEqual(code, 0, out)
+        self.assertIn("WARN  2 binding(s) without profile from before package 005 (G8, task I02-06)", out)
+        self.assertIn("WARN  1 PENDING binding(s) of failed operations (never activated): CRM_RETAIL 77777777", out)
+        self.assertIn("PASS  one ACTIVE binding per source: 1", out)
+
+    def test_wrong_mode_key_still_counted(self):
+        sha = self.active_file()
+        os.chmod(self.keyring / "K2026_04.cred", 0o644)
+        code, out = self.run_check(journal(bindings=[binding(sha=sha)]))
+        self.assertIn("FAIL  keyring: K2026_04.cre... 644", out)
+        self.assertIn("PASS  CRM_RETAIL/SOURCE: key K2026_04 is in the keyring", out)
+        self.assertIn("SECRET_CHECK_RESULT: FAIL (1 FAIL", out)
 
 
 if __name__ == "__main__":
