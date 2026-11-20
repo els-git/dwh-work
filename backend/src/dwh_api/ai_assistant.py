@@ -39,8 +39,9 @@ from psycopg import sql as pgsql
 from pydantic import BaseModel, Field
 
 from dwh_api import ai_diagnosis, ai_llm
-from dwh_api.ai_core import (DENIED_TEXT, MAX_ROWS, NO_HELP_TEXT, TRANSLATE_SYSTEM, describe_report_data, help_prompt,
-                             repair_message, report_system, run_checked)
+from dwh_api.ai_core import (DENIED_TEXT, MAX_ROWS, NO_HELP_TEXT, TRANSLATE_SYSTEM, describe_report_data,
+                             fold_text_equality, help_prompt, repair_message, report_system, report_text_columns,
+                             run_checked)
 from dwh_api.ai_knowledge import KnowledgeIndex, UserScope, is_russian
 from dwh_api.ai_sql_guard import AllowedObject, SqlRejected, check_text, extract_sql
 from dwh_api.auth import _load_auth_state
@@ -374,8 +375,9 @@ def help_answer(payload: HelpRequest, request: Request) -> dict:
 
 # ------------------------------------------------------------------ report
 
-def report_context(request: Request) -> tuple[list[AllowedObject], list[str], str, set[str]]:
-    """Objects allowed to the user, titles of the denied ones, the description for the model, all dm relations."""
+def report_context(request: Request) -> tuple[list[AllowedObject], list[str], str, set[str], set[str]]:
+    """Objects allowed to the user, titles of the denied ones, the description for the model, all dm relations,
+    the text columns of the allowed objects."""
     access = call_db(request, "SELECT * FROM app.ai_object_access(%s)", fetch="all")
     allowed = [AllowedObject(int(r["object_id"]), r["schema_name"], r["object_name"]) for r in access if r["is_allowed"]]
     denied = [r["title"] for r in access if not r["is_allowed"]]
@@ -384,10 +386,11 @@ def report_context(request: Request) -> tuple[list[AllowedObject], list[str], st
         try:
             with meta_conn.cursor() as meta_cur, values_conn.cursor() as values_cur:
                 description, dm_relations = describe_report_data(meta_cur, values_cur, allowed, described, denied)
+                text_columns = report_text_columns(meta_cur, allowed)
         finally:
             meta_conn.rollback()
             values_conn.rollback()
-    return allowed, denied, description, dm_relations
+    return allowed, denied, description, dm_relations, text_columns
 
 
 def run_report_sql(statement: str, allowed: list[AllowedObject]) -> tuple[list[str], list[dict], bool]:
@@ -407,18 +410,19 @@ def report(payload: ReportRequest, request: Request) -> dict:
     if not os.environ.get("DWH_AI_DB_PASSWORD", "").strip():
         finish(request, request_id, "ERROR", "AI_REPORT_NOT_CONFIGURED")
         raise HTTPException(status_code=503, detail="reports are not configured (DWH_AI_DB_PASSWORD)")
-    allowed, denied, context, dm_relations = report_context(request)
+    allowed, denied, context, dm_relations, text_columns = report_context(request)
     if not allowed:
         finish(request, request_id, "DENIED", "AI_OBJECT_NOT_ALLOWED", message="no reporting object for the role")
         return {"request_id": request_id, "status": "DENIED", "code": "AI_OBJECT_NOT_ALLOWED", "message": DENIED_TEXT}
     with Stoppable(request, payload.client_id) as token:
         return report_attempts(request, request_id, settings, payload.question, allowed, context, dm_relations, token,
-                               dialogue(payload.history))
+                               dialogue(payload.history), text_columns=text_columns)
 
 
 def report_attempts(request: Request, request_id: int, settings: ai_llm.LlmSettings, question: str,
                     allowed: list[AllowedObject], context: str, dm_relations: set[str],
-                    token: ai_llm.CancelToken, history: list[tuple[str, str]] | None = None) -> dict:
+                    token: ai_llm.CancelToken, history: list[tuple[str, str]] | None = None,
+                    text_columns: set[str] | None = None) -> dict:
     user_text = question
     started = time.monotonic()
     for attempt in (1, 2):
@@ -428,6 +432,8 @@ def report_attempts(request: Request, request_id: int, settings: ai_llm.LlmSetti
         sql_text = extract_sql(answer)
         try:
             statement, object_ids = check_text(sql_text, allowed, dm_relations)
+            # names typed by the user are compared without regard to case (ƏSGƏROV = Əsgərov)
+            statement = fold_text_equality(statement, text_columns or set())
         except SqlRejected as exc:
             outcome = {"AI_OBJECT_NOT_ALLOWED": "DENIED", "AI_NO_DATA": "NO_DATA"}.get(exc.code, "REFUSED")
             finish(request, request_id, outcome, exc.code, sql_text=sql_text[:20000], message=str(exc))

@@ -76,8 +76,8 @@ def main(argv: list[str] | None = None) -> int:
     os.environ["DWH_AI_QUEUE_SECONDS"] = "5"
     sys.path.insert(0, str(SRC / "backend" / "src"))
     from dwh_api import ai_llm  # noqa: E402
-    from dwh_api.ai_core import (TRANSLATE_SYSTEM, describe_report_data, help_prompt, repair_message,  # noqa: E402
-                                  report_system, run_checked)
+    from dwh_api.ai_core import (TRANSLATE_SYSTEM, describe_report_data, fold_text_equality,  # noqa: E402
+                                  help_prompt, repair_message, report_system, report_text_columns, run_checked)
     from dwh_api.ai_knowledge import KnowledgeIndex, UserScope, is_russian  # noqa: E402
     from dwh_api.ai_sql_guard import AllowedObject, SqlRejected, check_text, extract_sql, limited  # noqa: E402
     from dwh_api.config import get_api_config  # noqa: E402
@@ -153,6 +153,7 @@ def main(argv: list[str] | None = None) -> int:
                     with conn.cursor() as cur:
                         description, dm_relations = describe_report_data(
                             cur, cur, allowed, {int(w["object_id"]): w for w in allowed_rows}, denied)
+                        text_columns = report_text_columns(cur, allowed)
                     conn.rollback()
                     user_text = item["question"]
                     for attempt in (1, 2):  # as the application: one self-repair after a PostgreSQL error
@@ -161,6 +162,7 @@ def main(argv: list[str] | None = None) -> int:
                         body += ["```sql", sql_text, "```"]
                         try:
                             statement, _ = check_text(sql_text, allowed, dm_relations)
+                            statement = fold_text_equality(statement, text_columns)  # as the application
                         except SqlRejected as exc:
                             outcome = {"AI_OBJECT_NOT_ALLOWED": "DENIED", "AI_NO_DATA": "NO_DATA"}.get(exc.code, "REFUSED")
                             verdict = item["expect"] in ("NOT_EXECUTED", "DENIED")
