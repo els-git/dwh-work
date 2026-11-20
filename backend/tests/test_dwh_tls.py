@@ -188,10 +188,24 @@ class TlsToolTest(unittest.TestCase):
         self.assertEqual(list((self.tls / "backup").iterdir()), [])
 
     def test_failed_live_check_rolls_back(self):
-        code, out = self.main(self.good, "--apply", live_ok=False)
+        code, out = self.main(self.good, "--apply", "--wait", "0", live_ok=False)
         self.assertEqual(code, 1, out)
         self.assertIn("TLS_RESULT: FAIL (rolled back)", out)
         self.assert_unchanged()
+
+    def test_live_check_waits_for_new_workers(self):
+        answers = iter([False, False, True])         # old nginx workers answer first
+
+        def fake(name, ip, ca, want, port=443):
+            self.live_calls.append(name)
+            return [(next(answers), "served certificate")]
+        out = io.StringIO()
+        with redirect_stdout(out), unittest.mock.patch.object(dwh_tls.time, "sleep"):
+            code = dwh_tls.main(["install", "--tls-dir", str(self.tls), "--nginx-conf", str(self.conf), "--pfx",
+                                 str(self.good), "--name", NAME, "--ip", IP, "--apply"],
+                                password_prompt=lambda _: PASSWORD, runner=FakeSystem(), live=fake)
+        self.assertEqual(code, 0, out.getvalue())
+        self.assertEqual(len(self.live_calls), 3)
 
     def test_failed_nginx_test_rolls_back(self):
         code, out = self.main(self.good, "--apply", system=FakeSystem(nginx_ok=False))

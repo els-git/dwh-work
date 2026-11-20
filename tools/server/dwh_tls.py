@@ -30,6 +30,7 @@ import ssl
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -279,9 +280,15 @@ def install(args, password: str, tool: Openssl, runner=run, live=live_check) -> 
             write(paths.ca, bundle.root, 0o644)
             write(paths.nginx_conf, conf, 0o644)
             nginx_reload(runner)
-            final = live(args.name, args.ip, paths.ca, bundle.facts["sha256"], port=args.port)
+            # reload is graceful: for a few seconds old nginx workers still answer with the old certificate
+            deadline = time.monotonic() + args.wait
+            while True:
+                final = live(args.name, args.ip, paths.ca, bundle.facts["sha256"], port=args.port)
+                if all(ok for ok, _ in final) or time.monotonic() >= deadline:
+                    break
+                time.sleep(1)
             if not show(final):
-                raise TlsError("live check failed")
+                raise TlsError(f"live check failed (waited up to {args.wait} s after reload)")
         except (TlsError, OSError) as exc:
             print(f"  FAIL  {exc}")
             restore(paths, saved)
@@ -319,6 +326,7 @@ def parse(argv):
     p.add_argument("--ca-file", type=Path, help="root CA certificate (only when the PFX has none)")
     p.add_argument("--apply", action="store_true")
     p.add_argument("--port", type=int, default=443)
+    p.add_argument("--wait", type=int, default=20, help="seconds the live check may wait for nginx after reload")
     p.add_argument("--tls-dir", type=Path, default=TLS_DIR)
     p.add_argument("--nginx-conf", type=Path, default=NGINX_CONF)
     p.add_argument("--template", type=Path, default=TEMPLATE)
