@@ -12,4 +12,4 @@ $pre$;
 GRANT EXECUTE ON FUNCTION etl.source_secret_read_begin(text) TO dwh_etl;
 DROP FUNCTION etl.source_secret_read_begin(text, bigint);
 DROP TABLE etl.object_run_request_secret_read;
-DO $post$ BEGIN RAISE NOTICE 'ROLLBACK_026_DONE'; END $post$;
+SELECT 'ROLLBACK_026_DONE' AS result;

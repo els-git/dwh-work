@@ -335,11 +335,11 @@
     "added_rows": {},
     "migration": {
       "path": "database/migrations/026_etl_secret_read_by_request.sql",
-      "sha256": "B0F16AF8E3476DF666ECF86401B684B01D9B01FC008140EC582B1589E086136B"
+      "sha256": "8660160D78FBD5570DE3ABA4648D685AD3D41DCB3D66A9142EEDB84856DD154C"
     },
     "down": {
       "path": "database/migrations/026_etl_secret_read_by_request.down.sql",
-      "sha256": "F2C0F394FC2998AE414A9BE18A35A6F67704A9FE85715181661FD8DD12BAFCC7"
+      "sha256": "7FC79EEC5BFBC3DBD6611DA852F51EDE8659CCA914EF39F3AE326AE4A416FE5A"
     },
     "check": {
       "path": "database/checks/026_etl_secret_read_by_request_check.sql",
