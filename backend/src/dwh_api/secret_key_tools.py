@@ -197,7 +197,9 @@ def _dpapi_protector(protect, unprotect) -> Protector:
 # ----- Operations -----------------------------------------------------------
 
 def _write_new(path: Path, data: bytes) -> None:
-    with open(path, "xb") as handle:
+    # 0600 on Linux (I02-03: key files and backups readable by their owner only; umask would give 0644)
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0)
+    with os.fdopen(os.open(path, flags, 0o600), "wb") as handle:
         handle.write(data)
         handle.flush()
         os.fsync(handle.fileno())
