@@ -243,6 +243,19 @@ sudo python3 /opt/dwh/current/src/tools/server/dwh_secret_check.py
 ```
 Итог — `SECRET_CHECK_RESULT` (`WARN` — посмотреть, `FAIL` — разобрать по решению пользователя). Файлы ключей — `0600 root` (ключи до выпуска `2026.11.46` создавались `0644`: `sudo chmod 600 /etc/dwh/keyring/*.cred`).
 
+## 4g. Приёмка SecretStore (I02-03, шаг 5)
+
+Инструмент `dwh_secret_accept.py`; порядок — план I02-03, раздел 10.4. Маркер — синтетический пароль, не настоящий.
+```bash
+sudo python3 /opt/dwh/current/src/tools/server/dwh_secret_accept.py marker
+sudo python3 /opt/dwh/current/src/tools/server/dwh_secret_accept.py journal
+sudo python3 /opt/dwh/current/src/tools/server/dwh_secret_accept.py etl-deny
+sudo python3 /opt/dwh/current/src/tools/server/dwh_backup.py --secrets --dir /backup/dwh/secrets --keep 14
+sudo python3 /opt/dwh/current/src/tools/server/dwh_secret_accept.py backup-check
+sudo python3 /opt/dwh/current/src/tools/server/dwh_secret_accept.py scan
+```
+Итог каждой команды — `SECRET_ACCEPT_<КОМАНДА>_RESULT`. `etl-deny` добавляет в журнал две записи `DENIED` — это и есть проверка. `scan` выгружает базу в канал (на диск ничего не пишет) и печатает только число совпадений.
+
 ## 5. Проверки и задачи
 
 - Сеть (шаг 5), только чтение:
