@@ -235,6 +235,14 @@ sudo python3 /opt/dwh/current/src/tools/server/dwh_tls.py rollback
 ```
 Старый адрес `https://10.1.20.20` перенаправляется на `https://dwh.vtbaze.local`. Продление — новый PFX и тот же `install`; срок проверяет `dwh_check_network.py` (за 30 дней).
 
+## 4f. Проверка SecretStore (I02-03)
+
+Только чтение, ничего не исправляет: права папок ключей и паролей, привязки и файлы, незавершённые операции, права ролей базы на функции SecretStore. Журнал читается от `postgres` в транзакции только чтения; значений паролей в выводе нет.
+```bash
+sudo python3 /opt/dwh/current/src/tools/server/dwh_secret_check.py
+```
+Итог — `SECRET_CHECK_RESULT` (`WARN` — посмотреть, `FAIL` — разобрать по решению пользователя).
+
 ## 5. Проверки и задачи
 
 - Сеть (шаг 5), только чтение:
