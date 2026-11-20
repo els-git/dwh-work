@@ -256,10 +256,12 @@ sudo python3 /opt/dwh/current/src/tools/server/dwh_secret_check.py
   sudo python3 /opt/dwh/current/src/tools/server/dwh_task.py run-object --object-id 16
   ```
   Команды старого контура CRM (`check-crm`, снимки, `validate/transform/refresh`, DQ) удалены в I18: CRM загружается как объекты.
+  С пакета 026 (I02-03) `run-object` вручную пароль источника не получает (`CREDENTIAL_UNAVAILABLE`): загрузку объекта запускайте заявкой — «Загрузки → Объекты → Запустить».
 - Копии базы:
   - список: `sudo ls -l /backup/dwh`;
   - копия вручную: `sudo systemctl start dwh-backup`;
-  - журнал: `journalctl -u dwh-backup`.
+  - журнал: `journalctl -u dwh-backup`;
+  - зашифрованные файлы паролей источников (I02-03): `sudo ls -l /backup/dwh/secrets` — `secrets_<время>.tar` и `.sha256`, без мастер-ключей; восстановление файлов: `sudo tar -xpf /backup/dwh/secrets/secrets_<время>.tar -C /var/lib/dwh/secrets`, затем `dwh_secret_check.py`.
 - Проверочное восстановление (раз в месяц; создаёт и удаляет `dwh_restore_test`):
   ```bash
   sudo -u postgres python3 /opt/dwh/current/src/tools/server/dwh_backup.py --verify-restore /backup/dwh/<файл>.dump
