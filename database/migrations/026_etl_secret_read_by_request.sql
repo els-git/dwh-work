@@ -111,8 +111,5 @@ REVOKE ALL ON FUNCTION etl.source_secret_read_begin(text, bigint) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION etl.source_secret_read_begin(text, bigint) TO dwh_etl;
 REVOKE EXECUTE ON FUNCTION etl.source_secret_read_begin(text) FROM dwh_etl;
 
-DO $post$
-BEGIN
-  RAISE NOTICE 'MIGRATION_026_DONE: etl.source_secret_read_begin(text, bigint), etl.object_run_request_secret_read';
-END
-$post$;
+-- result line on stdout (dwh_sql_package.py looks for it there, as in 016-025)
+SELECT 'MIGRATION_026_DONE' AS result;
