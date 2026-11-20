@@ -228,12 +228,12 @@ sudo python3 /opt/dwh/current/src/tools/server/dwh_tls.py install --pfx /etc/dwh
 
 Проверка без изменений и ручной откат:
 ```bash
-sudo python3 /opt/dwh/current/src/tools/server/dwh_tls.py check --name dwh.vtbaze.local --ip 10.1.20.20
+sudo python3 /opt/dwh/current/src/tools/server/dwh_tls.py check --name dwh.vtbaze.local
 ```
 ```bash
 sudo python3 /opt/dwh/current/src/tools/server/dwh_tls.py rollback
 ```
-Старый адрес `https://10.1.20.20` перенаправляется на `https://dwh.vtbaze.local`. Продление — новый PFX и тот же `install`; срок проверяет `dwh_check_network.py` (за 30 дней).
+Любой другой адрес перенаправляется на `https://dwh.vtbaze.local`. С 20.11.2026 сервер на `10.1.57.2`, в сертификате остался прежний адрес `10.1.20.20` (решение пользователя — не перевыпускать): входить только по имени. Продление — новый PFX и тот же `install`; срок проверяет `dwh_check_network.py` (за 30 дней).
 
 ## 4f. Проверка SecretStore (I02-03)
 
