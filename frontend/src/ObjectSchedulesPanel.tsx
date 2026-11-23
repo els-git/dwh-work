@@ -100,6 +100,24 @@ function draftProblem(draft: Draft): { key: string, n?: number } | null {
 }
 
 
+// Typing mask: keeps up to 4 digits and puts the colon after the hours ("1700" -> "17:00", "17" -> "17").
+// A typed colon after one digit ("6:") keeps that one-digit hour, so "6:05" stays possible.
+// Typing into a full field (wherever the cursor is) starts a new time from the typed digit.
+function maskTime(value: string, typed: string | null = null): string {
+  const allDigits = value.replace(/\D/g, '')
+  if (allDigits.length > 4 && typed !== null && /^\d$/.test(typed)) {
+    return typed
+  }
+  const oneDigitHour = /^\s*\d:/.exec(value) !== null
+  const digits = allDigits.slice(0, 4)
+  const hourLength = oneDigitHour ? 1 : 2
+  if (digits.length <= hourLength) {
+    return oneDigitHour && value.includes(':') ? `${digits}:` : digits
+  }
+  return `${digits.slice(0, hourLength)}:${digits.slice(hourLength, hourLength + 2)}`
+}
+
+
 // "6:05" is accepted as "06:05"; anything else outside 00:00–23:59 is refused.
 function normalTime(value: string): string | null {
   const match = /^([01]?\d|2[0-3]):([0-5]\d)$/.exec(value.trim())
@@ -250,9 +268,11 @@ function ObjectSchedulesPanel() {
                 <label>
                   {t('schedule.time', { zone: timeZone })}
                   {/* free text HH:MM, 24-hour clock regardless of the browser locale; checked before sending */}
-                  <input type="text" className="schedule-time" inputMode="numeric" maxLength={5} placeholder={t('schedule.timePlaceholder')}
+                  {/* the whole value is selected on focus, so typing replaces it; digits only, the colon is added */}
+                  <input type="text" className="schedule-time" inputMode="numeric" placeholder={t('schedule.timePlaceholder')}
                     value={draft.atTime}
-                    onChange={event => setDraft({ ...draft, atTime: event.target.value })} />
+                    onFocus={event => event.currentTarget.select()}
+                    onChange={event => setDraft({ ...draft, atTime: maskTime(event.target.value, (event.nativeEvent as InputEvent).data) })} />
                 </label>
               )}
             {draft.frequency === 'WEEKLY'
