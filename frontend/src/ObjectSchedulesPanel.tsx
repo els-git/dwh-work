@@ -73,6 +73,34 @@ function inputOf(draft: Draft): ObjectScheduleInput {
 }
 
 
+// Checked before sending: the database refuses the same values, but its answer is less precise.
+function draftProblem(draft: Draft): { key: string, n?: number } | null {
+  const whole = (value: string) => /^\d+$/.test(value.trim()) ? Number(value) : Number.NaN
+  if (draft.frequency === 'EVERY_MINUTES') {
+    const n = whole(draft.everyN)
+    return n >= 15 && n <= 720 ? null : { key: 'schedule.invalid.minutes' }
+  }
+  if (draft.frequency === 'EVERY_HOURS') {
+    const n = whole(draft.everyN)
+    return n >= 1 && n <= 24 ? null : { key: 'schedule.invalid.hours' }
+  }
+  if (draft.frequency === 'WEEKLY' && draft.weekDays.length === 0) {
+    return { key: 'schedule.invalid.weekDays' }
+  }
+  if (draft.retryCount > 0) {
+    const n = whole(draft.retryDelay)
+    if (!(n >= 5 && n <= 60)) {
+      return { key: 'schedule.invalid.retryDelay' }
+    }
+  }
+  return null
+}
+
+
+const HOURS = Array.from({ length: 24 }, (_, hour) => String(hour).padStart(2, '0'))
+const MINUTES = Array.from({ length: 60 }, (_, minute) => String(minute).padStart(2, '0'))
+
+
 function badgeClass(status: string): string {
   if (status === 'SUCCESS' || status === 'QUEUED_OK') {
     return 'badge badge-success'
@@ -160,6 +188,11 @@ function ObjectSchedulesPanel() {
   }
 
   async function save(item: ScheduledObject) {
+    const problem = draftProblem(draft)
+    if (problem !== null) {
+      setSaveError(t(problem.key))
+      return
+    }
     setSaving(true)
     setNotice(null)
     try {
@@ -210,8 +243,18 @@ function ObjectSchedulesPanel() {
               : (
                 <label>
                   {t('schedule.time', { zone: timeZone })}
-                  <input type="time" value={draft.atTime} step={60}
-                    onChange={event => setDraft({ ...draft, atTime: event.target.value })} />
+                  {/* 24-hour clock regardless of the browser locale: hour and minute lists instead of <input type="time"> */}
+                  <span className="schedule-time">
+                    <select aria-label={t('schedule.hour')} value={draft.atTime.slice(0, 2)}
+                      onChange={event => setDraft({ ...draft, atTime: `${event.target.value}:${draft.atTime.slice(3, 5)}` })}>
+                      {HOURS.map(hour => <option key={hour} value={hour}>{hour}</option>)}
+                    </select>
+                    :
+                    <select aria-label={t('schedule.minute')} value={draft.atTime.slice(3, 5)}
+                      onChange={event => setDraft({ ...draft, atTime: `${draft.atTime.slice(0, 2)}:${event.target.value}` })}>
+                      {MINUTES.map(minute => <option key={minute} value={minute}>{minute}</option>)}
+                    </select>
+                  </span>
                 </label>
               )}
             {draft.frequency === 'WEEKLY'
@@ -260,6 +303,7 @@ function ObjectSchedulesPanel() {
                 {t('schedule.cancel')}
               </button>
             </div>
+            {saveError ? <div className="error schedule-error"><span>{saveError}</span></div> : null}
             <p className="loads-muted schedule-note">
               {draft.enabled && !item.ready ? t('schedule.notReady') : t('schedule.noRunOnSave')}
             </p>
@@ -326,7 +370,6 @@ function ObjectSchedulesPanel() {
       </div>
 
       {error ? <div className="error"><span>{error}</span></div> : null}
-      {saveError ? <div className="error"><span>{saveError}</span></div> : null}
       {notice ? <div className="loads-notice">{notice}</div> : null}
 
       {loading
