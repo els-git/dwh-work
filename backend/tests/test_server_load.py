@@ -49,7 +49,7 @@ class World:
 
     def __init__(self, root: Path):
         self.root = root
-        for d in ("proc/net", "block/sda/device", "block/loop0", "block/dm-0",
+        for d in ("proc/net", "block/sda/device", "block/sr0/device", "block/loop0", "block/dm-0",
                   "cg/system.slice/dwh-api.service", "cg/system.slice/system-postgresql.slice/postgresql@17-main.service"):
             (root / d).mkdir(parents=True)
         (root / "proc/meminfo").write_text(MEMINFO)
@@ -164,6 +164,9 @@ class SamplerTest(unittest.TestCase):
         self.world.now += 2.0
         self.assertIsNone(self.sampler.sample()["postgres"])
         self.assertEqual(self.pg_calls, 2)
+
+    def test_only_server_disks(self):
+        self.assertEqual(self.sampler.sources.physical_disks(), {"sda"})  # no loop, dm or sr0 (CD drive)
 
     def test_file_systems_once_per_device(self):
         snap = self.sampler.snapshot(None)
