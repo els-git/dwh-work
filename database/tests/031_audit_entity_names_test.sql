@@ -41,6 +41,7 @@ BEGIN
     cols := cols || ', ' || quote_ident(a.attname);
     vals := vals || ', ' || CASE
       WHEN a.attname IN ('object_type') THEN quote_literal('TABLE')
+      WHEN a.attname IN ('load_strategy') THEN quote_literal('FULL')
       WHEN a.attname IN ('source_type') THEN quote_literal('POSTGRESQL')
       WHEN a.attname IN ('account_level') THEN quote_literal('USER')
       WHEN a.attname IN ('auth_provider') THEN quote_literal('LOCAL')

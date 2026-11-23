@@ -500,7 +500,7 @@
     },
     "test": {
       "path": "database/tests/031_audit_entity_names_test.sql",
-      "sha256": "B6851BA940E09D8829F21B9A0BE119303334D7A84D625C8711BF9F7195D034F8"
+      "sha256": "08038B1FF02A4B3B7432E450A48A9E5410FE7C514EDFD8ECA7F4700BE2EC646F"
     },
     "previous_check": {
       "path": "database/checks/030_audit_journal_immutability_check.sql",
