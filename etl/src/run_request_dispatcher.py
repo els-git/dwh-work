@@ -1,5 +1,5 @@
-"""Dispatcher of the DWH server (one pass per call): an object run request (I08, package 015), otherwise a DM mart
-run request (I19, package 018). The old CRM queue etl.run_request and its tasks (VALIDATE_STG, TRANSFORM_ODS,
+"""Dispatcher of the DWH server (one pass per call): due object schedules become requests (I09, package 032), then
+an object run request (I08, package 015), otherwise a DM mart run request (I19, package 018). The old CRM queue etl.run_request and its tasks (VALIDATE_STG, TRANSFORM_ODS,
 REFRESH_MARTS, RUN_DQ) were removed in I18 (package 020): every source is loaded as objects.
 """
 from __future__ import annotations
@@ -46,6 +46,41 @@ def process_object_request(
         conn,
         name,
     )
+
+
+_SCHEDULE_WARNED = False
+
+
+def fire_schedules(
+    conn,
+    name: str,
+) -> int:
+    """I09 (package 032): due schedules and retries of failed scheduled runs become object run requests.
+
+    Called on every cycle before the object queue. Without package 032 in the database nothing happens. A failure
+    is reported once (until the next success) and never stops the dispatcher.
+    """
+    global _SCHEDULE_WARNED
+
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT to_regprocedure('etl.object_schedule_fire(text)') IS NOT NULL")
+            present = cur.fetchone()[0]
+            created = 0
+            if present:
+                cur.execute("SELECT etl.object_schedule_fire(%s)", (name,))
+                created = int(cur.fetchone()[0] or 0)
+        conn.commit()
+    except Exception as exc:  # noqa: BLE001 - schedules must not stop manual runs
+        conn.rollback()
+        if not _SCHEDULE_WARNED:
+            print("WARNING: schedules were not processed:", f"{type(exc).__name__}: {exc}")
+            _SCHEDULE_WARNED = True
+        return 0
+    _SCHEDULE_WARNED = False
+    if created:
+        print(f"SCHEDULED REQUESTS CREATED: {created}")
+    return created
 
 
 _MART_WORKER_WARNED = False
@@ -109,6 +144,12 @@ def main(
             raise RuntimeError(
                 "Dispatcher must run as dwh_etl"
             )
+
+        # I09: due schedules become requests of the object queue first.
+        fire_schedules(
+            conn,
+            name,
+        )
 
         if process_object_request(
             conn,

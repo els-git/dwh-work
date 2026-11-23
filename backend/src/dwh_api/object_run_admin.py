@@ -13,7 +13,7 @@ trail. The dispatcher executes the requests (etl/src/object_request_worker.py); 
 from __future__ import annotations
 
 from contextlib import closing
-from typing import Any, Literal
+from typing import Any, Callable, Literal
 from uuid import uuid4
 
 import psycopg
@@ -66,7 +66,7 @@ def _raise_request_error(exc: psycopg.Error) -> None:
     _raise_database_error(exc)
 
 
-def _call(request: Request, sql: str, params: tuple) -> Any:
+def _call(request: Request, sql: str, params: tuple, raise_error: Callable[[psycopg.Error], None] | None = None) -> Any:
     token_hash = _session_token_hash(request)
     request_id = str(uuid4())
     try:
@@ -81,7 +81,7 @@ def _call(request: Request, sql: str, params: tuple) -> Any:
                 conn.rollback()
                 raise
     except psycopg.Error as exc:
-        _raise_request_error(exc)
+        (raise_error or _raise_request_error)(exc)
     if row is None:
         raise HTTPException(status_code=500, detail="No result returned")
     return list(row.values())[0] if isinstance(row, dict) else row[0]

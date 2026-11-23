@@ -22,6 +22,7 @@ from dwh_api.source_connection_admin import router as source_connection_admin_ro
 from dwh_api.object_config_admin import router as object_config_admin_router
 from dwh_api.ods_config_admin import router as ods_config_admin_router
 from dwh_api.object_run_admin import admin_router as object_run_admin_router, view_router as object_load_view_router
+from dwh_api.object_schedule_admin import router as object_schedule_router
 from dwh_api.role_catalog import router as role_catalog_router
 from dwh_api.access_control import router as access_control_router
 from dwh_api.user_catalog import router as user_catalog_router
@@ -778,6 +779,7 @@ app.include_router(object_config_admin_router)
 app.include_router(ods_config_admin_router)
 app.include_router(object_run_admin_router)
 app.include_router(object_load_view_router)
+app.include_router(object_schedule_router)  # I09: schedules of objects
 app.include_router(role_catalog_router)
 app.include_router(access_control_router)
 app.include_router(user_catalog_router)
