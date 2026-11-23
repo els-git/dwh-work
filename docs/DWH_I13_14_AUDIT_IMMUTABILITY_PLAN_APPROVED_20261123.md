@@ -55,3 +55,7 @@
 
 Выпуск `2026.11.56` (коммит `5987b8de`) установлен (`UPDATE_RESULT: PASS`). `dwh_sql_package.py --package 030 --stage e1`: SHA256 файлов OK; check 029 на `dwh` 6/6; копия `dwh_i13_14_030_test` — `MIGRATION_030_DONE`, check 030 6/6, check 029 6/6, тест T01–T07 `ALL_TESTS_PASS`, откат `ROLLBACK_030_DONE`, повторное применение и check 030 6/6; `E1_RESULT: PASS`. Копия оставлена с 030. Далее — E2 с разрешения пользователя.
 
+### 6.2. E2 пакета 030 — PASS (23.11.2026)
+
+`dwh_sql_package.py --package 030 --stage e2` на выпуске `2026.11.56`: SHA256 файлов OK; check 029 до применения 6/6; копия `/backup/dwh/dwh_20261123_124401_pre-030.dump` (`BACKUP_RESULT: PASS`); подтверждение `APPLY`; `MIGRATION_030_DONE`; check 030 6/6, check 029 6/6; 110 таблиц — число строк без изменений; `E2_RESULT: PASS`. Реестр 1.59.0, раздел 12.64. Далее — шаг 4, приёмка.
+
