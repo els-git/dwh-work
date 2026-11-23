@@ -26,3 +26,5 @@ CREATE TABLE meta.dm_mart (
 );
 ALTER TABLE meta.dm_entity OWNER TO dwh_admin;
 ALTER TABLE meta.dm_mart OWNER TO dwh_admin;
+-- as in dwh (E1 031, attempt 1): meta.source_object.load_strategy is required and has no default
+ALTER TABLE meta.source_object ALTER COLUMN load_strategy DROP DEFAULT;
