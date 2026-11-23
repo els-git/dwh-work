@@ -104,6 +104,17 @@
   margin: 0;
 }
 
+.schedule-time {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.schedule-error {
+  flex-basis: 100%;
+  margin: 0;
+}
+
 .schedule-history {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));

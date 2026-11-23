@@ -475,6 +475,14 @@ const resources = {
         "time": "Time ({{zone}})",
         "retries": "Repeats after an error",
         "retryDelay": "Repeat after, min (5–60)",
+        "hour": "Hour",
+        "minute": "Minute",
+        "invalid": {
+          "minutes": "Minutes: a whole number from 15 to 720.",
+          "hours": "Hours: a whole number from 1 to 24.",
+          "weekDays": "Choose at least one day of the week.",
+          "retryDelay": "Repeat after: a whole number of minutes from 5 to 60."
+        },
         "retryInfo": "repeats after an error: {{n}}, after {{minutes}} min",
         "save": "Save",
         "cancel": "Cancel",
@@ -1702,6 +1710,14 @@ const resources = {
         "time": "Время ({{zone}})",
         "retries": "Повторов после ошибки",
         "retryDelay": "Повтор через, мин (5–60)",
+        "hour": "Час",
+        "minute": "Минута",
+        "invalid": {
+          "minutes": "Минуты: целое число от 15 до 720.",
+          "hours": "Часы: целое число от 1 до 24.",
+          "weekDays": "Выберите хотя бы один день недели.",
+          "retryDelay": "Повтор через: целое число минут от 5 до 60."
+        },
         "retryInfo": "повторов после ошибки: {{n}}, через {{minutes}} мин",
         "save": "Сохранить",
         "cancel": "Отмена",
@@ -2929,6 +2945,14 @@ const resources = {
         "time": "Vaxt ({{zone}})",
         "retries": "Xətadan sonra təkrar",
         "retryDelay": "Təkrar, dəq sonra (5–60)",
+        "hour": "Saat",
+        "minute": "Dəqiqə",
+        "invalid": {
+          "minutes": "Dəqiqə: 15-dən 720-yə qədər tam ədəd.",
+          "hours": "Saat: 1-dən 24-ə qədər tam ədəd.",
+          "weekDays": "Ən azı bir həftə günü seçin.",
+          "retryDelay": "Təkrar: 5-dən 60-a qədər tam dəqiqə."
+        },
         "retryInfo": "xətadan sonra təkrar: {{n}}, {{minutes}} dəq sonra",
         "save": "Saxla",
         "cancel": "Ləğv et",
