@@ -137,9 +137,11 @@ class Sources:
         return (self.proc / name).read_text(encoding="ascii", errors="replace")
 
     def physical_disks(self) -> set[str]:
-        """Disks with a device behind them (sda, vda, nvme0n1); loop, ram and dm devices have none."""
+        """Disks with a device behind them (sda, vda, nvme0n1); loop, ram and dm devices have none.
+        Optical drives (sr0: the virtual CD drive of the VM) are not disks of the server."""
         try:
-            return {p.name for p in self.sys_block.iterdir() if (p / "device").exists()}
+            return {p.name for p in self.sys_block.iterdir()
+                    if (p / "device").exists() and not p.name.startswith("sr")}
         except OSError:
             return set()
 
