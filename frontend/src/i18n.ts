@@ -21,6 +21,36 @@ const defaultLanguage: AppLanguage = 'en'
 const resources = {
   "en": {
     "translation": {
+      "audit": {
+        "eventsTab": "Audit journal",
+        "secretsTab": "Source password operations",
+        "intro": "Read only. Secret values (password, secret_ref, connection string password) are hidden by the database; every opening of a journal is itself recorded in the audit journal.",
+        "from": "From",
+        "to": "To",
+        "eventType": "Event type",
+        "actor": "User",
+        "entity": "Object",
+        "outcome": "Outcome",
+        "action": "Action",
+        "source": "Source",
+        "time": "Time",
+        "all": "All",
+        "show": "Show",
+        "more": "Show more",
+        "loading": "Loading…",
+        "empty": "No records for these filters.",
+        "shown": "Shown: {{count}}",
+        "error": "The journal cannot be read: {{message}}",
+        "details": "Click to see the details",
+        "noDetails": "No details.",
+        "sourceSystem": "Source system",
+        "operation": "Operation",
+        "phase": "Phase",
+        "code": "Code",
+        "who": "Who",
+        "operationId": "Operation",
+        "secretsNote": "Each operation has two rows: ATTEMPT (permitted or denied) and OUTCOME (succeeded or failed). DWH_USER — an administrator in the interface, SERVICE — a load."
+      },
       "serverLoad": {
         "badge": "Server load",
         "badgeTitle": "Server load: open the panel",
@@ -761,7 +791,8 @@ const resources = {
         "access": "Access",
         "integrations": "Integrations",
         "ai": "AI assistant",
-        "dm": "DM marts"
+        "dm": "DM marts",
+        "audit": "Journals"
       },
       "batch": {
         "tr0167": "Role policies",
@@ -1142,6 +1173,36 @@ const resources = {
   },
   "ru": {
     "translation": {
+      "audit": {
+        "eventsTab": "Журнал аудита",
+        "secretsTab": "Операции с паролями источников",
+        "intro": "Только просмотр. Секретные значения (пароль, secret_ref, пароль в строке подключения) скрывает база; каждое открытие журнала само записывается в журнал аудита.",
+        "from": "С",
+        "to": "По",
+        "eventType": "Тип события",
+        "actor": "Пользователь",
+        "entity": "Объект",
+        "outcome": "Итог",
+        "action": "Действие",
+        "source": "Источник записи",
+        "time": "Время",
+        "all": "Все",
+        "show": "Показать",
+        "more": "Показать ещё",
+        "loading": "Загрузка…",
+        "empty": "Записей по этим условиям нет.",
+        "shown": "Показано: {{count}}",
+        "error": "Журнал не удалось прочитать: {{message}}",
+        "details": "Нажмите, чтобы увидеть подробности",
+        "noDetails": "Подробностей нет.",
+        "sourceSystem": "Источник",
+        "operation": "Операция",
+        "phase": "Этап",
+        "code": "Код",
+        "who": "Кто",
+        "operationId": "Операция",
+        "secretsNote": "У каждой операции две строки: ATTEMPT (разрешена или отказ) и OUTCOME (выполнена или ошибка). DWH_USER — администратор в интерфейсе, SERVICE — загрузка."
+      },
       "serverLoad": {
         "badge": "Нагрузка сервера",
         "badgeTitle": "Нагрузка сервера: открыть панель",
@@ -1882,7 +1943,8 @@ const resources = {
         "access": "Доступ",
         "integrations": "Интеграции",
         "ai": "ИИ-помощник",
-        "dm": "Витрины DM"
+        "dm": "Витрины DM",
+        "audit": "Журналы"
       },
       "batch": {
         "tr0167": "Политики ролей",
@@ -2263,6 +2325,36 @@ const resources = {
   },
   "az": {
     "translation": {
+      "audit": {
+        "eventsTab": "Audit jurnalı",
+        "secretsTab": "Mənbə parolları ilə əməliyyatlar",
+        "intro": "Yalnız baxış. Gizli dəyərləri (parol, secret_ref, qoşulma sətrindəki parol) baza gizlədir; jurnalın hər açılışı audit jurnalına yazılır.",
+        "from": "Başlanğıc",
+        "to": "Son",
+        "eventType": "Hadisə növü",
+        "actor": "İstifadəçi",
+        "entity": "Obyekt",
+        "outcome": "Nəticə",
+        "action": "Əməliyyat",
+        "source": "Yazının mənbəyi",
+        "time": "Vaxt",
+        "all": "Hamısı",
+        "show": "Göstər",
+        "more": "Daha çox göstər",
+        "loading": "Yüklənir…",
+        "empty": "Bu şərtlərə uyğun yazı yoxdur.",
+        "shown": "Göstərilir: {{count}}",
+        "error": "Jurnalı oxumaq mümkün olmadı: {{message}}",
+        "details": "Təfərrüatlar üçün klikləyin",
+        "noDetails": "Təfərrüat yoxdur.",
+        "sourceSystem": "Mənbə",
+        "operation": "Əməliyyat",
+        "phase": "Mərhələ",
+        "code": "Kod",
+        "who": "Kim",
+        "operationId": "Əməliyyat",
+        "secretsNote": "Hər əməliyyatın iki sətri var: ATTEMPT (icazə verildi və ya rədd edildi) və OUTCOME (yerinə yetirildi və ya xəta). DWH_USER — interfeysdə administrator, SERVICE — yükləmə."
+      },
       "serverLoad": {
         "badge": "Server yükü",
         "badgeTitle": "Server yükü: paneli açın",
@@ -3003,7 +3095,8 @@ const resources = {
         "access": "Giriş",
         "integrations": "İnteqrasiyalar",
         "ai": "Süni intellekt köməkçisi",
-        "dm": "DM vitrinləri"
+        "dm": "DM vitrinləri",
+        "audit": "Jurnallar"
       },
       "batch": {
         "tr0167": "Rol siyasətləri",

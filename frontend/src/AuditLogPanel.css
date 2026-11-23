@@ -1,0 +1,154 @@
+/* I13-05: Administration -> Journals. */
+
+.audit-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.audit-tabs {
+  display: flex;
+  gap: 6px;
+}
+
+.audit-tabs button {
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  cursor: pointer;
+}
+
+.audit-tabs button.active {
+  border-color: var(--accent);
+  color: var(--text-main);
+}
+
+.audit-journal {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.audit-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+.audit-filters label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.audit-filters input,
+.audit-filters select {
+  min-width: 140px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-panel-alt);
+  color: var(--text-main);
+  font: inherit;
+  font-size: 13px;
+}
+
+.audit-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.audit-table th,
+.audit-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border-soft);
+  text-align: left;
+  vertical-align: top;
+}
+
+.audit-table th {
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.audit-table small {
+  color: var(--text-muted);
+}
+
+.audit-row {
+  cursor: pointer;
+}
+
+.audit-row:hover,
+.audit-row.open {
+  background: var(--bg-hover);
+}
+
+.audit-nowrap {
+  white-space: nowrap;
+}
+
+.audit-outcome-ok {
+  color: #5fc48a;
+}
+
+.audit-outcome-bad {
+  color: #e0645a;
+}
+
+.audit-details-row td {
+  background: var(--bg-panel-alt);
+}
+
+.audit-details {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--text-muted);
+}
+
+.audit-details pre {
+  max-height: 320px;
+  margin: 0;
+  overflow: auto;
+  color: var(--text-main);
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.audit-footer {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.audit-footer button {
+  padding: 4px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  cursor: pointer;
+}
+
+.audit-note {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.audit-error {
+  margin: 0;
+  color: #e0a21a;
+}
