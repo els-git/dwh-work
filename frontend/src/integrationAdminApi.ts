@@ -1100,3 +1100,92 @@ export function cancelObjectRunRequest(
     },
   )
 }
+
+
+// I09 (package 032): schedules of objects. The database checks the session and the right to run objects;
+// saving never starts a run, the dispatcher creates the requests when the time comes.
+export type ScheduleFrequency = 'EVERY_MINUTES' | 'EVERY_HOURS' | 'DAILY' | 'WEEKLY'
+export type ScheduleRunKind = 'RUN' | 'FULL_RERUN'
+export type ScheduleTrigger = 'MANUAL' | 'SCHEDULED' | 'RETRY'
+
+export interface ObjectSchedule {
+  schedule_id: number
+  enabled: boolean
+  frequency: ScheduleFrequency
+  every_n: number | null
+  at_time: string | null
+  week_days: number[] | null
+  run_kind: ScheduleRunKind
+  retry_count: number
+  retry_delay_minutes: number
+  time_zone: string
+  owner_username: string | null
+  next_run_at: string | null
+  last_fired_at: string | null
+  updated_at: string
+  updated_by_username: string
+}
+
+export interface ScheduleRequest {
+  request_id: number
+  trigger_kind: ScheduleTrigger
+  attempt: number
+  run_kind: string
+  status: string
+  result_code: string | null
+  requested_by: string
+  requested_at: string
+  finished_at: string | null
+}
+
+export interface ScheduleEvent {
+  event_id: number
+  event: 'QUEUED' | 'RETRY_QUEUED' | 'SKIPPED_BUSY' | 'SKIPPED_NOT_READY'
+  occurred_at: string
+  planned_at: string | null
+  request_id: number | null
+  message: string | null
+}
+
+export interface ScheduledObject {
+  source_object_id: number
+  source_code: string
+  source_schema: string
+  source_object: string
+  is_active: boolean
+  ready: boolean
+  schedule: ObjectSchedule | null
+  requests: ScheduleRequest[]
+  events: ScheduleEvent[]
+}
+
+export interface ObjectScheduleList {
+  time_zone: string
+  now: string
+  objects: ScheduledObject[]
+}
+
+export interface ObjectScheduleInput {
+  enabled: boolean
+  frequency: ScheduleFrequency
+  every_n: number | null
+  at_time: string | null
+  week_days: number[] | null
+  run_kind: ScheduleRunKind
+  retry_count: number
+  retry_delay_minutes: number
+}
+
+export function getObjectSchedules(): Promise<ObjectScheduleList> {
+  return apiRequest<ObjectScheduleList>('/api/admin/integrations/object-schedules')
+}
+
+export function saveObjectSchedule(
+  sourceObjectId: number,
+  input: ObjectScheduleInput,
+): Promise<{ schedule_id: number, enabled: boolean, next_run_at: string | null }> {
+  return apiRequest<{ schedule_id: number, enabled: boolean, next_run_at: string | null }>(
+    `/api/admin/integrations/object-schedules/${sourceObjectId}`,
+    { method: 'PUT', body: JSON.stringify(input) },
+  )
+}

@@ -14,7 +14,9 @@ import {
   cancelObjectRunRequest,
   createObjectRunRequest,
   getObjectLoadStatus,
+  getObjectSchedules,
   type ObjectLoadStatus,
+  type ObjectSchedule,
   type ObjectRunKind,
 } from './integrationAdminApi'
 
@@ -55,15 +57,22 @@ function LoadsObjectsPanel({ canRun, canDiagnose = false }: LoadsObjectsPanelPro
   const [notice, setNotice] = useState<string | null>(null)
   const [busyObjectId, setBusyObjectId] = useState<number | null>(null)
   const [expanded, setExpanded] = useState<number | null>(null)
+  // I09: schedules of the objects (only for those who may run objects; a failure leaves the column empty)
+  const [schedules, setSchedules] = useState<Record<number, ObjectSchedule | null>>({})
   const loadSeq = useRef(0)
 
   // Every state update happens after the await; responses of older requests are ignored.
   const refresh = useCallback(async () => {
     const seq = ++loadSeq.current
     try {
-      const result = await getObjectLoadStatus()
+      const [result, scheduleList] = await Promise.all([
+        getObjectLoadStatus(),
+        canRun ? getObjectSchedules().catch(() => null) : Promise.resolve(null),
+      ])
       if (seq === loadSeq.current) {
         setObjects(result)
+        setSchedules(scheduleList === null ? {}
+          : Object.fromEntries(scheduleList.objects.map(item => [item.source_object_id, item.schedule])))
         setError(null)
       }
     } catch (loadError) {
@@ -75,7 +84,7 @@ function LoadsObjectsPanel({ canRun, canDiagnose = false }: LoadsObjectsPanelPro
         setLoading(false)
       }
     }
-  }, [])
+  }, [canRun])
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -199,6 +208,7 @@ function LoadsObjectsPanel({ canRun, canDiagnose = false }: LoadsObjectsPanelPro
                   <th>{t('loads.col.ods')}</th>
                   <th>{t('loads.col.error')}</th>
                   <th>{t('loads.col.request')}</th>
+                  {canRun ? <th>{t('loads.col.schedule')}</th> : null}
                   {canRun ? <th>{t('loads.col.actions')}</th> : null}
                 </tr>
               </thead>
@@ -281,6 +291,20 @@ function LoadsObjectsPanel({ canRun, canDiagnose = false }: LoadsObjectsPanelPro
                           )
                           : null}
                       </td>
+                      {canRun
+                        ? (
+                          <td>
+                            {schedules[item.source_object_id]?.enabled
+                              ? (
+                                <>
+                                  <span className="badge badge-success">{t('schedule.on')}</span>
+                                  <div><small>{t('loads.nextRun', { at: formatDateTime(schedules[item.source_object_id]?.next_run_at ?? null) })}</small></div>
+                                </>
+                              )
+                              : <span className="loads-muted">{schedules[item.source_object_id] ? t('schedule.off') : t('schedule.none')}</span>}
+                          </td>
+                        )
+                        : null}
                       {canRun
                         ? (
                           <td className="loads-actions">

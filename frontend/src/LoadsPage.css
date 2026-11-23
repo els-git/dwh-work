@@ -65,3 +65,54 @@
   text-align: left;
   cursor: pointer;
 }
+
+/* I09: tab "Schedules" */
+.schedule-editor {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px 18px;
+  padding: 8px 4px;
+}
+
+.schedule-editor label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+}
+
+.schedule-editor label.schedule-check {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+}
+
+.schedule-days {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.schedule-editor-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.schedule-note {
+  flex-basis: 100%;
+  margin: 0;
+}
+
+.schedule-history {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 16px;
+  padding: 4px;
+}
+
+.schedule-history ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+}

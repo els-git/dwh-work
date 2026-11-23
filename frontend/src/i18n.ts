@@ -438,10 +438,81 @@ const resources = {
         "kind": "Kind",
         "rows": "Rows"
       },
+      "schedule": {
+        "hint": "Schedule of every object: the dispatcher creates a run request when the time comes. Time zone {{zone}}. Saving does not start a run.",
+        "loading": "Loading schedules...",
+        "none": "no schedule",
+        "on": "on",
+        "off": "off",
+        "everyMinutes": "every {{n}} min",
+        "everyHours": "every {{n}} h",
+        "daily": "daily at {{time}}",
+        "weekly": "{{days}} at {{time}}",
+        "runKind": {
+          "RUN": "load by strategy",
+          "FULL_RERUN": "full reload"
+        },
+        "runKindLabel": "Kind of load",
+        "freq": {
+          "EVERY_MINUTES": "Every N minutes",
+          "EVERY_HOURS": "Every N hours",
+          "DAILY": "Daily",
+          "WEEKLY": "On week days"
+        },
+        "day": {
+          "1": "Mon",
+          "2": "Tue",
+          "3": "Wed",
+          "4": "Thu",
+          "5": "Fri",
+          "6": "Sat",
+          "7": "Sun"
+        },
+        "enabled": "Schedule enabled",
+        "frequency": "Frequency",
+        "minutes": "Minutes (15–720)",
+        "hours": "Hours (1–24)",
+        "time": "Time ({{zone}})",
+        "retries": "Repeats after an error",
+        "retryDelay": "Repeat after, min (5–60)",
+        "retryInfo": "repeats after an error: {{n}}, after {{minutes}} min",
+        "save": "Save",
+        "cancel": "Cancel",
+        "create": "Create schedule",
+        "edit": "Change",
+        "history": "History",
+        "noRunOnSave": "Saving does not start a load: the first run is at the next scheduled time.",
+        "notReady": "The object has no published READY mapping or is not active: an enabled schedule cannot be saved.",
+        "savedEnabled": "Schedule of {{object}} saved; next run {{next}}.",
+        "savedDisabled": "Schedule of {{object}} is off.",
+        "lastRequests": "Last runs",
+        "lastEvents": "Scheduler events",
+        "noRequests": "no runs",
+        "noEvents": "no events",
+        "trigger": {
+          "MANUAL": "manual",
+          "SCHEDULED": "scheduled",
+          "RETRY": "repeat"
+        },
+        "attempt": "No. {{n}}",
+        "event": {
+          "QUEUED": "run requested",
+          "RETRY_QUEUED": "repeat requested",
+          "SKIPPED_BUSY": "skipped: object busy",
+          "SKIPPED_NOT_READY": "skipped: object not ready"
+        },
+        "col": {
+          "object": "Object",
+          "schedule": "Schedule",
+          "next": "Next run",
+          "last": "Last run"
+        }
+      },
       "loads": {
         "sectionHint": "Operation of data loads: objects, marts, runs and errors. Settings stay in Administration.",
         "tab": {
           "objects": "Objects",
+          "schedules": "Schedules",
           "marts": "Marts",
           "runs": "Runs",
           "errors": "Errors and history"
@@ -458,6 +529,7 @@ const resources = {
         "waitingDispatcher": "waiting for the dispatcher",
         "continueHint": "Available after a failed ODS step that follows a successful STG run",
         "cancelRequest": "Cancel request",
+        "nextRun": "next: {{at}}",
         "requestCreated": "Request #{{id}} for {{object}} created; the dispatcher will run it.",
         "requestCancelled": "Request #{{id}} cancelled.",
         "confirmRun": "Create request",
@@ -479,6 +551,7 @@ const resources = {
           "ods": "Last ODS run",
           "error": "Last error",
           "request": "Last request",
+          "schedule": "Schedule",
           "actions": "Actions"
         }
       },
@@ -1592,10 +1665,81 @@ const resources = {
         "kind": "Тип",
         "rows": "Строк"
       },
+      "schedule": {
+        "hint": "Расписание каждого объекта: в назначенное время диспетчер сам создаёт заявку на загрузку. Часовой пояс {{zone}}. Сохранение загрузку не запускает.",
+        "loading": "Загрузка расписаний...",
+        "none": "нет расписания",
+        "on": "включено",
+        "off": "выключено",
+        "everyMinutes": "каждые {{n}} мин",
+        "everyHours": "каждые {{n}} ч",
+        "daily": "ежедневно в {{time}}",
+        "weekly": "{{days}} в {{time}}",
+        "runKind": {
+          "RUN": "загрузка по стратегии",
+          "FULL_RERUN": "полная перезагрузка"
+        },
+        "runKindLabel": "Вид загрузки",
+        "freq": {
+          "EVERY_MINUTES": "Каждые N минут",
+          "EVERY_HOURS": "Каждые N часов",
+          "DAILY": "Ежедневно",
+          "WEEKLY": "По дням недели"
+        },
+        "day": {
+          "1": "Пн",
+          "2": "Вт",
+          "3": "Ср",
+          "4": "Чт",
+          "5": "Пт",
+          "6": "Сб",
+          "7": "Вс"
+        },
+        "enabled": "Расписание включено",
+        "frequency": "Периодичность",
+        "minutes": "Минуты (15–720)",
+        "hours": "Часы (1–24)",
+        "time": "Время ({{zone}})",
+        "retries": "Повторов после ошибки",
+        "retryDelay": "Повтор через, мин (5–60)",
+        "retryInfo": "повторов после ошибки: {{n}}, через {{minutes}} мин",
+        "save": "Сохранить",
+        "cancel": "Отмена",
+        "create": "Создать расписание",
+        "edit": "Изменить",
+        "history": "История",
+        "noRunOnSave": "Сохранение не запускает загрузку: первый запуск — в ближайшее время по расписанию.",
+        "notReady": "У объекта нет опубликованного маппинга READY или он не активен: включённое расписание сохранить нельзя.",
+        "savedEnabled": "Расписание {{object}} сохранено; следующий запуск {{next}}.",
+        "savedDisabled": "Расписание {{object}} выключено.",
+        "lastRequests": "Последние запуски",
+        "lastEvents": "События планировщика",
+        "noRequests": "запусков нет",
+        "noEvents": "событий нет",
+        "trigger": {
+          "MANUAL": "вручную",
+          "SCHEDULED": "по расписанию",
+          "RETRY": "повтор"
+        },
+        "attempt": "№{{n}}",
+        "event": {
+          "QUEUED": "заявка создана",
+          "RETRY_QUEUED": "повтор создан",
+          "SKIPPED_BUSY": "пропущен: идёт загрузка",
+          "SKIPPED_NOT_READY": "пропущен: объект не готов"
+        },
+        "col": {
+          "object": "Объект",
+          "schedule": "Расписание",
+          "next": "Следующий запуск",
+          "last": "Последний запуск"
+        }
+      },
       "loads": {
         "sectionHint": "Работа загрузок: объекты, витрины, запуски и ошибки. Настройки — в «Администрировании».",
         "tab": {
           "objects": "Объекты",
+          "schedules": "Расписания",
           "marts": "Витрины",
           "runs": "Запуски",
           "errors": "Ошибки и история"
@@ -1612,6 +1756,7 @@ const resources = {
         "waitingDispatcher": "ждёт диспетчер",
         "continueHint": "Доступно после неудачного шага ODS, который следует за успешным STG",
         "cancelRequest": "Отменить заявку",
+        "nextRun": "следующий: {{at}}",
         "requestCreated": "Заявка №{{id}} для {{object}} создана; её выполнит диспетчер.",
         "requestCancelled": "Заявка №{{id}} отменена.",
         "confirmRun": "Создать заявку",
@@ -1633,6 +1778,7 @@ const resources = {
           "ods": "Последний запуск ODS",
           "error": "Последняя ошибка",
           "request": "Последняя заявка",
+          "schedule": "Расписание",
           "actions": "Действия"
         }
       },
@@ -2746,10 +2892,81 @@ const resources = {
         "kind": "Növ",
         "rows": "Sətir"
       },
+      "schedule": {
+        "hint": "Hər obyektin cədvəli: vaxt çatanda dispetçer yükləmə sorğusu yaradır. Saat qurşağı {{zone}}. Saxlama yükləməni başlatmır.",
+        "loading": "Cədvəllər yüklənir...",
+        "none": "cədvəl yoxdur",
+        "on": "aktiv",
+        "off": "deaktiv",
+        "everyMinutes": "hər {{n}} dəq",
+        "everyHours": "hər {{n}} saat",
+        "daily": "hər gün {{time}}",
+        "weekly": "{{days}}, {{time}}",
+        "runKind": {
+          "RUN": "strategiya üzrə yükləmə",
+          "FULL_RERUN": "tam yenidən yükləmə"
+        },
+        "runKindLabel": "Yükləmə növü",
+        "freq": {
+          "EVERY_MINUTES": "Hər N dəqiqə",
+          "EVERY_HOURS": "Hər N saat",
+          "DAILY": "Hər gün",
+          "WEEKLY": "Həftənin günləri"
+        },
+        "day": {
+          "1": "B.e",
+          "2": "Ç.a",
+          "3": "Ç",
+          "4": "C.a",
+          "5": "C",
+          "6": "Ş",
+          "7": "B"
+        },
+        "enabled": "Cədvəl aktivdir",
+        "frequency": "Dövrilik",
+        "minutes": "Dəqiqə (15–720)",
+        "hours": "Saat (1–24)",
+        "time": "Vaxt ({{zone}})",
+        "retries": "Xətadan sonra təkrar",
+        "retryDelay": "Təkrar, dəq sonra (5–60)",
+        "retryInfo": "xətadan sonra təkrar: {{n}}, {{minutes}} dəq sonra",
+        "save": "Saxla",
+        "cancel": "Ləğv et",
+        "create": "Cədvəl yarat",
+        "edit": "Dəyiş",
+        "history": "Tarixçə",
+        "noRunOnSave": "Saxlama yükləməni başlatmır: ilk işə salma cədvəl üzrə ən yaxın vaxtdadır.",
+        "notReady": "Obyektin dərc olunmuş READY xəritələməsi yoxdur və ya aktiv deyil: aktiv cədvəl saxlanıla bilməz.",
+        "savedEnabled": "{{object}} cədvəli saxlanıldı; növbəti işə salma {{next}}.",
+        "savedDisabled": "{{object}} cədvəli deaktivdir.",
+        "lastRequests": "Son işə salmalar",
+        "lastEvents": "Planlaşdırıcı hadisələri",
+        "noRequests": "işə salma yoxdur",
+        "noEvents": "hadisə yoxdur",
+        "trigger": {
+          "MANUAL": "əl ilə",
+          "SCHEDULED": "cədvəl üzrə",
+          "RETRY": "təkrar"
+        },
+        "attempt": "№{{n}}",
+        "event": {
+          "QUEUED": "sorğu yaradıldı",
+          "RETRY_QUEUED": "təkrar yaradıldı",
+          "SKIPPED_BUSY": "buraxıldı: yükləmə gedir",
+          "SKIPPED_NOT_READY": "buraxıldı: obyekt hazır deyil"
+        },
+        "col": {
+          "object": "Obyekt",
+          "schedule": "Cədvəl",
+          "next": "Növbəti işə salma",
+          "last": "Son işə salma"
+        }
+      },
       "loads": {
         "sectionHint": "Yükləmələrin işi: obyektlər, vitrinlər, icralar və xətalar. Ayarlar — «İdarəetmə» bölməsində.",
         "tab": {
           "objects": "Obyektlər",
+          "schedules": "Cədvəllər",
           "marts": "Vitrinlər",
           "runs": "İcralar",
           "errors": "Xətalar və tarixçə"
@@ -2766,6 +2983,7 @@ const resources = {
         "waitingDispatcher": "dispetçeri gözləyir",
         "continueHint": "Uğurlu STG-dən sonra uğursuz ODS addımından sonra mümkündür",
         "cancelRequest": "Sorğunu ləğv et",
+        "nextRun": "növbəti: {{at}}",
         "requestCreated": "{{object}} üçün №{{id}} sorğu yaradıldı; onu dispetçer icra edəcək.",
         "requestCancelled": "№{{id}} sorğu ləğv edildi.",
         "confirmRun": "Sorğu yarat",
@@ -2787,6 +3005,7 @@ const resources = {
           "ods": "Son ODS icrası",
           "error": "Son xəta",
           "request": "Son sorğu",
+          "schedule": "Cədvəl",
           "actions": "Əməliyyatlar"
         }
       },

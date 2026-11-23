@@ -27,6 +27,7 @@ import AdminPage from './AdminPage'
 import AdminIntegrationHistory from './AdminIntegrationHistory'
 import LoadsObjectsPanel from './LoadsObjectsPanel'
 import DmMartsPanel from './DmMartsPanel'
+import ObjectSchedulesPanel from './ObjectSchedulesPanel'
 import AiAssistantPanel from './AiAssistantPanel'
 import ReportingPage from './ReportingPage'
 import ServerLoadBadge from './ServerLoadBadge'
@@ -41,6 +42,7 @@ type PageKey =
 // ETL Runs, Data Quality, Run Control and History / Errors).
 type LoadsTab =
   | 'objects'
+  | 'schedules'
   | 'marts'
   | 'runs'
   | 'errors'
@@ -199,6 +201,8 @@ function App() {
 
   const loadsTabs: LoadsTab[] = [
     ...(canIntegration ? ['objects' as const] : []),
+    // I09: schedules — the same right as manual runs (P9)
+    ...(canIntegrationAdmin ? ['schedules' as const] : []),
     ...(canIntegration ? ['marts' as const] : []),
     ...(canEtl ? ['runs' as const] : []),
     ...(canIntegrationAdmin ? ['errors' as const] : []),
@@ -486,6 +490,8 @@ function App() {
         {
           current === 'objects'
             ? <LoadsObjectsPanel canRun={canIntegrationAdmin} canDiagnose={canAiDiagnose} />
+            : current === 'schedules'
+              ? <ObjectSchedulesPanel />
             : current === 'marts'
               ? <DmMartsPanel canRun={canIntegrationAdmin} canDiagnose={canAiDiagnose} />
             : current === 'runs'
