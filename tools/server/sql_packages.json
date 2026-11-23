@@ -418,5 +418,35 @@
       "label": "028",
       "expected": 6
     }
+  },
+  "029": {
+    "number": "029",
+    "owner": "dwh_admin",
+    "marker": "app.audit_log_page(text, timestamp with time zone, timestamp with time zone, text, text, text, text, bigint, integer)",
+    "copy_db": "dwh_i13_05_029_test",
+    "check_expected": 6,
+    "added_rows": {},
+    "migration": {
+      "path": "database/migrations/029_audit_log_view.sql",
+      "sha256": "D7E17DCC1BE9BA50CAFCD440A4C2ED7FEFD7EB1EAB89DAD9D95407481AB3DA93"
+    },
+    "down": {
+      "path": "database/migrations/029_audit_log_view.down.sql",
+      "sha256": "2395C0FACAB88095F441BBD0F3B80B5747EC397A3B003D4A7C587CF33532B32B"
+    },
+    "check": {
+      "path": "database/checks/029_audit_log_view_check.sql",
+      "sha256": "FA73D407369AC6D1F4D4B5CCE8C63590BA2041DDB0D1C2B332E80E89B18FFB29"
+    },
+    "test": {
+      "path": "database/tests/029_audit_log_view_test.sql",
+      "sha256": "7AD6C7DB6FDADF79D83AB766B5898F626CECE36EBF203612E1EF39AC97879C92"
+    },
+    "previous_check": {
+      "path": "database/checks/028_source_object_identity_check.sql",
+      "sha256": "1107F61BFBCE16E6F0588785B8E4D643F0A057F32558BB0901954E27FD93E05A",
+      "label": "028",
+      "expected": 6
+    }
   }
 }
