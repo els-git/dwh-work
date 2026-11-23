@@ -1,6 +1,6 @@
 # DWH — движки приложения
 
-<sub>Версия **1.6.1** · **23.11.2026** · Описывает устройство движков по коду репозитория `els-git/dwh-work`. Документ обновляется вместе с изменением движков. Что из этого подтверждено на сервере — см. реестр `docs/DWH_CURRENT_FUNCTIONALITY.md`.</sub>
+<sub>Версия **1.7.0** · **23.11.2026** · Описывает устройство движков по коду репозитория `els-git/dwh-work`. Документ обновляется вместе с изменением движков. Что из этого подтверждено на сервере — см. реестр `docs/DWH_CURRENT_FUNCTIONALITY.md`.</sub>
 
 ## 0. Общая картина
 
@@ -248,12 +248,15 @@
 | Сертификат HTTPS (I13-10) | `tools/server/dwh_tls.py install / check / rollback` | PFX от УЦ: проверка ключа, имени, срока и цепочки до замены, копия прежних файлов, файл nginx из шаблона (перенаправление адреса на DNS-имя), `nginx -t`, живая проверка, возврат при ошибке |
 | Вход через домен (I20) | `tools/server/dwh_ldap_setup.py` | параметры в `dwh.env`, пароль служебной учётной записи в `systemd-creds`, drop-in для `dwh-api`, проверка контроллеров, включение после `PASS`, `--disable` |
 
+**Журналы для администратора (I13-05).** Пакет 029: `app.audit_log_page(token, с, по, тип, пользователь, объект, итог, до_id, размер)`, `app.audit_log_filters(token)`, `app.secret_journal_page(token, источник, с, по, тип операции, до_id, размер)` — `SECURITY DEFINER`, `EXECUTE` только `dwh_app`; сессия — `app.audit_admin_session_user` (активный `ADMIN`/`SUPERADMIN` без обязательной смены пароля, иначе `Audit log access denied` / `Password change required`); страница до 200 строк по убыванию номера, следующая — по `next_before_id`; `details` проходят `app.audit_mask_details` (значения под именами `secret|passw|pwd|token|dsn|cipher|credential|private|salt|api_key` → `***`, кроме `true/false`; пароль в `…://user:пароль@…` → `***`); первая страница запроса пишет `AUDIT_LOG_VIEWED` / `SECRET_JOURNAL_VIEWED` с фильтрами. API `backend/src/dwh_api/audit_log_view.py`: `GET /api/admin/audit/events|filters|secret-operations` — уровень проверяет `server_load.require_server_admin`, вызов на управляющем подключении с фиксацией (запись события просмотра); ошибки: 401 (сессия), 403 (уровень, смена пароля), 422 (размер > 200, неизвестный тип операции). Интерфейс — `frontend/src/AuditLogPanel.tsx` («Администрирование» → «Журналы», вкладка видна только `ADMIN`/`SUPERADMIN`; ответ на устаревший запрос отбрасывается).
+
 **Нагрузка сервера (I13-13).** `backend/src/dwh_api/server_load.py`: поток в процессе `dwh-api` раз в 2 с читает `/proc/stat` (ЦП всего и по ядрам: занято = 100 − idle − iowait, как `top`), `/proc/meminfo` (занято = MemTotal − MemAvailable, как `free`), `/proc/loadavg`, `/proc/diskstats` (только диски с `/sys/block/<диск>/device`, без CD-приводов `sr*`: чтение, запись, активность по времени ввода-вывода), `/proc/net/dev` (без `lo`), `statvfs` разделов, счётчики cgroup v2 служб (`cpu.stat` `usage_usec`, `memory.current`; шаблон `postgresql@17-main` — в `system-postgresql.slice`) и раз в 10 с — число подключений по ролям из `pg_stat_activity` (`dwh_app`, `connect_readonly`; при ошибке — «нет данных», повтор через 60 с). История — 1800 замеров (60 мин) в памяти; в базу и на диск ничего не пишется. API `GET /api/admin/server/load[?since=<время>]` — только `SUPERADMIN`/`ADMIN` (`auth.require_admin`) с выполненной сменой пароля; без `since` — текущие значения, с `since` — ещё замеры после этого времени. Настройки (`/etc/dwh/dwh.env`, не обязательны): `DWH_SERVER_LOAD_ENABLED` (`0` выключает сбор), `DWH_SERVER_LOAD_UNITS`, `DWH_SERVER_LOAD_MOUNTS` — списки через запятую. Интерфейс — `frontend/src/ServerLoadBadge.tsx` (плашка: опрос раз в 5 с; панель: раз в 2 с с `since`, ответ после смены режима отбрасывается; при 401/403 плашка скрывается).
 
 ## История
 
 | Версия | Дата | Изменения |
 |---|---|---|
+| 1.7.0 | 23.11.2026 | Журналы для администратора (I13-05): функции пакета 029, API `/api/admin/audit/*`, вкладка «Журналы» |
 | 1.6.1 | 23.11.2026 | Нагрузка сервера: виртуальный CD-привод `sr0` не показывается среди дисков |
 | 1.6.0 | 23.11.2026 | Эксплуатация: нагрузка сервера для администратора — сборщик `server_load.py`, API `/api/admin/server/load`, плашка и панель (I13-13) |
 | 1.5.2 | 20.11.2026 | Эксплуатация: инструмент приёмки SecretStore `dwh_secret_accept.py` (I02-03, шаг 5) |

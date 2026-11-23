@@ -30,6 +30,7 @@ from dwh_api.saved_reports import router as saved_reports_router
 from dwh_api.mart_view import router as mart_view_router
 from dwh_api.dm_builder_admin import admin_router as dm_builder_admin_router, view_router as dm_mart_view_router
 from dwh_api.server_load import router as server_load_router, start_sampling as start_server_load_sampling
+from dwh_api.audit_log_view import router as audit_log_router
 from dwh_api.models import (
     ApiError,
     ApiMetadata,
@@ -786,3 +787,4 @@ app.include_router(mart_view_router)
 app.include_router(dm_builder_admin_router)
 app.include_router(dm_mart_view_router)
 app.include_router(server_load_router)  # I13-13: server load for administrators
+app.include_router(audit_log_router)  # I13-05: journals for administrators

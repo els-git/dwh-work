@@ -9,6 +9,7 @@ import AdminAccessPage from './AdminAccessPage'
 import AdminIntegrationsPage from './AdminIntegrationsPage'
 import AiAdminPanel from './AiAdminPanel'
 import DmBuilderPanel from './DmBuilderPanel'
+import AuditLogPanel from './AuditLogPanel'
 
 import './AdminPage.css'
 
@@ -21,12 +22,14 @@ type AdminSection =
   | 'integrations'
   | 'ai'
   | 'dm'
+  | 'audit'
 
 
 interface AdminSectionDefinition {
   key: AdminSection
   labelKey: string
-  permission: string
+  // a permission, or null for a section open to the levels SUPERADMIN and ADMIN only (I13-05, journals)
+  permission: string | null
   description: string
 }
 
@@ -81,20 +84,34 @@ const adminSections: AdminSectionDefinition[] = [
     description:
       'DM marts: entities and key columns of ODS tables, mart builder, DDL proposals, publication.',
   },
+  {
+    key: 'audit',
+    labelKey: 'adminTabs.audit',
+    permission: null,
+    description:
+      'Journals: audit events and source password operations (read only).',
+  },
 ]
 
 
 function AdminPage() {
   const {
+    auth,
     hasPermission,
   } = useAuth()
+
+  const isAdministrator =
+    auth.user?.account_level === 'SUPERADMIN'
+    || auth.user?.account_level === 'ADMIN'
 
   const availableSections =
     adminSections.filter(
       section =>
-        hasPermission(
-          section.permission,
-        ),
+        section.permission === null
+          ? isAdministrator
+          : hasPermission(
+            section.permission,
+          ),
     )
 
   const [
@@ -180,6 +197,15 @@ function AdminPage() {
     ) {
       return (
         <DmBuilderPanel />
+      )
+    }
+
+    if (
+      activeDefinition.key
+      === 'audit'
+    ) {
+      return (
+        <AuditLogPanel />
       )
     }
 

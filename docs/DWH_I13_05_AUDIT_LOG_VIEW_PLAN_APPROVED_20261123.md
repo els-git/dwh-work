@@ -67,3 +67,16 @@
 
 Выпуск `2026.11.54` (коммит `1f615e1a`) установлен (`UPDATE_RESULT: PASS`). `dwh_sql_package.py --package 029 --stage e1`: SHA256 файлов OK; check 028 на `dwh` 6/6; копия `dwh_i13_05_029_test` — применение `MIGRATION_029_DONE`, check 029 6/6, check 028 6/6, тест J01–J12 `ALL_TESTS_PASS`, откат `ROLLBACK_029_DONE`, повторное применение и check 029 6/6; `E1_RESULT: PASS`. Копия оставлена с 029. Далее — E2 с разрешения пользователя.
 
+### 7.2. E2 пакета 029 — PASS (23.11.2026)
+
+`dwh_sql_package.py --package 029 --stage e2` (разрешение пользователя): копия `pre-029` (`/backup/dwh/dwh_20261123_111316_pre-029.dump`), `APPLY`, `MIGRATION_029_DONE`, check 029 6/6, check 028 6/6, 110 таблиц без изменения строк, `E2_RESULT: PASS`. Реестр 1.58.0, раздел 12.63.
+
+## 8. Шаг 5 — код в песочнице (23.11.2026)
+
+- **API** `backend/src/dwh_api/audit_log_view.py`: `GET /api/admin/audit/events` (фильтры `from`, `to`, `event_type`, `actor`, `entity`, `outcome`, `before_id`, `limit` ≤ 200), `GET /api/admin/audit/filters`, `GET /api/admin/audit/secret-operations` (`source_system_id`, `from`, `to`, `operation_type` из `CREATE|REPLACE|REVOKE|READ`, `before_id`, `limit`). Только `SUPERADMIN`/`ADMIN` (проверка уровня в API и сессии в базе); вызов на управляющем подключении с фиксацией — база пишет событие просмотра.
+- **Интерфейс:** «Администрирование» → вкладка «Журналы» (`frontend/src/AuditLogPanel.tsx`, `auditLogApi.ts`, `AuditLogPanel.css`; тексты `audit.*` ru/en/az): «Журнал аудита» (фильтры, 100 строк, «Показать ещё», подробности по нажатию) и «Операции с паролями источников» (источник, период, операция). Вкладка видна только `ADMIN`/`SUPERADMIN` (раздел без права, по уровню).
+- **Проверки:** тесты backend 388 OK (`test_audit_log_view.py`: вызовы функций 029 с фильтрами, отказ `USER`, 422, сопоставление ошибок); API на базе песочницы с пакетом 029 (`scratchpad/i1305/e2e_api.py`) 13/13 — скрытие `secret_ref` и пароля DSN, учёт первой страницы, страницы, период, журнал паролей и его фильтры, отказ `USER` в API и в базе, 401 без сессии; сборка OK, ESLint 0/0; браузер с имитацией API (`scratchpad/i1305/ui.cjs`) 8/8.
+- **Документы:** справка 1.13.0 (раздел 4.6 «Журналы», `level=ADMIN`), `DWH_ENGINES.md` 1.7.0.
+
+**Шаг 6 (выпуск `2026.11.55`, приёмка):** 1) под администратором вкладка «Журналы» открывается, видны вход, изменение объекта `PROCESS_VIEWER` и операции с паролем; 2) в подробностях `SECRET_STORE_LEGACY_REVOKE` `secret_ref` = `***`; 3) под пользователем `USER` вкладки нет; 4) открытие журнала видно в нём же (`AUDIT_LOG_VIEWED`). Затем подтверждение — `DONE`.
+
