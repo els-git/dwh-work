@@ -10,6 +10,10 @@ export interface AuditEvent {
   event_type: string
   entity_type: string
   entity_key: string | null
+  /** I13-15 (package 031): name from the catalogs at view time; absent before 031 */
+  entity_name?: string | null
+  /** I13-15: the object has no catalog row any more, or the mart is deleted */
+  entity_deleted?: boolean
   action: string
   outcome: string
   source: string
