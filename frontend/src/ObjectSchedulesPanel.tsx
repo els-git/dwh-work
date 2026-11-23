@@ -64,7 +64,7 @@ function inputOf(draft: Draft): ObjectScheduleInput {
     enabled: draft.enabled,
     frequency: draft.frequency,
     every_n: interval ? Number(draft.everyN) : null,
-    at_time: interval ? null : draft.atTime,
+    at_time: interval ? null : normalTime(draft.atTime),
     week_days: draft.frequency === 'WEEKLY' ? [...draft.weekDays].sort((a, b) => a - b) : null,
     run_kind: draft.runKind,
     retry_count: draft.retryCount,
@@ -84,6 +84,9 @@ function draftProblem(draft: Draft): { key: string, n?: number } | null {
     const n = whole(draft.everyN)
     return n >= 1 && n <= 24 ? null : { key: 'schedule.invalid.hours' }
   }
+  if (normalTime(draft.atTime) === null) {
+    return { key: 'schedule.invalid.time' }
+  }
   if (draft.frequency === 'WEEKLY' && draft.weekDays.length === 0) {
     return { key: 'schedule.invalid.weekDays' }
   }
@@ -97,8 +100,11 @@ function draftProblem(draft: Draft): { key: string, n?: number } | null {
 }
 
 
-const HOURS = Array.from({ length: 24 }, (_, hour) => String(hour).padStart(2, '0'))
-const MINUTES = Array.from({ length: 60 }, (_, minute) => String(minute).padStart(2, '0'))
+// "6:05" is accepted as "06:05"; anything else outside 00:00–23:59 is refused.
+function normalTime(value: string): string | null {
+  const match = /^([01]?\d|2[0-3]):([0-5]\d)$/.exec(value.trim())
+  return match === null ? null : `${match[1].padStart(2, '0')}:${match[2]}`
+}
 
 
 function badgeClass(status: string): string {
@@ -243,18 +249,10 @@ function ObjectSchedulesPanel() {
               : (
                 <label>
                   {t('schedule.time', { zone: timeZone })}
-                  {/* 24-hour clock regardless of the browser locale: hour and minute lists instead of <input type="time"> */}
-                  <span className="schedule-time">
-                    <select aria-label={t('schedule.hour')} value={draft.atTime.slice(0, 2)}
-                      onChange={event => setDraft({ ...draft, atTime: `${event.target.value}:${draft.atTime.slice(3, 5)}` })}>
-                      {HOURS.map(hour => <option key={hour} value={hour}>{hour}</option>)}
-                    </select>
-                    :
-                    <select aria-label={t('schedule.minute')} value={draft.atTime.slice(3, 5)}
-                      onChange={event => setDraft({ ...draft, atTime: `${draft.atTime.slice(0, 2)}:${event.target.value}` })}>
-                      {MINUTES.map(minute => <option key={minute} value={minute}>{minute}</option>)}
-                    </select>
-                  </span>
+                  {/* free text HH:MM, 24-hour clock regardless of the browser locale; checked before sending */}
+                  <input type="text" className="schedule-time" inputMode="numeric" maxLength={5} placeholder={t('schedule.timePlaceholder')}
+                    value={draft.atTime}
+                    onChange={event => setDraft({ ...draft, atTime: event.target.value })} />
                 </label>
               )}
             {draft.frequency === 'WEEKLY'
