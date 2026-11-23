@@ -29,6 +29,7 @@ import LoadsObjectsPanel from './LoadsObjectsPanel'
 import DmMartsPanel from './DmMartsPanel'
 import AiAssistantPanel from './AiAssistantPanel'
 import ReportingPage from './ReportingPage'
+import ServerLoadBadge from './ServerLoadBadge'
 
 
 type PageKey =
@@ -941,6 +942,13 @@ function App() {
               <LocalizedText translationKey="sidebar.signOut" />
             </button>
           </div>
+
+          {
+            // I13-13: server load, administrators only (the API refuses everybody else).
+            auth.user?.account_level === 'SUPERADMIN' || auth.user?.account_level === 'ADMIN'
+              ? <ServerLoadBadge />
+              : null
+          }
 
           <div className="sidebar-health">
             <span

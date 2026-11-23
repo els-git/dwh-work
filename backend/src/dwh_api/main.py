@@ -5,7 +5,7 @@ from dwh_api.auth import (
     router as auth_router,
 )
 
-from contextlib import closing
+from contextlib import asynccontextmanager, closing
 from typing import Any
 
 from uuid import uuid4
@@ -29,6 +29,7 @@ from dwh_api.ai_assistant import router as ai_assistant_router
 from dwh_api.saved_reports import router as saved_reports_router
 from dwh_api.mart_view import router as mart_view_router
 from dwh_api.dm_builder_admin import admin_router as dm_builder_admin_router, view_router as dm_mart_view_router
+from dwh_api.server_load import router as server_load_router, start_sampling as start_server_load_sampling
 from dwh_api.models import (
     ApiError,
     ApiMetadata,
@@ -38,7 +39,14 @@ from dwh_api.models import (
     HealthResponse,
 )
 
+@asynccontextmanager
+async def _lifespan(_app):
+    start_server_load_sampling()  # I13-13: the load history is collected from the start of the API
+    yield
+
+
 app = FastAPI(
+    lifespan=_lifespan,
     title="DWH API",
     version="0.3.0",
     description=(
@@ -777,3 +785,4 @@ app.include_router(saved_reports_router)
 app.include_router(mart_view_router)
 app.include_router(dm_builder_admin_router)
 app.include_router(dm_mart_view_router)
+app.include_router(server_load_router)  # I13-13: server load for administrators
