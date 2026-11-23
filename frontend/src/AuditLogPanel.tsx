@@ -157,6 +157,16 @@ function EventsJournal() {
 }
 
 
+// I13-15: "<name> (#key)" when the server gives a name, the type is a hint; otherwise "TYPE: key" as before.
+function EntityCell({ row }: { row: AuditEvent }) {
+  const { t } = useTranslation()
+  const deleted = row.entity_deleted ? <small className="audit-deleted"> {t('audit.deleted')}</small> : null
+  if (row.entity_name) {
+    return <span title={row.entity_type}>{row.entity_name} <code>(#{row.entity_key})</code>{deleted}</span>
+  }
+  return <>{row.entity_type}{row.entity_key ? <>: <code>{row.entity_key}</code></> : null}{deleted}</>
+}
+
 function EventRow({ row, open, onToggle }: { row: AuditEvent, open: boolean, onToggle: () => void }) {
   const { t } = useTranslation()
   const hasDetails = row.details !== null && typeof row.details === 'object' && Object.keys(row.details).length > 0
@@ -166,7 +176,7 @@ function EventRow({ row, open, onToggle }: { row: AuditEvent, open: boolean, onT
         <td className="audit-nowrap">{formatDateTime(row.occurred_at)}</td>
         <td>{row.actor_username ?? '—'}{row.actor_account_level ? <small> {row.actor_account_level}</small> : null}</td>
         <td><code>{row.event_type}</code></td>
-        <td>{row.entity_type}{row.entity_key ? <>: <code>{row.entity_key}</code></> : null}</td>
+        <td><EntityCell row={row} /></td>
         <td>{row.action}</td>
         <td><span className={outcomeClass(row.outcome)}>{row.outcome}</span></td>
         <td>{row.source}</td>
@@ -177,6 +187,7 @@ function EventRow({ row, open, onToggle }: { row: AuditEvent, open: boolean, onT
             <td colSpan={7}>
               <div className="audit-details">
                 <span>#{row.id}{row.request_id ? ` · request ${row.request_id}` : ''}</span>
+                {row.entity_key ? <span>{t('audit.objectLine', { type: row.entity_type, key: row.entity_key })}{row.entity_name ? ` · ${row.entity_name}` : ''}</span> : null}
                 {hasDetails ? <pre>{JSON.stringify(row.details, null, 2)}</pre> : <span>{t('audit.noDetails')}</span>}
               </div>
             </td>

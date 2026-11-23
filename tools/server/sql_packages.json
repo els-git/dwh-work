@@ -478,5 +478,35 @@
       "label": "029",
       "expected": 6
     }
+  },
+  "031": {
+    "number": "031",
+    "owner": "dwh_admin",
+    "marker": "app.audit_entity_name(text,text)",
+    "copy_db": "dwh_i13_15_031_test",
+    "check_expected": 6,
+    "added_rows": {},
+    "migration": {
+      "path": "database/migrations/031_audit_entity_names.sql",
+      "sha256": "9C4420954F816B2F89402D51A44F0B3EBCF40B56AE26DCC9C75EA51FC5200943"
+    },
+    "down": {
+      "path": "database/migrations/031_audit_entity_names.down.sql",
+      "sha256": "F3DF75D8FB414DB630AFD8DA50140E0AEA0470EB36326491B6E21D8F01981723"
+    },
+    "check": {
+      "path": "database/checks/031_audit_entity_names_check.sql",
+      "sha256": "84F817E8664A54F4B83AB34F6D237222DF0051D89C19B1D060E8F7EB16ADA69D"
+    },
+    "test": {
+      "path": "database/tests/031_audit_entity_names_test.sql",
+      "sha256": "B6851BA940E09D8829F21B9A0BE119303334D7A84D625C8711BF9F7195D034F8"
+    },
+    "previous_check": {
+      "path": "database/checks/030_audit_journal_immutability_check.sql",
+      "sha256": "F6D49CDF6EEFB9765728E75637867A025BF5B1A9CB39F0F6C44D1200361C25C6",
+      "label": "030",
+      "expected": 6
+    }
   }
 }
