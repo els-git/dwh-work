@@ -59,3 +59,11 @@
 
 `dwh_sql_package.py --package 030 --stage e2` на выпуске `2026.11.56`: SHA256 файлов OK; check 029 до применения 6/6; копия `/backup/dwh/dwh_20261123_124401_pre-030.dump` (`BACKUP_RESULT: PASS`); подтверждение `APPLY`; `MIGRATION_030_DONE`; check 030 6/6, check 029 6/6; 110 таблиц — число строк без изменений; `E2_RESULT: PASS`. Реестр 1.59.0, раздел 12.64. Далее — шаг 4, приёмка.
 
+## 7. Шаг 4 — приёмка на сервере — PASS (23.11.2026)
+
+1. Повтор описи (`i13_14_audit_write_inventory.sql`, выпуск `2026.11.56`): `dwh_etl` на `audit.security_event` — `can_insert` t, `can_update`/`can_delete`/`can_truncate` f; членов у ролей нет; триггеры `trg_security_event_append_only` и `trg_security_event_no_truncate` включены (`O`); функций, меняющих журналы, нет; суперпользователи — `dwh_admin` (без входа) и `postgres`.
+2. Загрузка объекта 24 (`PROCESS_VIEWER`) из интерфейса: заявка `OBJECT_RUN_REQUEST_CREATED`, `ETL_OBJECT_RUN_STARTED`, `ETL_SOURCE_SECRET_READ` (`SOURCE_SYSTEM: 9`), `ETL_OBJECT_RUN_FINISHED`, `ETL_OBJECT_ODS_RUN_STARTED/FINISHED` — все `SUCCESS`, ODS: 6 прочитано, 6 вставлено. Запись `dwh_etl` в журнал после снятия прав работает.
+3. Реестр 1.59.1, раздел 12.64. Ждём подтверждения `DONE`.
+
+Замечание пользователя при приёмке: в журнале объект показан номером (`SOURCE_OBJECT: 24`), а не именем — вне задачи I13-14, решение отдельно.
+
