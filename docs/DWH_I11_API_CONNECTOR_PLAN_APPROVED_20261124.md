@@ -129,3 +129,13 @@
 Разрешение пользователя 24.11.2026. `dwh_sql_package.py --package 033 --stage e2`: SHA256 OK, check 032 на `dwh` 7/7, копия `/backup/dwh/dwh_20261124_112350_pre-033.dump`, `MIGRATION_033_DONE`, check 033 7/7, check 032 7/7, 116 таблиц без изменения строк, новая `meta.object_api_request`; `E2_RESULT: PASS`. Реестр 1.62.0, раздел 12.67. Шаг 6 выполнен, далее шаг 7 — приёмка.
 
 Уточнение к шагу 7: тестовый сервис отдаёт только `public.services` (решение пользователя 24.11.2026), поэтому второй объект — та же таблица по номеру страницы в XML (`services_xml`), а не `app_users`.
+
+### 7.3. Шаг 7, часть 1: JSON с курсором — PASS (24.11.2026)
+
+- `dwh_http_hosts.py --add dwh.vtbaze.local` — `HTTP_HOSTS_RESULT: CHANGED`, `dwh-api` и `dwh-dispatcher` перезапущены.
+- Источник `PV_API` (тип `API`), объект `api.services`: импорт cURL `…/pv-api/v1/services/cursor?limit=50` с `Authorization: Bearer`; секрет объекта задан (ключ `K2026_04`), в экспорте cURL — `Bearer ***`; путь к записям `items`, курсор — параметр `cursor`, путь `next_cursor`.
+- Первая проверка запроса — `HTTP_401` от тестового сервиса: в секрете был неверный токен; после замены секрета значением `--show-token` проверка прошла.
+- STG v1 (`stg.api_services`, FULL) и ODS v1 (`ods.api_services`, 13 колонок) опубликованы из интерфейса.
+- Заявка №141 «Запустить»: STG и ODS `SUCCESS`, прочитано 136, вставлено 136, обновлено 0 — столько же строк, сколько отдаёт `public.services` (проверка сервиса 24.11.2026).
+
+Далее — часть 2: XML с номером страницы (`api.services_xml`), инкремент по `updated_since`, повтор после `429`, неверный секрет, хост не из списка, запуск по расписанию.
