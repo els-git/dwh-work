@@ -270,6 +270,18 @@ sudo python3 /opt/dwh/current/src/tools/server/dwh_test_api_setup.py --remove   
 
 Итог — `TEST_API_RESULT`. Настройки, пароль и токен — только в `/etc/dwh/test-api.env` (root, 0600). Служба не входит в `dwh_update.py`: после обновления кода — `sudo systemctl restart dwh-test-api`.
 
+## 4i. Адреса источников API (I11)
+
+Загрузка и «Проверить запрос» обращаются только к хостам из списка `DWH_HTTP_ALLOWED_HOSTS` в `/etc/dwh/dwh.env`:
+
+```bash
+sudo python3 /opt/dwh/current/src/tools/server/dwh_http_hosts.py                           # показать
+sudo python3 /opt/dwh/current/src/tools/server/dwh_http_hosts.py --add dwh.vtbaze.local    # добавить, перезапуск dwh-api и dwh-dispatcher
+sudo python3 /opt/dwh/current/src/tools/server/dwh_http_hosts.py --remove dwh.vtbaze.local
+```
+
+Итог — `HTTP_HOSTS_RESULT`. Сертификаты проверяются с корнем `/etc/dwh/tls/ca.crt`.
+
 ## 5. Проверки и задачи
 
 - Сеть (шаг 5), только чтение:

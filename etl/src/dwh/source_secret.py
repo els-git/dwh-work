@@ -39,6 +39,22 @@ def _message(exc: psycopg.Error) -> str:
 
 def read_source_credential(source_code: str, *, request_id: int | None = None, open_connection=None,
                            key_loader=None, store_factory=None) -> str:
+    return _read("SELECT operation_id, secret_ref, key_id, refusal FROM etl.source_secret_read_begin(%s, %s)",
+                 source_code, source_code, request_id=request_id, open_connection=open_connection,
+                 key_loader=key_loader, store_factory=store_factory)
+
+
+def read_object_credential(source_object_id: int, *, request_id: int | None = None, open_connection=None,
+                           key_loader=None, store_factory=None) -> str:
+    """I11 (package 033): credential of an API object (token, password or key), same rules as a source."""
+    return _read("SELECT operation_id, secret_ref, key_id, refusal FROM etl.object_secret_read_begin(%s, %s)",
+                 int(source_object_id), f"object {int(source_object_id)}", request_id=request_id,
+                 open_connection=open_connection, key_loader=key_loader, store_factory=store_factory)
+
+
+def _read(begin_sql: str, subject, label: str, *, request_id: int | None, open_connection, key_loader,
+          store_factory) -> str:
+    source_code = label
     directory_value = os.environ.get(SECRET_DIRECTORY_ENV, "")
     if not directory_value:
         raise SourceSecretError("SecretStore is not configured (DWH_SECRET_STORE_DIR)")
@@ -57,8 +73,7 @@ def read_source_credential(source_code: str, *, request_id: int | None = None, o
     try:
         try:
             with conn.cursor() as cur:
-                cur.execute("SELECT operation_id, secret_ref, key_id, refusal "
-                            "FROM etl.source_secret_read_begin(%s, %s)", (source_code, request_id))
+                cur.execute(begin_sql, (subject, request_id))
                 operation_id, secret_ref, key_id, refusal = cur.fetchone()
             conn.commit()  # a refusal is a DENIED READ in the journal: it is kept
             if refusal:

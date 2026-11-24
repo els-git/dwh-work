@@ -125,3 +125,62 @@
   padding-left: 18px;
   font-size: 12px;
 }
+
+/* I11: HTTP request of an API object */
+.api-request-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.api-request-block {
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.12));
+  border-radius: 8px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.api-request-block textarea,
+.api-request-block input {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.api-request-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 8px 12px;
+}
+
+.api-request-form legend {
+  grid-column: 1 / -1;
+}
+
+.api-request-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+}
+
+.api-request-form .wide {
+  grid-column: 1 / -1;
+}
+
+.api-request-inline {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.api-request-inline input {
+  max-width: 320px;
+}
+
+.api-request-curl {
+  white-space: pre-wrap;
+  word-break: break-all;
+  font-size: 12px;
+}

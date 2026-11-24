@@ -246,6 +246,7 @@ ALLOWED_DIRECT = {
     "backend/src/dwh_api/postgres_connector.py": "passes psycopg.connect to the gateway as connect_fn",
     "etl/src/dwh/db.py": "connect(): DWH database (the CRM connection of the old contour was removed in I18)",
     "backend/src/dwh_api/ai_llm.py": "local model service of the AI assistant; LlmSettings refuses hosts other than 127.0.0.1",
+    "backend/src/dwh_api/http_gateway.py": "I11: the HTTP gateway itself (GET only, allowed hosts) - API sources go through it",
 }
 
 DIRECT = re.compile(

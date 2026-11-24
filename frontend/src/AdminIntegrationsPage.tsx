@@ -17,6 +17,7 @@ import {
   getIntegrationSourceSystems,
   getObjectLoadStatus,
   setIntegrationSourceObjectActive,
+  createApiObject,
   renameIntegrationSourceObject,
   setIntegrationSourceSystemActive,
   updateIntegrationSourceObject,
@@ -605,7 +606,9 @@ function AdminIntegrationsPage() {
       setSaving(true)
       setError(null)
 
-      if (editorMode === 'create') {
+      if (apiCreate) {
+        await createApiObject(objectSystemId, sourceObject.trim(), nullable(objectDescription))
+      } else if (editorMode === 'create') {
         await createIntegrationSourceObject({
           source_system_id:
             objectSystemId,
@@ -831,10 +834,16 @@ function AdminIntegrationsPage() {
             !== (editingObject.description ?? null)
         )
 
+  // I11: an object of an API source is an HTTP request: only its code (schema api, type API).
+  const objectSystemIsApi =
+    (systems.find(item => item.source_system_id === objectSystemId)?.source_type ?? '').trim().toUpperCase() === 'API'
+  const apiCreate = editorMode === 'create' && objectSystemIsApi
+  const apiEdit = editorMode === 'edit' && editingObject?.object_type === 'API'
+
   const objectChanged =
     editorMode === 'create'
       ? objectSystemId !== null
-        && sourceSchema.trim() !== ''
+        && (apiCreate || sourceSchema.trim() !== '')
         && sourceObject.trim() !== ''
       : identityChanged || objectFieldsChanged
 
@@ -1333,6 +1342,7 @@ function AdminIntegrationsPage() {
                               </select>
                             </label>
 
+                            {apiCreate ? null : (
                             <label>
                               <span><Trans i18nKey="batch.tr0216" /></span>
                               <input
@@ -1350,9 +1360,10 @@ function AdminIntegrationsPage() {
                                 }
                               />
                             </label>
+                            )}
 
                             <label>
-                              <span><Trans i18nKey="batch.tr0224" /></span>
+                              <span>{apiCreate ? t('apiRequest.code') : <Trans i18nKey="batch.tr0224" />}</span>
                               <input
                                 required
                                 readOnly={
@@ -1372,7 +1383,8 @@ function AdminIntegrationsPage() {
                             <label>
                               <span><Trans i18nKey="batch.tr0205" /></span>
                               <select
-                                value={objectType}
+                                value={apiCreate ? 'API' : objectType}
+                                disabled={apiCreate || apiEdit}
                                 onChange={
                                   event =>
                                     setObjectType(
@@ -1387,6 +1399,8 @@ function AdminIntegrationsPage() {
                                 <option value="VIEW">
                                   VIEW
                                 </option>
+
+                                {apiCreate || apiEdit ? <option value="API">API</option> : null}
                               </select>
                             </label>
 

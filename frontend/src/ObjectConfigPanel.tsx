@@ -15,6 +15,7 @@ import {
 import {
   useSeverityLabel,
 } from './severityLabels'
+import ApiRequestPanel from './ApiRequestPanel'
 import OdsConfigPanel from './OdsConfigPanel'
 import { publishWithTablePlan } from './tablePlan'
 import { suggestedTargetTable } from './targetName'
@@ -172,7 +173,8 @@ function ObjectConfigPanel({
   const [issues, setIssues] = useState<ObjectConfigIssue[] | null>(null)
 
   // I06-05: the panel edits the source -> STG mapping or the STG -> ODS configuration.
-  const [section, setSection] = useState<'stg' | 'ods'>('stg')
+  const isApi = sourceObject.object_type === 'API'
+  const [section, setSection] = useState<'api' | 'stg' | 'ods'>(isApi ? 'api' : 'stg')
 
   const [loadStrategy, setLoadStrategy] = useState<LoadStrategy>('FULL')
 
@@ -596,6 +598,17 @@ function ObjectConfigPanel({
       </h3>
 
       <nav className="admin-integrations-tabs">
+        {isApi
+          ? (
+            <button
+              type="button"
+              className={section === 'api' ? 'admin-integrations-tab active' : 'admin-integrations-tab'}
+              onClick={() => setSection('api')}
+            >
+              {t('apiRequest.tab')}
+            </button>
+          )
+          : null}
         <button
           type="button"
           className={section === 'stg' ? 'admin-integrations-tab active' : 'admin-integrations-tab'}
@@ -611,6 +624,15 @@ function ObjectConfigPanel({
           {t('odsConfig.tabOds')}
         </button>
       </nav>
+
+      {
+        section === 'api' && (
+          <ApiRequestPanel
+            sourceObject={sourceObject}
+            onStructureSaved={() => { void reload() }}
+          />
+        )
+      }
 
       {
         section === 'ods' && (

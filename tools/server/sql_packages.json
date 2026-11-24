@@ -538,5 +538,35 @@
       "label": "031",
       "expected": 6
     }
+  },
+  "033": {
+    "number": "033",
+    "owner": "dwh_admin",
+    "marker": "etl.object_secret_read_begin(bigint, bigint)",
+    "copy_db": "dwh_i11_033_test",
+    "check_expected": 7,
+    "added_rows": {},
+    "migration": {
+      "path": "database/migrations/033_api_source.sql",
+      "sha256": "2EE314A9117150BC8724AF19F14917E0CA78616C01311EC6C30FCDFD3FE61DF3"
+    },
+    "down": {
+      "path": "database/migrations/033_api_source.down.sql",
+      "sha256": "CA127BF8924EE51AEA67AA9A1AA2DC9B734D323B932F0E70574838FDDAE4144C"
+    },
+    "check": {
+      "path": "database/checks/033_api_source_check.sql",
+      "sha256": "2D26971E3A646DD3C9FEDC16DBDDE77410FFCFCA355EA9EC2FA013D050E0FEAB"
+    },
+    "test": {
+      "path": "database/tests/033_api_source_test.sql",
+      "sha256": "3C778E9159CA210BA8952E02FE9F6A74C45349321BE6CF64DF3DF46525E3B489"
+    },
+    "previous_check": {
+      "path": "database/checks/032_object_schedule_check.sql",
+      "sha256": "AB32F7ED36CB1938C532F53231DCE13D1A8DD07C7C39625FA93F98119FAD15D7",
+      "label": "032",
+      "expected": 7
+    }
   }
 }

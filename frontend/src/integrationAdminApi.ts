@@ -1189,3 +1189,122 @@ export function saveObjectSchedule(
     { method: 'PUT', body: JSON.stringify(input) },
   )
 }
+
+// I11: API objects - HTTP request, cURL, credential, check of the request, structure.
+
+export type ApiAuthKind = 'NONE' | 'BEARER' | 'BASIC' | 'HEADER' | 'QUERY'
+export type ApiPageKind = 'NONE' | 'PAGE' | 'OFFSET' | 'CURSOR' | 'NEXT_LINK'
+
+export interface ApiNameValue {
+  name: string
+  value: string
+}
+
+export interface ApiRequestDocument {
+  url: string
+  params?: ApiNameValue[]
+  headers?: ApiNameValue[]
+  auth?: { kind: ApiAuthKind, user?: string, name?: string }
+  format?: 'JSON' | 'XML'
+  records_path?: string
+  pagination?: {
+    kind: ApiPageKind
+    size?: number
+    max_pages?: number
+    page_param?: string
+    size_param?: string
+    start_page?: number
+    offset_param?: string
+    limit_param?: string
+    cursor_param?: string
+    cursor_path?: string
+    next_path?: string
+  }
+  increment?: { param: string } | null
+  timeout_seconds?: number
+  retries?: number
+  pause_ms?: number
+}
+
+export interface ApiRequestState {
+  draft_version_id: number | null
+  draft_request: ApiRequestDocument | null
+  published_version_id: number | null
+  published_request: ApiRequestDocument | null
+  has_credential: boolean
+  credential_key_id: string | null
+  curl: string | null
+  allowed_hosts: string[]
+}
+
+export interface ApiProbeColumn {
+  name: string
+  type: string
+  nullable: boolean
+}
+
+export interface ApiProbeResult {
+  records: number
+  more_pages: boolean
+  columns: ApiProbeColumn[]
+  type_choices: string[]
+}
+
+function apiRequestPath(sourceObjectId: number): string {
+  return '/api/admin/integrations/source-objects/' + encodeURIComponent(String(sourceObjectId)) + '/api-request'
+}
+
+export function createApiObject(
+  sourceSystemId: number,
+  code: string,
+  description: string | null,
+): Promise<{ source_object_id: number }> {
+  return apiRequest<{ source_object_id: number }>(
+    `/api/admin/integrations/source-systems/${encodeURIComponent(String(sourceSystemId))}/api-objects`,
+    { method: 'POST', body: JSON.stringify({ code, description }) },
+  )
+}
+
+export function getApiRequest(sourceObjectId: number): Promise<ApiRequestState> {
+  return apiRequest<ApiRequestState>(apiRequestPath(sourceObjectId))
+}
+
+export function saveApiRequest(sourceObjectId: number, request: ApiRequestDocument): Promise<{ request: ApiRequestDocument }> {
+  return apiRequest<{ request: ApiRequestDocument }>(apiRequestPath(sourceObjectId), {
+    method: 'PUT', body: JSON.stringify({ request }),
+  })
+}
+
+export function importApiCurl(
+  sourceObjectId: number,
+  curl: string,
+): Promise<{ request: ApiRequestDocument, credential_stored: boolean, notes: string[] }> {
+  return apiRequest<{ request: ApiRequestDocument, credential_stored: boolean, notes: string[] }>(
+    apiRequestPath(sourceObjectId) + '/import-curl', { method: 'POST', body: JSON.stringify({ curl }) },
+  )
+}
+
+export function setApiCredential(sourceObjectId: number, value: string): Promise<{ has_credential: boolean }> {
+  return apiRequest<{ has_credential: boolean }>(apiRequestPath(sourceObjectId) + '/credential', {
+    method: 'PUT', body: JSON.stringify({ value }),
+  })
+}
+
+export function revokeApiCredential(sourceObjectId: number): Promise<{ has_credential: boolean }> {
+  return apiRequest<{ has_credential: boolean }>(apiRequestPath(sourceObjectId) + '/credential', { method: 'DELETE' })
+}
+
+export function probeApiRequest(sourceObjectId: number, request: ApiRequestDocument | null): Promise<ApiProbeResult> {
+  return apiRequest<ApiProbeResult>(apiRequestPath(sourceObjectId) + '/probe', {
+    method: 'POST', body: JSON.stringify({ request }),
+  })
+}
+
+export function saveApiStructure(
+  sourceObjectId: number,
+  columns: ApiProbeColumn[],
+): Promise<{ metadata_capture_id: number, columns_captured: number }> {
+  return apiRequest<{ metadata_capture_id: number, columns_captured: number }>(apiRequestPath(sourceObjectId) + '/structure', {
+    method: 'POST', body: JSON.stringify({ columns }),
+  })
+}
