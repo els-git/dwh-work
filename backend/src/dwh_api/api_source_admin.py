@@ -177,7 +177,7 @@ def ensure_draft(conn, token_hash: str, request_id: str, source_object_id: int) 
 
 def save_request(conn, token_hash: str, request_id: str, source_object_id: int, request: dict) -> dict:
     try:
-        doc = ar.normalize(request)
+        doc = ar.normalize(request, draft=True)
     except ar.ApiRequestError as exc:
         raise _api_error(exc) from None
     ensure_draft(conn, token_hash, request_id, source_object_id)

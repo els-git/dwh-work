@@ -70,8 +70,11 @@ def _pairs(value: Any, what: str) -> list[dict]:
     return out
 
 
-def normalize(doc: dict) -> dict:
-    """Checked document with defaults; raises ApiRequestError with the first problem."""
+def normalize(doc: dict, draft: bool = False) -> dict:
+    """Checked document with defaults; raises ApiRequestError with the first problem.
+
+    draft=True (saving the draft, cURL import): an XML request may still lack the path to the record element;
+    checking the request, publishing and loading need it (draft=False)."""
     if not isinstance(doc, dict):
         raise ApiRequestError("API_CONFIG_INVALID", "HTTP request must be an object")
     url = str(doc.get("url") or "").strip()
@@ -115,7 +118,7 @@ def normalize(doc: dict) -> dict:
     records_path = str(doc.get("records_path") or "").strip()
     if records_path and not re.fullmatch(r"[A-Za-z0-9_:\-]+(\.[A-Za-z0-9_:\-]+)*", records_path):
         raise ApiRequestError("API_CONFIG_INVALID", "Path to records: names separated by dots")
-    if fmt == "XML" and not records_path:
+    if fmt == "XML" and not records_path and not draft:
         raise ApiRequestError("API_CONFIG_INVALID", "XML needs the path to the record element")
     pg = dict(doc.get("pagination") or {"kind": "NONE"})
     pkind = str(pg.get("kind") or "NONE").upper()
@@ -300,12 +303,14 @@ def import_curl(text: str) -> CurlImport:
     if secret is not None and not secret:
         secret = None
         notes.append("credential in cURL is empty")
+    if fmt == "XML":
+        notes.append("XML: set the path to the record element")
     return CurlImport(request=request, secret=secret, notes=notes)
 
 
 def export_curl(doc: dict) -> str:
     """cURL text of the request; the credential is shown as *** (B5)."""
-    doc = normalize(doc)
+    doc = normalize(doc, draft=True)
     params = [(p["name"], p["value"]) for p in doc["params"]]
     auth = doc["auth"]
     if auth["kind"] == "QUERY":

@@ -567,6 +567,12 @@ def publish_draft(conn, token_hash: str, request_id: str, source_object_id: int,
                             (token_hash, source_object_id))
         if not state["draft_request"]:
             raise HTTPException(status_code=422, detail="Save the HTTP request of the API object first")
+        from dwh_api import api_request  # the draft may be incomplete (XML without the record path)
+
+        try:
+            api_request.normalize(state["draft_request"])
+        except api_request.ApiRequestError as exc:
+            raise HTTPException(status_code=422, detail=f"{exc.code}: {exc.message}") from None
     result = publish_with_table(conn, token_hash, request_id, source_object_id, "LOAD", draft_revision, confirm)
     if result["status"] != "PUBLISHED":
         return PublishResponse(status=result["status"], table_plan=table_plan_of(result))

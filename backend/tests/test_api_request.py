@@ -76,6 +76,18 @@ class CurlTest(unittest.TestCase):
         c = ar.import_curl("curl 'https://h/x?api_key=K4&format=xml'")
         self.assertEqual((c.request["auth"], c.secret, c.request["format"]), ({"kind": "QUERY", "name": "api_key"}, "K4", "XML"))
 
+    def test_xml_import_without_record_path(self):
+        # I11 acceptance 24.11.2026: format=xml in the address must not fail the import; the path comes later
+        c = ar.import_curl('curl -H "Authorization: Bearer T5" "https://h/pv-api/v1/services?format=xml"')
+        self.assertEqual((c.request["format"], c.request["records_path"], c.secret), ("XML", "", "T5"))
+        self.assertIn("XML: set the path to the record element", c.notes)
+        saved = ar.normalize(c.request, draft=True)
+        self.assertIn("format=xml", ar.export_curl(saved))
+        with self.assertRaises(ApiRequestError) as ctx:
+            ar.normalize(c.request)
+        self.assertEqual(ctx.exception.code, "API_CONFIG_INVALID")
+        ar.normalize({**c.request, "records_path": "response.items.service"})
+
     def test_get_data_and_windows_continuation(self):
         c = ar.import_curl('curl -G https://h/x ^\n --data-urlencode "updated_since=2026-01-01" -d size=10')
         self.assertEqual([(p["name"], p["value"]) for p in c.request["params"]],

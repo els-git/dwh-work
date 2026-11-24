@@ -206,6 +206,10 @@ function ObjectConfigPanel({
 
       const bySource = new Map<string, ObjectConfigField>()
 
+      // A draft without fields (a new API object: the draft is made when its HTTP request is saved)
+      // starts with every column of the structure included, as when there is no draft.
+      const allByDefault = saved === null || (saved.fields ?? []).length === 0
+
       for (const field of saved?.fields ?? []) {
         byTarget.set(field.target_column, field)
 
@@ -223,7 +227,7 @@ function ObjectConfigPanel({
             source_type: column.type,
             in_snapshot: true,
             nullable: column.nullable,
-            included: saved === null ? true : field !== undefined,
+            included: allByDefault ? true : field !== undefined,
             target_column: field?.target_column ?? columnName(column.name),
             target_type: field?.target_type ?? column.type,
             confirmed: field?.conversion === 'CONFIRMED',
