@@ -180,37 +180,56 @@ def fetch(url: str, token: str | None, context: ssl.SSLContext, timeout: float =
         return 0, {}, str(getattr(exc, "reason", exc)).encode()
 
 
+def as_json(body: bytes):
+    try:
+        return json.loads(body)
+    except ValueError:
+        return None
+
+
+def is_service_health(status: int, body: bytes) -> bool:
+    # nginx answers 200 with the page of the application for any unknown path, so 200 alone proves nothing;
+    # after a reload the old nginx workers (without /pv-api/) answer for a few seconds.
+    doc = as_json(body) if status == 200 else None
+    return isinstance(doc, dict) and doc.get("status") == "ok"
+
+
 def check(base: str, token: str, context: ssl.SSLContext, wait: int = 20, fetch_fn=fetch) -> list[tuple[bool, str]]:
     results: list[tuple[bool, str]] = []
     status = 0
+    headers: dict = {}
     for _ in range(max(wait, 1)):
-        status, _, body = fetch_fn(f"{base}/health", None, context)
-        if status == 200:
+        status, headers, body = fetch_fn(f"{base}/health", None, context)
+        if is_service_health(status, body):
             break
         time.sleep(1)
     if status == 0:  # no answer at all: say why (TLS, connection) and stop
         reason = body.decode(errors="replace")[:300]
         return [(False, f"GET /health: no answer ({reason})")]
-    results.append((status == 200, f"GET /health -> {status}"))
+    if not is_service_health(status, body):
+        return [(False, f"GET /health -> {status}, {headers.get('Content-Type', '')}: not the test service "
+                        "(nginx location /pv-api/ not active, or the service does not answer)")]
+    results.append((True, f"GET /health -> {status}"))
     status, _, _ = fetch_fn(f"{base}/v1/services?size=1", None, context)
     results.append((status == 401, f"no token -> {status} (expected 401)"))
     status, _, body = fetch_fn(f"{base}/v1/services?page=1&size=5", token, context)
     total = None
-    if status == 200:
-        doc = json.loads(body)
+    doc = as_json(body) if status == 200 else None
+    if isinstance(doc, dict) and "meta" in doc:
         total = doc["meta"]["total"]
         results.append((True, f"JSON page 1: {len(doc['data']['items'])} rows of {total}"))
     else:
-        results.append((False, f"JSON page 1 -> {status}"))
+        results.append((False, f"JSON page 1 -> {status}, not JSON of the service"))
     status, headers, body = fetch_fn(f"{base}/v1/services?page=1&size=5&format=xml", token, context)
     results.append((status == 200 and body.lstrip().startswith(b"<?xml") and b"<service>" in body,
                     f"XML page 1 -> {status}, {headers.get('Content-Type', '')}"))
     count, url, pages = 0, f"{base}/v1/services/cursor?limit=50", 0
     while url and pages < 1000:
         status, _, body = fetch_fn(url, token, context)
-        if status != 200:
+        doc = as_json(body) if status == 200 else None
+        if not isinstance(doc, dict) or "items" not in doc:
+            status = status if status != 200 else -1
             break
-        doc = json.loads(body)
         count += len(doc["items"])
         pages += 1
         url = f"{base}/v1/services/cursor?limit=50&cursor={doc['next_cursor']}" if doc["next_cursor"] else None

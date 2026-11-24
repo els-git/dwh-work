@@ -6,6 +6,7 @@ import json
 import sys
 import tempfile
 import unittest
+from unittest import mock
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
@@ -208,6 +209,33 @@ class SetupTest(unittest.TestCase):
         results = setup.check("https://x/pv-api", TOKEN, None, wait=1, fetch_fn=fetch)
         self.assertTrue(all(ok for ok, _ in results), results)
         self.assertIn("cursor: 120 rows in 3 pages (total 120)", [t for _, t in results])
+
+    def test_check_rejects_application_page(self):
+        # nginx without /pv-api/ answers every path with the application page (200, HTML)
+        def fetch(url, token, context, timeout=30):
+            return 200, {"Content-Type": "text/html"}, b"<!doctype html><html></html>"
+
+        results = setup.check("https://x/pv-api", TOKEN, None, wait=1, fetch_fn=fetch)
+        self.assertEqual(len(results), 1)
+        self.assertFalse(results[0][0])
+        self.assertIn("not the test service", results[0][1])
+
+    def test_check_waits_for_new_nginx_workers(self):
+        api = api_mod.Api(FakeStore(make_rows(3)), TOKEN)
+        calls = {"n": 0}
+
+        def fetch(url, token, context, timeout=30):
+            calls["n"] += 1
+            if calls["n"] <= 2:  # old workers
+                return 200, {"Content-Type": "text/html"}, b"<html></html>"
+            parts = urlsplit(url)
+            headers = {"Authorization": f"Bearer {token}"} if token else {}
+            target = parts.path.replace("/pv-api", "", 1) + ("?" + parts.query if parts.query else "")
+            return api.handle("GET", target, headers)
+
+        with mock.patch.object(setup.time, "sleep", lambda s: None):
+            results = setup.check("https://x/pv-api", TOKEN, None, wait=5, fetch_fn=fetch)
+        self.assertTrue(all(ok for ok, _ in results), results)
 
 
 if __name__ == "__main__":
