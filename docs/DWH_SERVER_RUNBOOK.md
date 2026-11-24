@@ -256,6 +256,20 @@ sudo python3 /opt/dwh/current/src/tools/server/dwh_secret_accept.py scan
 ```
 Итог каждой команды — `SECRET_ACCEPT_<КОМАНДА>_RESULT`. `etl-deny` добавляет в журнал две записи `DENIED` — это и есть проверка. `scan` выгружает базу в канал (на диск ничего не пишет) и печатает только число совпадений.
 
+## 4h. Тестовый API-сервис PROCESS_VIEWER (I11-05)
+
+Только для проверки источника API: служба `dwh-test-api` (`127.0.0.1:8090`) читает `public.services` базы `process_viewer` учётной записью только на чтение; снаружи — `https://dwh.vtbaze.local/pv-api/`.
+
+```bash
+sudo python3 /opt/dwh/current/src/tools/server/dwh_test_api_setup.py            # план
+sudo python3 /opt/dwh/current/src/tools/server/dwh_test_api_setup.py --apply    # пароль вводится скрыто; затем проверка
+sudo python3 /opt/dwh/current/src/tools/server/dwh_test_api_setup.py --check
+sudo python3 /opt/dwh/current/src/tools/server/dwh_test_api_setup.py --show-token   # токен для формы объекта в DWH
+sudo python3 /opt/dwh/current/src/tools/server/dwh_test_api_setup.py --remove   # остановить и закрыть /pv-api/
+```
+
+Итог — `TEST_API_RESULT`. Настройки, пароль и токен — только в `/etc/dwh/test-api.env` (root, 0600). Служба не входит в `dwh_update.py`: после обновления кода — `sudo systemctl restart dwh-test-api`.
+
 ## 5. Проверки и задачи
 
 - Сеть (шаг 5), только чтение:

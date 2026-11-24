@@ -1,0 +1,29 @@
+# I11-05: test API service over PROCESS_VIEWER public.services, only for testing the API connector.
+# 127.0.0.1:8090; nginx publishes it as https://<dns name>/pv-api/ (tools/server/dwh_test_api_setup.py).
+# Settings and the token: /etc/dwh/test-api.env (root, 0600). Not part of dwh_update.py UNITS.
+[Unit]
+Description=DWH test API (PROCESS_VIEWER services)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=dwh
+Group=dwh
+WorkingDirectory=/opt/dwh/current/src
+EnvironmentFile=/etc/dwh/test-api.env
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/dwh/current/venv/bin/python /opt/dwh/current/src/tools/test_api/pv_test_api.py
+Restart=on-failure
+RestartSec=5
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+
+[Install]
+WantedBy=multi-user.target
