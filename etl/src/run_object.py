@@ -950,9 +950,44 @@ def check_free_space(src, schema: str, table: str, log: Callable[[str], None]) -
                        f"{needed // 2**20} MB, the DWH disk has {free // 2**20} MB free")
 
 
+def api_chunks(doc: dict, secret: str | None, plan: Plan, watermark: str | None, log: Callable[[str], None],
+               *, size: int | None = None, read_pages=None):
+    """I11: rows of an API object (text values in plan.written order), in chunks of at most `size` rows.
+    A mapped field that is absent in every record of the first non-empty page stops the run (SOURCE_DRIFT)."""
+    from dwh_api import api_request
+
+    size = size or chunk_rows()
+    reader = read_pages or api_request.read_pages
+    names = [f["source_column"] for f in plan.written]
+    chunk: list = []
+    checked = False
+    pages = 0
+    for records in reader(doc, secret, watermark=watermark, overlap_minutes=plan.overlap_minutes, log=log):
+        pages += 1
+        flat = [api_request.flatten(r) for r in records]
+        if flat and not checked:
+            seen = set().union(*(f.keys() for f in flat))
+            missing = [n for n in names if n not in seen]
+            if missing:
+                raise RunError("SOURCE_DRIFT", "Fields of the mapping are not in the answer of the API: "
+                               + ", ".join(missing[:20]))
+            checked = True
+        for f in flat:
+            chunk.append([api_request.to_text(f.get(n)) for n in names])
+            if len(chunk) >= size:
+                yield chunk
+                chunk = []
+        if pages % 50 == 0:
+            log(f"STAGE: {pages} pages read")
+    log(f"STAGE: API answered {pages} page(s)")
+    if chunk:
+        yield chunk
+
+
 def run_object(source_object_id: int, *, dwh_connect: Callable[[], Any], read_credential: Callable[[str], str],
                source_connect_fn: Callable[[dict, str], Any] = source_connect, row_limit: int = ROW_LIMIT,
-               log: Callable[[str], None] = lambda message: None, force_full: bool = False) -> RunResult:
+               log: Callable[[str], None] = lambda message: None, force_full: bool = False,
+               read_object_credential: Callable[[int], str] | None = None, read_api_pages=None) -> RunResult:
     """force_full (I08, "Full rerun"): read the whole object once even when the version is INCREMENTAL;
     the watermark of the version is not used, the run records the new one as usual."""
     dwh = dwh_connect()
@@ -982,24 +1017,10 @@ def run_object(source_object_id: int, *, dwh_connect: Callable[[], Any], read_cr
                 else (", full read requested" if force_full and plan.load_strategy == "INCREMENTAL"
                       else (", first run: full read" if plan.load_strategy == "INCREMENTAL" else ""))))
             check_target(dwh, plan)
-            try:
-                password = read_credential(source["code"])
-            except Exception as exc:
-                # the reason of a SecretStore refusal (code of the database, no value) is shown; anything else is not
-                reason = str(exc) if type(exc).__name__ == "SourceSecretError" else ""
-                raise RunError("CREDENTIAL_UNAVAILABLE", "Source credential could not be read from SecretStore"
-                               + (f" ({reason})" if reason else "")) from None
-            src = source_connect_fn(source["connection_config"], password)
-            del password
-            log("STAGE: source connected (read-only)")
             committed = ChunkTotals()
-            try:
-                check_structure(plan, source_columns(src, source["source_schema"], source["source_object"]))
-                estimate = estimated_rows(src, source["source_schema"], source["source_object"])
-                log(f"STAGE: source structure OK, estimated rows {estimate if estimate is not None else 'unknown'}")
-                check_free_space(src, source["source_schema"], source["source_object"], log)
-                for number, rows in enumerate(source_chunks(src, source["source_schema"], source["source_object"],
-                                                            plan, where, log), 1):
+
+            def apply_chunks(chunks) -> None:
+                for number, rows in enumerate(chunks, 1):
                     committed.chunk = number
                     try:
                         staged = stage_rows(dwh, plan, rows, log)
@@ -1015,8 +1036,53 @@ def run_object(source_object_id: int, *, dwh_connect: Callable[[], Any], read_cr
                     committed.add(staged, inserted, updated, stale, deleted, mark)
                     log(f"STAGE: chunk {number}: {staged} rows, {inserted} inserted, {updated} updated; "
                         f"total {committed.read} rows")
-            finally:
-                src.close()
+
+            if source.get("object_type") == "API":
+                from dwh_api import api_request
+
+                try:
+                    doc = api_request.normalize(source.get("api_request") or {})
+                except api_request.ApiRequestError as exc:
+                    raise RunError(exc.code, exc.message) from None
+                secret = None
+                if doc["auth"]["kind"] != "NONE":
+                    try:
+                        if read_object_credential is None:
+                            raise RuntimeError("no reader")
+                        secret = read_object_credential(int(source["source_object_id"]))
+                    except Exception as exc:
+                        reason = str(exc) if type(exc).__name__ == "SourceSecretError" else ""
+                        raise RunError("CREDENTIAL_UNAVAILABLE", "Credential of the API object could not be read "
+                                       "from SecretStore" + (f" ({reason})" if reason else "")) from None
+                if plan.load_strategy == "INCREMENTAL" and result.watermark_from and not (
+                        doc["increment"] or any("{{watermark}}" in p["value"] for p in doc["params"])):
+                    log("STAGE: the request has no increment parameter: the whole answer is read")
+                log(f"STAGE: API request {doc['format']}, pagination {doc['pagination']['kind']}")
+                try:
+                    apply_chunks(api_chunks(doc, secret, plan, result.watermark_from, log, read_pages=read_api_pages))
+                except api_request.ApiRequestError as exc:
+                    raise RunError(exc.code, exc.message) from None
+                finally:
+                    secret = None
+            else:
+                try:
+                    password = read_credential(source["code"])
+                except Exception as exc:
+                    # the reason of a SecretStore refusal (code of the database, no value) is shown; anything else is not
+                    reason = str(exc) if type(exc).__name__ == "SourceSecretError" else ""
+                    raise RunError("CREDENTIAL_UNAVAILABLE", "Source credential could not be read from SecretStore"
+                                   + (f" ({reason})" if reason else "")) from None
+                src = source_connect_fn(source["connection_config"], password)
+                del password
+                log("STAGE: source connected (read-only)")
+                try:
+                    check_structure(plan, source_columns(src, source["source_schema"], source["source_object"]))
+                    estimate = estimated_rows(src, source["source_schema"], source["source_object"])
+                    log(f"STAGE: source structure OK, estimated rows {estimate if estimate is not None else 'unknown'}")
+                    check_free_space(src, source["source_schema"], source["source_object"], log)
+                    apply_chunks(source_chunks(src, source["source_schema"], source["source_object"], plan, where, log))
+                finally:
+                    src.close()
             result.rows_read, result.rows_inserted, result.rows_updated = committed.read, committed.inserted, committed.updated
             result.rows_stale, result.rows_deleted = committed.stale, committed.deleted
             log(f"STAGE: {result.rows_read} rows read and applied in {committed.chunk} chunk(s)")
@@ -1352,7 +1418,7 @@ def main() -> None:
         sys.exit(2)
     from dwh.config import get_dwh_config
     from dwh.db import connect
-    from dwh.source_secret import read_source_credential
+    from dwh.source_secret import read_object_credential, read_source_credential
 
     stage = os.environ.get("DWH_RUN_OBJECT_STAGE", "").strip().upper() or "ALL"
     if stage not in ("ALL", "ODS"):
@@ -1377,7 +1443,8 @@ def main() -> None:
         sys.exit(0 if _print_ods(ods) and ods is not None else 1)
     try:
         result = run_object(int(value), dwh_connect=lambda: connect(get_dwh_config()),
-                            read_credential=read_source_credential, log=log, force_full=force_full)
+                            read_credential=read_source_credential, log=log, force_full=force_full,
+                            read_object_credential=read_object_credential)
     except RunError as error:
         print(f"RUN_RESULT: REFUSED | code={error.code} | {error.message}")
         sys.exit(1)

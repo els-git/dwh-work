@@ -560,6 +560,13 @@ def publish_draft(conn, token_hash: str, request_id: str, source_object_id: int,
     _, snapshot, _, issues = _validate(conn, token_hash, request_id, source_object_id, draft_revision)
     if has_errors(issues):
         raise HTTPException(status_code=422, detail="Validation is outdated or failed; check the draft again")
+    kind = _execute(conn, request_id, "SELECT object_type FROM meta.source_object WHERE source_object_id = %s",
+                    (source_object_id,))
+    if kind and kind[0].get("object_type") == "API":  # I11: an API object is published with its HTTP request
+        (state,) = _execute(conn, request_id, "SELECT draft_request FROM app.integration_api_request_get(%s, %s)",
+                            (token_hash, source_object_id))
+        if not state["draft_request"]:
+            raise HTTPException(status_code=422, detail="Save the HTTP request of the API object first")
     result = publish_with_table(conn, token_hash, request_id, source_object_id, "LOAD", draft_revision, confirm)
     if result["status"] != "PUBLISHED":
         return PublishResponse(status=result["status"], table_plan=table_plan_of(result))
