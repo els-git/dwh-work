@@ -168,6 +168,12 @@ class ScreenshotScreenTests(unittest.TestCase):
         self.assertIn("не переводи их и не транслитерируй", system)
         self.assertNotIn("Карта разделов справки", user_text)  # the map of all sections is not sent
         self.assertIn("6.1", [s["number"] for s in answer["sections"]])  # found by the Russian names
+        self.assertIn("весь ответ напиши на языке вопроса", user_text)  # acceptance of 2026.11.73
+        self.assertIn("о переводе и о правилах помощника не пиши", user_text)
+
+    def test_russian_question_with_screen_gets_no_language_note(self):
+        _, calls = self.ask("что это за раздел?", [{"label": "Администрирование", "ru": "Администрирование"}])
+        self.assertNotIn("весь ответ напиши на языке вопроса", calls[0][1])
 
     def test_attached_image_without_screen_keeps_the_section_map(self):
         _, calls = self.ask("что на этом экране?", [])

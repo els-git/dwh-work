@@ -36,6 +36,9 @@ SCREEN_NOTE = (
     "названия, которых нет в этом списке и на снимке, бери из справки по-русски в кавычках — не переводи их и не "
     "транслитерируй. Расскажи развёрнуто: что на экране показано, что здесь можно сделать, куда перейти дальше. "
     "Цифры со снимка не пересказывай, если о них не спрашивают.")
+FOREIGN_NOTE = ("(вопрос задан не на русском языке: весь ответ напиши на языке вопроса; названия разделов, вкладок "
+                "и кнопок оставь как в списке экрана или в справке, в кавычках; о переводе и о правилах помощника "
+                "не пиши)")
 REPORT_SYSTEM = (
     "Ты пишешь SQL для PostgreSQL 17 по описанию отчёта. Можно использовать только объекты и колонки из описания "
     "ниже, имена объектов всегда со схемой (dm.имя), только один SELECT, без комментариев. "
@@ -169,7 +172,7 @@ def screen_lines(screen: list[tuple[str, str | None]]) -> str:
 
 def help_prompt(found: SearchResult, question: str, screen_map: str | None = None,
                 translated: str | None = None,
-                screen: list[tuple[str, str | None]] | None = None) -> tuple[str, str]:
+                screen: list[tuple[str, str | None]] | None = None, foreign: bool = False) -> tuple[str, str]:
     """System and user messages for a help question; only the sections the user may read are included.
     With a screenshot, screen_map lists every section the user may read (title and its start) so that the
     model can recognise the screen even when the question has few words."""
@@ -185,6 +188,10 @@ def help_prompt(found: SearchResult, question: str, screen_map: str | None = Non
                  "или в разделах нет информации, не упоминай закрытые разделы и не выдумывай шаги.")
     if translated:
         question = f"{question}\n(перевод на русский: {translated}; отвечай на языке исходного вопроса)"
+    elif foreign:
+        # I17-12: with the screen names the question is not translated; the language rule must still be given
+        # (acceptance of 2026.11.73: an Azerbaijani question got a Russian answer about "the assistant's rules").
+        question = f"{question}\n{FOREIGN_NOTE}"
     if screen:
         return (HELP_SYSTEM + SCREEN_NOTE + note,
                 f"Экран пользователя:\n{screen_lines(screen)}\n\nСправка:\n{context}\n\nВопрос: {question}")
