@@ -41,7 +41,7 @@ from pydantic import BaseModel, Field
 from dwh_api import ai_diagnosis, ai_llm
 from dwh_api.ai_core import (DENIED_TEXT, MAX_ROWS, NO_HELP_TEXT, TRANSLATE_SYSTEM, describe_report_data,
                              fold_text_equality, help_prompt, repair_message, report_system, report_text_columns,
-                             run_checked, trim_found)
+                             run_checked, script_answer, trim_found)
 from dwh_api.ai_knowledge import KnowledgeIndex, UserScope, is_russian
 from dwh_api.ai_sql_guard import AllowedObject, SqlRejected, check_text, extract_sql
 from dwh_api.auth import _load_auth_state
@@ -84,6 +84,7 @@ class HelpRequest(BaseModel):
     image: str | None = Field(default=None, description="data:image/png|jpeg|webp;base64,... screenshot (I17-07)")
     client_id: str | None = Field(default=None, pattern=CLIENT_ID, description="id for the Stop button")
     history: list[HistoryItem] = Field(default_factory=list, max_length=40, description="I17-10: earlier messages")
+    mode: Literal["script", "ai"] = Field(default="script", description="I17-12: script answers without the model")
 
 
 class ReportRequest(BaseModel):
@@ -338,10 +339,37 @@ HELP_MAX_TOKENS = 1200
 HELP_HISTORY_MESSAGES = 4
 
 
+def help_by_script(payload: HelpRequest, request: Request, user: UserScope) -> dict:
+    """I17-12: the answer without the model (R1, R5): the matching lines of the guide sections the role may read.
+    A question that is not in Russian is searched as it is (R2): the guide is Russian, the model is not asked."""
+    request_id = begin(request, "HELP", payload.question, False, None)
+    # Only the question itself is searched: the words of the previous question would answer an unrelated new
+    # question with the previous section. A follow-up ("and how to delete it?") is the model's job (button).
+    index = knowledge()
+    found = index.search(payload.question, user)
+    base = {"request_id": request_id, "mode": "SCRIPT", "foreign": not is_russian(payload.question)}
+    if found.only_denied:
+        finish(request, request_id, "DENIED", "AI_SECTION_NOT_ALLOWED", message="; ".join(found.denied_titles)[:4000])
+        return {**base, "status": "DENIED", "code": "AI_SECTION_NOT_ALLOWED", "answer": DENIED_TEXT, "sections": []}
+    if not found.sections:
+        finish(request, request_id, "NO_DATA", "AI_HELP_NOT_FOUND", message="script")
+        return {**base, "status": "NO_DATA", "code": "AI_HELP_NOT_FOUND", "answer": NO_HELP_TEXT, "sections": []}
+    answer, used = script_answer(found, payload.question, index.weight)
+    if not used:
+        finish(request, request_id, "NO_DATA", "AI_HELP_NOT_FOUND", message="script")
+        return {**base, "status": "NO_DATA", "code": "AI_HELP_NOT_FOUND", "answer": NO_HELP_TEXT, "sections": []}
+    finish(request, request_id, "OK", "AI_HELP_SCRIPT", message=", ".join(s.number for s in used)[:4000])
+    return {**base, "status": "OK", "answer": answer,
+            "sections": [{"number": s.number, "title": s.title} for s in used],
+            "closed_nearby": found.closed_nearby > 0}
+
+
 @router.post("/help")
 def help_answer(payload: HelpRequest, request: Request) -> dict:
     user = user_scope(request)
     image = check_image(payload.image)
+    if image is None and payload.mode == "script":  # I17-12 (R3): a screenshot always goes to the model
+        return help_by_script(payload, request, user)
     settings = llm_settings()
     request_id = begin(request, "HELP", payload.question, image is not None, settings)
     history = dialogue(payload.history)[-HELP_HISTORY_MESSAGES:]

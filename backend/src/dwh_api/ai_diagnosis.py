@@ -550,5 +550,7 @@ def card(d: Dossier, language: str) -> dict[str, Any]:
     """What is shown at once, without the model."""
     c = cause(d.code)
     lang = language if language in ("ru", "en", "az") else "ru"
-    return {"code": d.code, "sqlstate": d.sqlstate, "title": c.title[lang], "action": c.action[lang], "who": c.who,
+    # I17-12 (R4): a code described in the knowledge base is answered by the card; the model only on request.
+    return {"code": d.code, "known": (d.code or "").upper() in KNOWLEDGE,
+            "sqlstate": d.sqlstate, "title": c.title[lang], "action": c.action[lang], "who": c.who,
             "where": [w for w in d.where if w], "error_id": d.error_id, "object_id": d.object_id, "mart_code": d.mart_code}

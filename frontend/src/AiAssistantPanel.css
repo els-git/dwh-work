@@ -422,3 +422,10 @@
   padding: 2px 8px;
   font-size: 12px;
 }
+
+/* I17-12: a quick answer from the guide offers the model on request */
+.ai-follow-up {
+  margin-top: 6px;
+  align-self: flex-start;
+  font-size: 12px;
+}

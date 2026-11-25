@@ -87,6 +87,39 @@ def trim_found(found: SearchResult, question: str, budget: int = HELP_CONTEXT_CH
     return replace(found, sections=kept)
 
 
+SCRIPT_MAX_LINES = 6
+SCRIPT_MIN_SHARE = 0.5
+
+
+def script_answer(found: SearchResult, question: str, weight: dict[str, float]) -> tuple[str, list]:
+    """I17-12 (R1): the answer without the model. Lines of the found sections are weighed by the rare words of the
+    question (the same inverse frequency as the search); only lines close to the best one are kept (at most
+    SCRIPT_MAX_LINES), under the bold title of their section, in the order of the guide.
+    Returns the text and the sections the lines come from."""
+    from dwh_api.ai_knowledge import stems
+
+    wanted = stems(question)
+    scored = []
+    for rank, section in enumerate(found.sections):
+        lines = [line for line in section.text.split("\n") if line.strip()]
+        for index, line in enumerate(lines[1:], 1):
+            score = sum(weight.get(w, 0.0) for w in stems(line) & wanted)
+            if score > 0:
+                scored.append((score, rank, index))
+    if not scored:
+        return "", []
+    best = max(score for score, _, _ in scored)
+    chosen = sorted((x for x in scored if x[0] >= best * SCRIPT_MIN_SHARE), key=lambda x: (-x[0], x[1], x[2]))
+    chosen = sorted(chosen[:SCRIPT_MAX_LINES], key=lambda x: (x[1], x[2]))
+    parts, used = [], []
+    for rank in dict.fromkeys(r for _, r, _ in chosen):
+        section = found.sections[rank]
+        lines = [line for line in section.text.split("\n") if line.strip()]
+        parts.append("\n".join([f"**{lines[0]}**"] + [lines[i] for _, r, i in chosen if r == rank]))
+        used.append(section)
+    return "\n\n".join(parts), used
+
+
 def help_prompt(found: SearchResult, question: str, screen_map: str | None = None,
                 translated: str | None = None) -> tuple[str, str]:
     """System and user messages for a help question; only the sections the user may read are included.
