@@ -144,6 +144,13 @@ interface AdminIntegrationHistoryProps {
   canDiagnose?: boolean
 }
 
+
+// I12 (package 035): a file refused while the load chooses files is a warning, not a failure of the run.
+function isWarning(context: unknown): boolean {
+  return typeof context === 'object' && context !== null
+    && (context as Record<string, unknown>).severity === 'WARNING'
+}
+
 export default function AdminIntegrationHistory({ canDiagnose = false }: AdminIntegrationHistoryProps) {
   const { t } = useTranslation()
 
@@ -706,6 +713,9 @@ export default function AdminIntegrationHistory({ canDiagnose = false }: AdminIn
                                         </td>
 
                                         <td className="integration-history-message">
+                                          {isWarning(item.diagnostic_context)
+                                            ? <span className="loads-file-errors">{t('severity.WARNING')}{' · '}</span>
+                                            : null}
                                           <code>
                                             {
                                               item.error_code

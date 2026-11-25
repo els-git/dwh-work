@@ -664,6 +664,7 @@ const resources = {
           "runs": "Runs",
           "errors": "Errors and history"
         },
+        "fileErrors": "Files refused by the last run: {{count}} (see Errors and history and the Files register)",
         "objectsHint": "State of every source object. Requests are executed by the dispatcher (run_local_dwh.ps1 -Mode Run).",
         "refresh": "Refresh",
         "filter": {
@@ -2052,6 +2053,7 @@ const resources = {
           "runs": "Запуски",
           "errors": "Ошибки и история"
         },
+        "fileErrors": "Файлов с ошибкой в последнем запуске: {{count}} (см. «Ошибки и история» и реестр «Файлы»)",
         "objectsHint": "Состояние каждого объекта источника. Заявки выполняет диспетчер (run_local_dwh.ps1 -Mode Run).",
         "refresh": "Обновить",
         "filter": {
@@ -3440,6 +3442,7 @@ const resources = {
           "runs": "İcralar",
           "errors": "Xətalar və tarixçə"
         },
+        "fileErrors": "Son işə salmada xətalı fayllar: {{count}} («Xətalar və tarixçə» və «Fayllar» reyestrinə baxın)",
         "objectsHint": "Hər mənbə obyektinin vəziyyəti. Sorğuları dispetçer icra edir (run_local_dwh.ps1 -Mode Run).",
         "refresh": "Yenilə",
         "filter": {

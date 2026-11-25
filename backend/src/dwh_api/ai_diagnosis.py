@@ -215,6 +215,50 @@ KNOWLEDGE: dict[str, Cause] = {
         "Ошибка базы при заполнении витрины", "Database error while filling the mart",
         "Vitrin doldurularkən baza xətası", "Смотрите разбор по коду SQLSTATE", "See the analysis by SQLSTATE",
         "SQLSTATE koduna görə təhlilə baxın", "Ошибка PostgreSQL при заполнении витрины; смысл — по SQLSTATE.", "ADMIN"),
+    # I12 (packages 034, 035): files of a FILE object. A refused file is a warning (FILE_CHECK) of a successful run.
+    "FILE_BROKEN": _c(
+        "Файл не читается как JSON / XML", "The file is not valid JSON / XML", "Fayl JSON / XML kimi oxunmur",
+        "Попросите поставщика положить исправленный файл", "Ask the supplier for a corrected file",
+        "Təchizatçıdan düzəldilmiş fayl istəyin",
+        "Файл в папке источника не разбирается как JSON, JSON Lines или XML (обрезан, другая кодировка, не тот "
+        "формат). Файл, изменённый меньше минуты назад, считается недописанным и ждёт; старше — FILE_BROKEN в реестре "
+        "«Файлы», запуск остальных файлов идёт дальше. Исправленный файл (новое содержимое) берётся как новый; "
+        "проверить формат объекта в «Маппинге» → «Файлы».", "SOURCE_OWNER"),
+    "FILE_XML_DTD_FORBIDDEN": _c(
+        "XML с DOCTYPE не принимается", "XML with DOCTYPE is not accepted", "DOCTYPE olan XML qəbul edilmir",
+        "Попросите поставщика выгружать XML без DOCTYPE и сущностей", "Ask the supplier for XML without DOCTYPE",
+        "Təchizatçıdan DOCTYPE olmadan XML istəyin",
+        "Из соображений безопасности (XXE, раздувание сущностей) DWH не читает XML с объявлением DOCTYPE или ENTITY. "
+        "Файл помечен «Ошибка» в реестре, данные не меняются. Решение — выгрузка без DOCTYPE на стороне поставщика.",
+        "SOURCE_OWNER"),
+    "FILE_TOO_LARGE": _c(
+        "Файл больше допустимого размера", "The file is larger than allowed", "Fayl icazə veriləndən böyükdür",
+        "Разбить выгрузку на части или поднять предел на сервере", "Split the export or raise the server limit",
+        "İxracı hissələrə bölün və ya serverdə həddi artırın",
+        "Предел размера файла — 200 МБ по умолчанию (DWH_FILE_MAX_BYTES на сервере). Больший файл не читается и "
+        "помечен «Ошибка» в реестре. Варианты: поставщик делит выгрузку на несколько файлов (режим «все новые»), "
+        "или администратор сервера поднимает предел.", "ADMIN"),
+    "FILE_NO_DATE": _c(
+        "В файле нет даты актуальности", "The file has no actuality date", "Faylda aktuallıq tarixi yoxdur",
+        "Проверьте путь к дате в «Маппинге» → «Файлы» или формат даты у поставщика",
+        "Check the date path in Mapping → Files or the date format of the supplier",
+        "«Uyğunlaşdırma» → «Fayllar»da tarix yolunu yoxlayın",
+        "Файл берётся, только если по пути «Путь к дате актуальности внутри файла» есть дата (2026-11-25, "
+        "2026-11-25T10:00:00, с часовым поясом или 25.11.2026 10:00). Иначе — «Нет даты» в реестре, файл не "
+        "загружается и повторно не проверяется (то же содержимое). Проверить путь у объекта или попросить поставщика "
+        "добавить дату."),
+    "FILE_BAD_RECORDS": _c(
+        "По пути к записям нет списка", "No list at the records path", "Qeydlər yolunda siyahı yoxdur",
+        "Проверьте «Путь к записям» в «Маппинге» → «Файлы»", "Check the records path in Mapping → Files",
+        "«Uyğunlaşdırma» → «Fayllar»da qeydlər yolunu yoxlayın",
+        "В файле по «Путь к записям» нет массива записей (для XML — повторяющегося элемента). Обычно путь задан "
+        "неверно или поставщик изменил структуру файла; «Проверить файлы» покажет, что читается."),
+    "FILE_FOLDER_MISSING": _c(
+        "Нет папки источника на сервере", "The folder of the source is missing", "Mənbənin qovluğu yoxdur",
+        "Попросите администратора сервера создать папку источника", "Ask the server administrator to create it",
+        "Server administratorundan qovluğu yaratmağı xahiş edin",
+        "Файлы читаются из папки /srv/dwh/files/<код источника> на сервере DWH. Папку создаёт администратор сервера "
+        "(владелец root, группа dwh, права 0750), файлы кладёт поставщик.", "ADMIN"),
 }
 
 UNKNOWN = _c("Ошибка загрузки", "Load error", "Yükləmə xətası", "Смотрите разбор помощника",

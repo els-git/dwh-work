@@ -598,5 +598,35 @@
       "label": "033",
       "expected": 7
     }
+  },
+  "035": {
+    "number": "035",
+    "owner": "dwh_admin",
+    "marker": "etl.object_file_warning(bigint, text, text, text, text)",
+    "copy_db": "dwh_i12_035_test",
+    "check_expected": 5,
+    "added_rows": {},
+    "migration": {
+      "path": "database/migrations/035_file_warnings.sql",
+      "sha256": "97DBCCC8D0CB7C8F94CB65ED0104D2ACEDCB558A22F86868C33B8861DE4992A0"
+    },
+    "down": {
+      "path": "database/migrations/035_file_warnings.down.sql",
+      "sha256": "737AA7C336EB9003CC9F313767680C5716F2B5A1DCE5A751C4B5EEAB5104E3B1"
+    },
+    "check": {
+      "path": "database/checks/035_file_warnings_check.sql",
+      "sha256": "D61D76363556771F2E216CE3209822803763F688F1DCD217C25F9E45CCA12118"
+    },
+    "test": {
+      "path": "database/tests/035_file_warnings_test.sql",
+      "sha256": "5CCF209C8FAB4EFE5BAE29F1A67F38BB02EE3D557CED1272A5085857328D9BBC"
+    },
+    "previous_check": {
+      "path": "database/checks/034_file_source_check.sql",
+      "sha256": "250F346400B845DB2455295DBD6EC573C8FBF1A7D8FF35BE4A3338AD12ECF7F4",
+      "label": "034",
+      "expected": 7
+    }
   }
 }
