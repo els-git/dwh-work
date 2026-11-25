@@ -8,6 +8,7 @@ import sys
 import unittest
 from pathlib import Path
 
+from dwh_api.ai_core import HELP_CONTEXT_CHARS, trim_found
 from dwh_api.ai_knowledge import KnowledgeIndex, UserScope, is_russian
 from dwh_api.ai_sql_guard import AllowedObject, check_text
 
@@ -47,6 +48,10 @@ class AcceptanceSetTests(unittest.TestCase):
             for number in item["sections"]:
                 self.assertIn(number, numbers, item["id"])
             self.assertTrue(any(s.number in item["sections"] for s in found.sections), item["id"])
+            # 25.11.2026: the model gets only the matching lines; an expected section must survive the cut
+            trimmed = trim_found(found, item["question"])
+            self.assertTrue(any(s.number in item["sections"] for s in trimmed.sections), item["id"])
+            self.assertLessEqual(sum(len(s.text) for s in trimmed.sections), HELP_CONTEXT_CHARS, item["id"])
 
     def test_reference_sql_passes_the_application_check(self):
         for item in DOC["items"]:
