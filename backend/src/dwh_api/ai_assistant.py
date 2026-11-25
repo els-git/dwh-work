@@ -42,7 +42,7 @@ from dwh_api import ai_diagnosis, ai_llm
 from dwh_api.ai_core import (DENIED_TEXT, MAX_ROWS, NO_HELP_TEXT, TRANSLATE_SYSTEM, describe_report_data,
                              fold_text_equality, help_prompt, repair_message, report_system, report_text_columns,
                              run_checked, script_answer, trim_found)
-from dwh_api.ai_knowledge import KnowledgeIndex, UserScope, is_russian
+from dwh_api.ai_knowledge import KnowledgeIndex, UserScope, answer_language, is_russian
 from dwh_api.ai_sql_guard import AllowedObject, SqlRejected, check_text, extract_sql
 from dwh_api.auth import _load_auth_state
 from dwh_api.config import get_api_config
@@ -80,9 +80,13 @@ class HistoryItem(BaseModel):
 
 
 class ScreenLabel(BaseModel):
-    """I17-12: a selected menu item or tab of the screen in the screenshot (interface language and Russian)."""
+    """I17-12: a name on the screen of the screenshot: as shown (label) and in ru / en / az from the interface
+    texts; selected - the chosen menu item or tab (the screen itself), otherwise an element of the screen."""
     label: str = Field(min_length=1, max_length=80)
     ru: str | None = Field(default=None, max_length=80)
+    en: str | None = Field(default=None, max_length=80)
+    az: str | None = Field(default=None, max_length=80)
+    selected: bool = True
 
 
 class HelpRequest(BaseModel):
@@ -91,7 +95,7 @@ class HelpRequest(BaseModel):
     client_id: str | None = Field(default=None, pattern=CLIENT_ID, description="id for the Stop button")
     history: list[HistoryItem] = Field(default_factory=list, max_length=40, description="I17-10: earlier messages")
     mode: Literal["script", "ai"] = Field(default="script", description="I17-12: script answers without the model")
-    screen: list[ScreenLabel] = Field(default_factory=list, max_length=12,
+    screen: list[ScreenLabel] = Field(default_factory=list, max_length=40,
                                       description="I17-12: selected menu item and tabs when the screenshot was taken")
 
 
@@ -411,8 +415,9 @@ def help_answer(payload: HelpRequest, request: Request) -> dict:
     history = dialogue(payload.history)[-HELP_HISTORY_MESSAGES:]
     # I17-12: the screen of a screenshot named by the interface - searched by its Russian names, without the
     # translation request and without the map of all sections (a shorter prompt, a faster answer).
-    screen = [(s.label.strip(), (s.ru or "").strip() or None) for s in payload.screen] if image else []
-    screen_ru = " ".join(ru or label for label, ru in screen)
+    screen = [s.model_dump() for s in payload.screen] if image else []
+    screen_ru = " ".join(s.get("ru") or s["label"] for s in screen if s.get("selected", True))
+    language = answer_language(payload.question)
     with Stoppable(request, payload.client_id) as token:
         translated = None
         if not is_russian(payload.question) and not screen:
@@ -433,8 +438,7 @@ def help_answer(payload: HelpRequest, request: Request) -> dict:
                     "answer": NO_HELP_TEXT, "sections": []}
         screen_map = knowledge().screen_map(user) if image and not screen else None
         found = trim_found(found, f"{payload.question} {translated or ''} {screen_ru} {previous}")
-        system, user_text = help_prompt(found, payload.question, screen_map, translated, screen,
-                                        foreign=not is_russian(payload.question))
+        system, user_text = help_prompt(found, payload.question, screen_map, translated, screen, language)
         # Help answers are longer than reports and Azerbaijani/English text takes more tokens: 1200, not 700.
         answer = ask_model(request, request_id, settings, system, user_text, image, max_tokens=HELP_MAX_TOKENS,
                            cancel=token, history=history)

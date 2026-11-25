@@ -133,6 +133,23 @@ def is_russian(text: str) -> bool:
     return bool(letters) and sum(1 for c in letters if CYRILLIC_RE.match(c)) * 2 >= len(letters)
 
 
+# I17-12: the assistant answers only in Russian, English or Azerbaijani (decision of 25.11.2026). A Latin question
+# without English words is Azerbaijani: "bu ne bolmesidi" written without ə/ı/ş got a Turkish answer.
+ENGLISH_WORDS = frozenset(
+    "the what how where why when which who is are was do does did can could should this that these those it its "
+    "my i you we to of in on for with from and or not a an please show find".split())
+
+
+def answer_language(text: str) -> str:
+    """'ru', 'en' or 'az' - the language the help answer must be written in."""
+    if is_russian(text):
+        return "ru"
+    words = re.findall(r"[^\W\d_]+", text.lower())
+    if any(ch in text for ch in "əƏıİşŞçÇğĞöÖüÜ"):
+        return "az"
+    return "en" if any(w in ENGLISH_WORDS for w in words) else "az"
+
+
 def parse_guide(text: str) -> list[Section]:
     sections: list[Section] = []
     lines = text.splitlines()
