@@ -117,8 +117,13 @@ def dialogue(items: list[HistoryItem]) -> list[tuple[str, str]]:
     return list(reversed(kept))
 
 
-def last_user_text(history: list[tuple[str, str]]) -> str:
-    return next((text for role, text in reversed(history) if role == "user"), "")
+def last_user_text(history: list[tuple[str, str]], question: str = "") -> str:
+    """The previous question of the user. A model request by the button («Спросить ИИ») carries the history with
+    the same question at its end: it is skipped, otherwise the question would be searched twice and the previous
+    question lost."""
+    same = " ".join(question.split()).casefold()
+    return next((text for role, text in reversed(history)
+                 if role == "user" and " ".join(text.split()).casefold() != same), "")
 
 
 class CancelRequest(BaseModel):
@@ -351,7 +356,7 @@ def model_may_find(payload: HelpRequest, user: UserScope, foreign: bool) -> bool
     previous question (checked here by the same search); not for an unrelated question."""
     if foreign:
         return True
-    previous = last_user_text(dialogue(payload.history)[-HELP_HISTORY_MESSAGES:])
+    previous = last_user_text(dialogue(payload.history), payload.question)
     return (bool(previous) and FOLLOW_UP.search(payload.question) is not None
             and bool(knowledge().search(f"{payload.question} {previous}", user).sections))
 
@@ -391,6 +396,9 @@ def help_answer(payload: HelpRequest, request: Request) -> dict:
         return help_by_script(payload, request, user)
     settings = llm_settings()
     request_id = begin(request, "HELP", payload.question, image is not None, settings)
+    # The previous question is taken from the whole history: the 4 messages given to the model may not contain
+    # it (a script answer and a model answer of the same question come between).
+    previous = last_user_text(dialogue(payload.history), payload.question)
     history = dialogue(payload.history)[-HELP_HISTORY_MESSAGES:]
     with Stoppable(request, payload.client_id) as token:
         translated = None
@@ -400,7 +408,7 @@ def help_answer(payload: HelpRequest, request: Request) -> dict:
             translated = ask_model(request, request_id, settings, TRANSLATE_SYSTEM, payload.question,
                                    max_tokens=150, cancel=token, timed=False).strip()[:1000] or None
         # A follow-up question ("and how do I delete it?") is searched together with the previous question.
-        found = knowledge().search(f"{payload.question} {translated or ''} {last_user_text(history)}", user)
+        found = knowledge().search(f"{payload.question} {translated or ''} {previous}", user)
         if found.only_denied and image is None:
             finish(request, request_id, "DENIED", "AI_SECTION_NOT_ALLOWED",
                    message="; ".join(found.denied_titles)[:4000])
@@ -411,7 +419,7 @@ def help_answer(payload: HelpRequest, request: Request) -> dict:
             return {"request_id": request_id, "status": "NO_DATA", "code": "AI_HELP_NOT_FOUND",
                     "answer": NO_HELP_TEXT, "sections": []}
         screen_map = knowledge().screen_map(user) if image else None
-        found = trim_found(found, f"{payload.question} {translated or ''} {last_user_text(history)}")
+        found = trim_found(found, f"{payload.question} {translated or ''} {previous}")
         system, user_text = help_prompt(found, payload.question, screen_map, translated)
         # Help answers are longer than reports and Azerbaijani/English text takes more tokens: 1200, not 700.
         answer = ask_model(request, request_id, settings, system, user_text, image, max_tokens=HELP_MAX_TOKENS,

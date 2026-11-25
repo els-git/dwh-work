@@ -118,3 +118,19 @@ class DiagnosisCardTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FollowUpByButtonTests(unittest.TestCase):
+    def test_button_history_ending_with_the_same_question_keeps_the_previous_one(self):
+        # Acceptance 2026.11.71: «Спросить ИИ» after «а зачем это» sent the history ending with the same question;
+        # the model searched it twice and lost the previous question - "no answer" in 1 s.
+        history = [("user", "где находится Реестр файлов"), ("assistant", "..."), ("assistant", "ответ модели"),
+                   ("user", "а зачем это"),
+                   ("assistant", "В справке нет ответа на этот вопрос.")]
+        self.assertEqual(ai_assistant.last_user_text(history, "а зачем это"), "где находится Реестр файлов")
+        self.assertEqual(ai_assistant.last_user_text(history), "а зачем это")
+        # The 4 messages given to the model do not contain the previous question: it comes from the whole history.
+        self.assertEqual(ai_assistant.last_user_text(history[-ai_assistant.HELP_HISTORY_MESSAGES:], "а зачем это"), "")
+        found = ai_assistant.knowledge().search(
+            "а зачем это  " + ai_assistant.last_user_text(history, "а зачем это"), ADMIN)
+        self.assertEqual(found.sections[0].number, "5.2b")
