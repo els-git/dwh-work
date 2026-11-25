@@ -1,10 +1,15 @@
 import type { i18n as I18n } from 'i18next'
 
-// I17-12: the selected menu item and tabs of the current screen, sent with a screenshot so that the assistant
-// names them as the interface does (in the user's language) and searches the guide by their Russian names.
+// I17-12: what is on the screen when a screenshot is taken - the selected menu item and tabs, then the headings,
+// table columns and buttons of the screen - each with its names in Russian, English and Azerbaijani from the
+// interface texts. The assistant names them in the language of its answer (only ru / en / az) and searches the
+// guide (Russian) by the selected ones.
 export interface AiScreenLabel {
   label: string
   ru: string | null
+  en: string | null
+  az: string | null
+  selected: boolean
 }
 
 const SELECTED = [
@@ -15,7 +20,10 @@ const SELECTED = [
   '[role="tab"][aria-selected="true"]',
   '[aria-current="page"]',
 ].join(', ')
-const MAX_LABELS = 12
+// Elements of the screen, most telling first.
+const ELEMENTS = ['h1, h2, h3, h4, legend', 'th', 'button']
+const LANGUAGES = ['ru', 'en', 'az'] as const
+const MAX_LABELS = 30
 const MAX_LENGTH = 80
 
 function strings(node: unknown, prefix: string, out: Map<string, string>) {
@@ -31,40 +39,53 @@ function strings(node: unknown, prefix: string, out: Map<string, string>) {
   }
 }
 
-// Russian text of an interface text: the key with the same text in the current language, read in Russian.
-function russianOf(i18n: I18n, language: string, texts: Map<string, string> | null, label: string): string | null {
-  if (language === 'ru') {
-    return label
-  }
-  const key = texts?.get(label)
-  if (!key) {
-    return null
-  }
-  const ru = i18n.getFixedT('ru')(key)
-  return typeof ru === 'string' && ru !== key ? ru.trim().slice(0, MAX_LENGTH) : null
+function textOf(element: Element): string {
+  return (element.textContent || '').replace(/\s+/g, ' ').trim()
+}
+
+function visible(element: HTMLElement): boolean {
+  return !element.closest('.ai-panel') && element.getClientRects().length > 0
 }
 
 export function screenLabels(i18n: I18n, root: ParentNode = document): AiScreenLabel[] {
   const language = (i18n.language || 'ru').slice(0, 2)
-  let texts: Map<string, string> | null = null
-  if (language !== 'ru') {
-    texts = new Map()
-    strings(i18n.getResourceBundle(language, 'translation'), '', texts)
-  }
+  const texts = new Map<string, string>()
+  strings(i18n.getResourceBundle(language, 'translation'), '', texts)
+  const fixed = Object.fromEntries(LANGUAGES.map(code => [code, i18n.getFixedT(code)]))
   const seen = new Set<string>()
   const labels: AiScreenLabel[] = []
-  for (const element of Array.from(root.querySelectorAll<HTMLElement>(SELECTED))) {
-    if (element.closest('.ai-panel') || element.getClientRects().length === 0) {
-      continue
+
+  function add(element: HTMLElement, selected: boolean) {
+    const label = textOf(element)
+    if (labels.length >= MAX_LABELS || !label || label.length > MAX_LENGTH || !/\p{L}/u.test(label)
+        || seen.has(label)) {
+      return
     }
-    const label = (element.textContent || '').replace(/\s+/g, ' ').trim().slice(0, MAX_LENGTH)
-    if (!/\p{L}/u.test(label) || seen.has(label)) {
-      continue
+    const key = texts.get(label)
+    if (!key && !selected) {
+      return // an element without an interface text (data, user names) says nothing about the screen
     }
     seen.add(label)
-    labels.push({ label, ru: russianOf(i18n, language, texts, label) })
-    if (labels.length >= MAX_LABELS) {
-      break
+    const name = (code: (typeof LANGUAGES)[number]): string | null => {
+      if (!key) {
+        return code === language ? label : null
+      }
+      const value = fixed[code](key)
+      return typeof value === 'string' && value !== key ? value.trim().slice(0, MAX_LENGTH) : null
+    }
+    labels.push({ label, ru: name('ru'), en: name('en'), az: name('az'), selected })
+  }
+
+  for (const element of Array.from(root.querySelectorAll<HTMLElement>(SELECTED))) {
+    if (visible(element)) {
+      add(element, true)
+    }
+  }
+  for (const selector of ELEMENTS) {
+    for (const element of Array.from(root.querySelectorAll<HTMLElement>(selector))) {
+      if (visible(element) && !element.matches(SELECTED)) {
+        add(element, false)
+      }
     }
   }
   return labels

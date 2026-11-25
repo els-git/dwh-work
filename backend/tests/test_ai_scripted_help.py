@@ -184,16 +184,16 @@ class ScreenshotScreenTests(unittest.TestCase):
         self.assertEqual(len(calls), 1)  # no translation request: one model call only
         system, user_text, image = calls[0]
         self.assertEqual(image, self.IMAGE)
-        self.assertIn("«Süni intellekt köməkçisi» (по-русски «ИИ-помощник»)", user_text)
+        self.assertIn("«Süni intellekt köməkçisi» (по-русски «ИИ-помощник»)", user_text)  # label when no az given
         self.assertIn("не переводи их и не транслитерируй", system)
         self.assertNotIn("Карта разделов справки", user_text)  # the map of all sections is not sent
         self.assertIn("6.1", [s["number"] for s in answer["sections"]])  # found by the Russian names
-        self.assertIn("весь ответ напиши на языке вопроса", user_text)  # acceptance of 2026.11.73
+        self.assertIn("весь ответ напиши на азербайджанском языке", user_text)  # acceptance of 2026.11.73/74
         self.assertIn("о переводе и о правилах помощника не пиши", user_text)
 
     def test_russian_question_with_screen_gets_no_language_note(self):
         _, calls = self.ask("что это за раздел?", [{"label": "Администрирование", "ru": "Администрирование"}])
-        self.assertNotIn("весь ответ напиши на языке вопроса", calls[0][1])
+        self.assertNotIn("весь ответ напиши", calls[0][1])
 
     def test_attached_image_without_screen_keeps_the_section_map(self):
         _, calls = self.ask("что на этом экране?", [])
@@ -203,4 +203,34 @@ class ScreenshotScreenTests(unittest.TestCase):
         with self.assertRaises(Exception):
             HelpRequest(question="x", screen=[{"label": "a" * 81}])
         with self.assertRaises(Exception):
-            HelpRequest(question="x", screen=[{"label": "a"}] * 13)
+            HelpRequest(question="x", screen=[{"label": "a"}] * 41)
+
+
+class AnswerLanguageTests(unittest.TestCase):
+    """Acceptance of 2026.11.74: "bu ne bolmesidi" (Azerbaijani without ə/ı/ş) got a Turkish answer; the answer
+    is only in ru / en / az and the language is decided by the application."""
+
+    def test_language_of_the_answer(self):
+        from dwh_api.ai_knowledge import answer_language
+        self.assertEqual(answer_language("что это за раздел?"), "ru")
+        self.assertEqual(answer_language("bu ne bolmesidi"), "az")
+        self.assertEqual(answer_language("bu nə bölməsidir?"), "az")
+        self.assertEqual(answer_language("what is this section?"), "en")
+        self.assertEqual(answer_language("where is the file register"), "en")
+        self.assertEqual(answer_language("bu bölüm ne işe yarar"), "az")  # Turkish is answered in Azerbaijani
+
+    def test_screen_names_in_the_answer_language(self):
+        from dwh_api.ai_core import help_prompt
+        from dwh_api.ai_knowledge import SearchResult
+        screen = [{"label": "Администрирование", "ru": "Администрирование", "en": "Administration",
+                   "az": "İdarəetmə", "selected": True},
+                  {"label": "Белый список витрин (схема dm)", "ru": "Белый список витрин (схема dm)",
+                   "en": "Mart whitelist (schema dm)", "az": "Vitrinlərin ağ siyahısı (dm sxemi)", "selected": False}]
+        system, text = help_prompt(SearchResult([], []), "bu ne bolmesidi", None, None, screen, "az")
+        self.assertIn("Выбрано (по-азербайджански):\n- «İdarəetmə» (по-русски «Администрирование»)", text)
+        self.assertIn("На экране (по-азербайджански):\n- «Vitrinlərin ağ siyahısı (dm sxemi)»", text)
+        self.assertIn("не на турецком", text)
+        _, text = help_prompt(SearchResult([], []), "what is it", None, None, screen, "en")
+        self.assertIn("- «Administration» (по-русски «Администрирование»)", text)
+        self.assertIn("на английском языке", text)
+

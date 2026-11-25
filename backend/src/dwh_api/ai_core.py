@@ -31,14 +31,18 @@ IMAGE_NOTE = (
 # tabs in the language of the interface and in Russian; the model gets them instead of the map of all sections.
 SCREEN_NOTE = (
     "\nК вопросу приложен снимок экрана приложения DWH. Какой это экран, приложение определило само: ниже "
-    "перечислены выбранные пункт меню и вкладки — так, как они написаны в интерфейсе пользователя, и по-русски "
-    "(как в справке). Называй разделы, вкладки и кнопки только так, как они написаны в интерфейсе пользователя; "
-    "названия, которых нет в этом списке и на снимке, бери из справки по-русски в кавычках — не переводи их и не "
+    "перечислены выбранные пункт меню и вкладки и названия элементов этого экрана — на языке ответа и по-русски "
+    "(как в справке). Называй разделы, вкладки, блоки и кнопки только так, как они даны в этом списке на языке "
+    "ответа; названия, которых в списке нет, бери из справки по-русски в кавычках — не переводи их и не "
     "транслитерируй. Расскажи развёрнуто: что на экране показано, что здесь можно сделать, куда перейти дальше. "
     "Цифры со снимка не пересказывай, если о них не спрашивают.")
-FOREIGN_NOTE = ("(вопрос задан не на русском языке: весь ответ напиши на языке вопроса; названия разделов, вкладок "
-                "и кнопок оставь как в списке экрана или в справке, в кавычках; о переводе и о правилах помощника "
-                "не пиши)")
+# I17-12: the language of the answer is decided by the application (ru / en / az only), not guessed by the model.
+LANGUAGE_NOTE = {
+    "en": "(весь ответ напиши на английском языке; о переводе и о правилах помощника не пиши)",
+    "az": ("(весь ответ напиши на азербайджанском языке — Azərbaycan dili, с буквами ə, ı, ş, ç, ğ, ö, ü; "
+           "не на турецком; о переводе и о правилах помощника не пиши)"),
+}
+LANGUAGE_NAME = {"ru": "по-русски", "en": "по-английски", "az": "по-азербайджански"}
 REPORT_SYSTEM = (
     "Ты пишешь SQL для PostgreSQL 17 по описанию отчёта. Можно использовать только объекты и колонки из описания "
     "ниже, имена объектов всегда со схемой (dm.имя), только один SELECT, без комментариев. "
@@ -215,14 +219,26 @@ def _child_lines(section, kept: list[str], readable: list, used: list) -> list[s
     return out
 
 
-def screen_lines(screen: list[tuple[str, str | None]]) -> str:
-    """«label» (по-русски «ru») per selected menu item or tab; the Russian name only when it differs."""
-    return "\n".join(f"- «{label}»" + (f" (по-русски «{ru}»)" if ru and ru != label else "") for label, ru in screen)
+def screen_lines(screen: list[dict], language: str = "ru") -> str:
+    """Selected menu item and tabs, then the elements of the screen: the name in the answer language and, when it
+    differs, in Russian (as in the guide)."""
+    out = []
+    for title, selected in (("Выбрано", True), ("На экране", False)):
+        rows = []
+        for item in (i for i in screen if bool(i.get("selected", True)) == selected):
+            name = item.get(language) or item.get("label") or ""
+            ru = item.get("ru")
+            if not name:
+                continue
+            rows.append(f"- «{name}»" + (f" (по-русски «{ru}»)" if ru and ru != name else ""))
+        if rows:
+            out.append(f"{title} ({LANGUAGE_NAME.get(language, '')}):\n" + "\n".join(rows))
+    return "\n".join(out)
 
 
 def help_prompt(found: SearchResult, question: str, screen_map: str | None = None,
                 translated: str | None = None,
-                screen: list[tuple[str, str | None]] | None = None, foreign: bool = False) -> tuple[str, str]:
+                screen: list[dict] | None = None, language: str = "ru") -> tuple[str, str]:
     """System and user messages for a help question; only the sections the user may read are included.
     With a screenshot, screen_map lists every section the user may read (title and its start) so that the
     model can recognise the screen even when the question has few words."""
@@ -237,14 +253,14 @@ def help_prompt(found: SearchResult, question: str, screen_map: str | None = Non
                  "об этом. Коротко перескажи только то, что есть в приведённых разделах. Не пиши, что в справке "
                  "или в разделах нет информации, не упоминай закрытые разделы и не выдумывай шаги.")
     if translated:
-        question = f"{question}\n(перевод на русский: {translated}; отвечай на языке исходного вопроса)"
-    elif foreign:
-        # I17-12: with the screen names the question is not translated; the language rule must still be given
-        # (acceptance of 2026.11.73: an Azerbaijani question got a Russian answer about "the assistant's rules").
-        question = f"{question}\n{FOREIGN_NOTE}"
+        question = f"{question}\n(перевод на русский: {translated})"
+    if language in LANGUAGE_NOTE:
+        # I17-12: the language is named explicitly (acceptance of 2026.11.73 and 2026.11.74: "answer in the
+        # language of the question" gave Russian, then Turkish for an Azerbaijani question).
+        question = f"{question}\n{LANGUAGE_NOTE[language]}"
     if screen:
         return (HELP_SYSTEM + SCREEN_NOTE + note,
-                f"Экран пользователя:\n{screen_lines(screen)}\n\nСправка:\n{context}\n\nВопрос: {question}")
+                f"Экран пользователя:\n{screen_lines(screen, language)}\n\nСправка:\n{context}\n\nВопрос: {question}")
     if screen_map is None:
         return HELP_SYSTEM + note, f"Справка:\n{context}\n\nВопрос: {question}"
     return (HELP_SYSTEM + IMAGE_NOTE + note,
