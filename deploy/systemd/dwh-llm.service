@@ -10,7 +10,9 @@ Type=simple
 DynamicUser=yes
 EnvironmentFile=/etc/dwh/llm.env
 # systemd does not expand a variable in the program path: the shell does, then exec replaces it.
-ExecStart=/bin/sh -c 'exec "$LLM_BIN" -m "$LLM_MODEL" --mmproj "$LLM_MMPROJ" --host 127.0.0.1 --port 8081 -t "$LLM_THREADS" --numa distribute --reasoning-budget 0 -c "$LLM_CONTEXT" --jinja'
+# -np 1 (25.11.2026): the API sends one request at a time, so one slot. Without it llama-server made 4 slots of
+# LLM_CONTEXT tokens each (unified KV cache for 4 x 16384), the service hit MemoryMax and 8.6 GB went to swap.
+ExecStart=/bin/sh -c 'exec "$LLM_BIN" -m "$LLM_MODEL" --mmproj "$LLM_MMPROJ" --host 127.0.0.1 --port 8081 -t "$LLM_THREADS" --numa distribute --reasoning-budget 0 -c "$LLM_CONTEXT" -np 1 --jinja'
 Restart=on-failure
 RestartSec=10
 MemoryMax=26G

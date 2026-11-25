@@ -14,7 +14,7 @@ Changes (each only if still needed):
   L6 services                   dwh-llm started; dwh-api and dwh-dispatcher restarted (new settings)
   L7 GRANT CONNECT              on database dwh to dwh_ai_ro (in dwh PUBLIC has no CONNECT)
 Check: dwh-llm active and answering /health (waits for the model to load, --wait minutes); dwh_ai_ro logs in,
-read-only, reads dm (row count only) and is refused on app. Prints AI_SETUP_RESULT: PASS / FAIL / PLAN.
+read-only, may read dm (number of readable dm tables) and is refused on app. Prints AI_SETUP_RESULT: PASS / FAIL / PLAN.
 Uses the system python3 only.
 """
 from __future__ import annotations
@@ -190,13 +190,16 @@ def check(wait_minutes: int) -> list[str]:
     pg_env = dict(os.environ, PGPASSWORD=password, PGCONNECT_TIMEOUT="5")
     conn = ["psql", "-X", "-At", "-h", env.get("DWH_DB_HOST", "127.0.0.1"), "-p", env.get("DWH_DB_PORT", "5432"),
             "-U", "dwh_ai_ro", "-d", env.get("DWH_DB_NAME", "dwh")]
-    good = run(conn + ["-c", "SHOW transaction_read_only", "-c", "SELECT count(*) FROM dm.v_retail_application_current"],
-               check=False, env=pg_env)
+    # The old view dm.v_retail_application_current was removed with the old CRM (package 020): count the dm
+    # tables and views the role may read instead.
+    readable = ("SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
+                "WHERE n.nspname = 'dm' AND c.relkind IN ('r', 'v', 'm', 'p') AND has_table_privilege(c.oid, 'SELECT')")
+    good = run(conn + ["-c", "SHOW transaction_read_only", "-c", readable], check=False, env=pg_env)
     lines = good.stdout.split()
     if good.returncode != 0 or not lines or lines[0] != "on":
         problems.append("dwh_ai_ro: login or read-only check failed: " + good.stderr.strip()[-200:])
     else:
-        print(f"dwh_ai_ro: read-only on, dm.v_retail_application_current rows {lines[1]}")
+        print(f"dwh_ai_ro: read-only on, dm tables and views readable: {lines[1]}")
     bad = run(conn + ["-c", "SELECT count(*) FROM app.user_account"], check=False, env=pg_env)
     if bad.returncode == 0:
         problems.append("dwh_ai_ro can read app.user_account")
