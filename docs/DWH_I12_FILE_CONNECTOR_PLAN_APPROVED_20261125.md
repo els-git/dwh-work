@@ -108,3 +108,11 @@ E0 PASS (база `e0_034` из `e0_033`): check 7/7, тест F01–F12, пов
 ### 7.1. E1 пакета 034 — PASS (25.11.2026)
 
 Выпуск `2026.11.68` установлен. `dwh_sql_package.py --package 034 --stage e1`: SHA256 пяти файлов OK; в `dwh` check 033 7/7; копия `dwh_i12_034_test` — `MIGRATION_034_DONE`, права по умолчанию сняты (последовательность `etl.object_file_file_id_seq` у `dwh_etl`, таблицы `etl.object_file` и `meta.object_file_config` у `dwh_app` и `dwh_etl`), check 034 7/7, check 033 7/7, тест — 15 строк PASS, `ALL_TESTS_PASS`; откат `ROLLBACK_034_DONE`, повторное применение, check 7/7; `E1_RESULT: PASS`. Копия оставлена с 034. Далее — E2 (с разрешения).
+
+### 7.2. E2 пакета 034 — применён (25.11.2026)
+
+`dwh_sql_package.py --package 034 --stage e2`: копия `/backup/dwh/dwh_20261125_094635_pre-034.dump`, `APPLY`, `MIGRATION_034_DONE`, права по умолчанию сняты (×5), check 034 7/7, check 033 7/7, новые таблицы `etl.object_file`, `meta.object_file_config`. Итог инструмента — `E2_RESULT: STOP` на сверке строк (121 таблица): `audit.security_event` +6, `etl.batch_run` +2, `etl.job_run` +2, `etl.object_ods_run` +1, `etl.object_run` +1, `etl.object_run_request` +1, `etl.object_run_request_secret_read` +1, `etl.object_schedule_event` +1, `secret_store.operation_event` +2 — ровно один плановый запуск объекта с паролем источника (STG + ODS). Пользователь показал расписание `PROCESS_VIEWER` `public.app_users`: каждые 15 минут, последний запуск 10:00:01 `SUCCESS`. Пакет 034 строк в существующие таблицы не вставляет — расхождение объяснено параллельной загрузкой, пакет применён. Реестр 1.64.0, раздел 12.69.
+
+Замечание: инструмент E2 не приостанавливает `dwh-dispatcher` — плановые загрузки во время E2 будут давать такой STOP и дальше (доработка — только по решению пользователя).
+
+**Далее — шаг 5:** папка `/srv/dwh/files/PV_FILES` и тестовые файлы (`dwh_test_files.py --apply`), затем шаг 6 — приёмка.
