@@ -51,6 +51,9 @@ interface ChatMessage {
   report?: AiReportAnswer
   seconds?: number
   unavailable?: string[]
+  // I17-12: a script answer offers the model; foreign - the question is not in Russian (the guide is).
+  followUp?: { kind: 'help', question: string } | { kind: 'diagnose', request: AiDiagnoseRequest }
+  foreign?: boolean
 }
 
 const IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp']
@@ -359,9 +362,11 @@ function AiAssistantPanel() {
         if (seq !== askSeq.current) {
           return
         }
+        const script = answer.mode === 'SCRIPT' && answer.status !== 'DENIED'
         push({ role: 'assistant', text: helpText(answer), status: answer.status,
                sections: answer.sections.map(s => s.title), closedNearby: answer.closed_nearby === true,
-               seconds: spent() })
+               seconds: script ? undefined : spent(),
+               followUp: script ? { kind: 'help', question: text } : undefined, foreign: answer.foreign === true })
       } else {
         const answer = await askAiReport(text, clientId, signal, earlier)
         if (seq !== askSeq.current) {
@@ -374,12 +379,15 @@ function AiAssistantPanel() {
     })
   }
 
-  function cardText(card: AiDiagnosisCard): string {
+  function cardText(card: AiDiagnosisCard, waiting: boolean): string {
     const lines = [`**${card.title}**${card.code ? ` (\`${card.code}\`)` : ''}`]
     if (card.where.length > 0) {
       lines.push(`${t('ai.diagWhere')}: ${card.where.join(' → ')}`)
     }
-    lines.push(`${t('ai.diagAction')}: ${card.action}`, t(`ai.diagWho.${card.who}`), '', t('ai.diagWait'))
+    lines.push(`${t('ai.diagAction')}: ${card.action}`, t(`ai.diagWho.${card.who}`))
+    if (waiting) {
+      lines.push('', t('ai.diagWait'))
+    }
     return lines.join('\n')
   }
 
@@ -397,13 +405,48 @@ function AiAssistantPanel() {
       if (seq !== askSeq.current) {
         return
       }
-      push({ role: 'assistant', text: cardText(first.card), status: 'CARD' })
-      const full = await diagnoseAi(request.kind, request.id, language, clientId, signal, false)
+      if (first.card.known) {
+        // I17-12 (R4): a known code is answered by the card; the model only by the button.
+        push({ role: 'assistant', text: cardText(first.card, false), status: 'CARD',
+               followUp: { kind: 'diagnose', request } })
+        announce()
+        return
+      }
+      push({ role: 'assistant', text: cardText(first.card, true), status: 'CARD' })
+      await diagnoseByModel(request, language, seq, clientId, signal, spent)
+    })
+  }
+
+  async function diagnoseByModel(request: AiDiagnoseRequest, language: string, seq: number, clientId: string,
+    signal: AbortSignal, spent: () => number) {
+    const full = await diagnoseAi(request.kind, request.id, language, clientId, signal, false)
+    if (seq !== askSeq.current) {
+      return
+    }
+    push({ role: 'assistant', text: full.answer ?? '', status: 'OK', seconds: spent(),
+           unavailable: full.unavailable ?? [] })
+    announce()
+  }
+
+  // I17-12: the model explains a script answer or a known error on request (the same question).
+  async function askModel(followUp: NonNullable<ChatMessage['followUp']>) {
+    if (busy) {
+      return
+    }
+    if (followUp.kind === 'diagnose') {
+      const language = ['ru', 'en', 'az'].includes(i18n.language?.slice(0, 2)) ? i18n.language.slice(0, 2) : 'ru'
+      await ask((seq, clientId, signal, spent) => diagnoseByModel(followUp.request, language, seq, clientId, signal, spent))
+      return
+    }
+    const earlier = historyOf(messages, t('ai.historyShot'))
+    await ask(async (seq, clientId, signal, spent) => {
+      const answer = await askAiHelp(followUp.question, null, clientId, signal, earlier, 'ai')
       if (seq !== askSeq.current) {
         return
       }
-      push({ role: 'assistant', text: full.answer ?? '', status: 'OK', seconds: spent(),
-             unavailable: full.unavailable ?? [] })
+      push({ role: 'assistant', text: helpText(answer), status: answer.status,
+             sections: answer.sections.map(s => s.title), closedNearby: answer.closed_nearby === true,
+             seconds: spent() })
       announce()
     })
   }
@@ -599,6 +642,16 @@ function AiAssistantPanel() {
               ? <SaveReportForm requestId={message.report.request_id} defaultTitle={message.question ?? ''} />
               : null}
             {message.report?.repaired ? <div className="ai-sources">{t('ai.repaired')}</div> : null}
+            {message.foreign ? <div className="ai-closed-note">{t('ai.scriptRussianOnly')}</div> : null}
+            {message.followUp
+              ? (
+                  <button type="button" className="ai-follow-up" disabled={busy}
+                    onClick={() => { void askModel(message.followUp!) }}>
+                    {message.followUp.kind === 'diagnose' ? t('ai.diagnoseByModel')
+                      : message.status === 'NO_DATA' ? t('ai.askModel') : t('ai.explainByModel')}
+                  </button>
+                )
+              : null}
             {message.seconds ? <div className="ai-time">{t('ai.answerTime', { seconds: message.seconds })}</div> : null}
           </div>
         ))}

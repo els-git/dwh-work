@@ -22,6 +22,10 @@ export interface AiHelpAnswer {
   sections: { number: string, title: string }[]
   // Part of the subject is described in guide sections closed to the role (shown in the interface language).
   closed_nearby?: boolean
+  // I17-12: SCRIPT - the lines of the guide without the model; AI - the model's answer.
+  mode?: 'SCRIPT' | 'AI'
+  // I17-12: the question is not in Russian, the guide (and the script answer) is.
+  foreign?: boolean
 }
 
 export type AiCell = string | number | boolean | null
@@ -141,8 +145,8 @@ export interface AiHistoryItem {
 }
 
 export const askAiHelp = (question: string, image: string | null, clientId: string, signal: AbortSignal,
-  history: AiHistoryItem[] = []) =>
-  post<AiHelpAnswer>('/api/ai/help', { question, image, client_id: clientId, history }, signal)
+  history: AiHistoryItem[] = [], mode: 'script' | 'ai' = 'script') =>
+  post<AiHelpAnswer>('/api/ai/help', { question, image, client_id: clientId, history, mode }, signal)
 
 export const askAiReport = (question: string, clientId: string, signal: AbortSignal, history: AiHistoryItem[] = []) =>
   post<AiReportAnswer>('/api/ai/report', { question, client_id: clientId, history }, signal)
@@ -152,6 +156,8 @@ export type AiDiagnoseKind = 'error' | 'object' | 'mart'
 
 export interface AiDiagnosisCard {
   code: string | null
+  // I17-12: the code is described in the knowledge base - the card is the answer, the model only on request.
+  known?: boolean
   sqlstate: string | null
   title: string
   action: string
