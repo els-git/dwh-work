@@ -386,7 +386,8 @@ def help_by_script(payload: HelpRequest, request: Request, user: UserScope) -> d
         base["ai_may_help"] = model_may_find(payload, user, foreign)
         finish(request, request_id, "NO_DATA", "AI_HELP_NOT_FOUND", message="script")
         return {**base, "status": "NO_DATA", "code": "AI_HELP_NOT_FOUND", "answer": NO_HELP_TEXT, "sections": []}
-    answer, used = script_answer(found, payload.question, index.weight, index.parents)
+    answer, used = script_answer(found, payload.question, index.weight, index.parents,
+                                 [s for s in index.sections if s.access.allows(user)])
     if not used:
         finish(request, request_id, "NO_DATA", "AI_HELP_NOT_FOUND", message="script")
         return {**base, "status": "NO_DATA", "code": "AI_HELP_NOT_FOUND", "answer": NO_HELP_TEXT, "sections": []}
