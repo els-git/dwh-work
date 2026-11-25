@@ -362,11 +362,14 @@ function AiAssistantPanel() {
         if (seq !== askSeq.current) {
           return
         }
-        const script = answer.mode === 'SCRIPT' && answer.status !== 'DENIED'
+        // I17-12: after "not found" the model searches the same guide - offered only when it can add something
+        // (a question in another language, a follow-up); a found answer can always be explained by the model.
+        const script = answer.mode === 'SCRIPT'
+        const offer = script && answer.status !== 'DENIED' && (answer.status !== 'NO_DATA' || answer.ai_may_help === true)
         push({ role: 'assistant', text: helpText(answer), status: answer.status,
                sections: answer.sections.map(s => s.title), closedNearby: answer.closed_nearby === true,
                seconds: script ? undefined : spent(),
-               followUp: script ? { kind: 'help', question: text } : undefined, foreign: answer.foreign === true })
+               followUp: offer ? { kind: 'help', question: text } : undefined, foreign: answer.foreign === true })
       } else {
         const answer = await askAiReport(text, clientId, signal, earlier)
         if (seq !== askSeq.current) {

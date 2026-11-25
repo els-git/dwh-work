@@ -89,12 +89,23 @@ def trim_found(found: SearchResult, question: str, budget: int = HELP_CONTEXT_CH
 
 SCRIPT_MAX_LINES = 6
 SCRIPT_MIN_SHARE = 0.5
+SCRIPT_PLACE_LINES = 2
+PLACE_WORDS = re.compile(r"вкладк|кнопк|→|меню", re.IGNORECASE)
+LIST_ITEM = re.compile(r"\s*(\d+\.|-|\*|\|)\s")
 
 
-def script_answer(found: SearchResult, question: str, weight: dict[str, float]) -> tuple[str, list]:
+def _quoted(line: str) -> set[str]:
+    return set(re.findall(r"«([^«»]+)»", line))
+
+
+def script_answer(found: SearchResult, question: str, weight: dict[str, float],
+                  parents: dict[str, str] | None = None) -> tuple[str, list]:
     """I17-12 (R1): the answer without the model. Lines of the found sections are weighed by the rare words of the
     question (the same inverse frequency as the search); only lines close to the best one are kept (at most
     SCRIPT_MAX_LINES), under the bold title of their section, in the order of the guide.
+    Where a kept line names a screen element («Файлы»), the line of the same section that says where it is
+    (a tab, a button, a path with →) is added (at most SCRIPT_PLACE_LINES): the answer says where, not only what.
+    parents: number of a section -> title of its parent (the title becomes "parent → section").
     Returns the text and the sections the lines come from."""
     from dwh_api.ai_knowledge import stems
 
@@ -110,12 +121,34 @@ def script_answer(found: SearchResult, question: str, weight: dict[str, float]) 
         return "", []
     best = max(score for score, _, _ in scored)
     chosen = sorted((x for x in scored if x[0] >= best * SCRIPT_MIN_SHARE), key=lambda x: (-x[0], x[1], x[2]))
-    chosen = sorted(chosen[:SCRIPT_MAX_LINES], key=lambda x: (x[1], x[2]))
+    picked = {(r, i) for _, r, i in chosen[:SCRIPT_MAX_LINES]}
+    extra = 0
+    for rank, index in sorted(picked):
+        lines = [line for line in found.sections[rank].text.split("\n") if line.strip()]
+        if LIST_ITEM.match(lines[index]):
+            # A step of a list: the line that opens the list says where the steps are ("В «Маппинге» ... «Файлы»:").
+            lead = next((i for i in range(index - 1, 0, -1) if not LIST_ITEM.match(lines[i])), None)
+            if (lead is not None and lines[lead].rstrip().endswith(":") and (rank, lead) not in picked
+                    and extra < SCRIPT_PLACE_LINES):
+                picked.add((rank, lead))
+                extra += 1
+        terms = _quoted(lines[index])
+        for other, line in enumerate(lines[1:], 1):
+            if extra >= SCRIPT_PLACE_LINES:
+                break
+            if (rank, other) in picked or not terms & _quoted(line) or not PLACE_WORDS.search(line):
+                continue
+            picked.add((rank, other))
+            extra += 1
     parts, used = [], []
-    for rank in dict.fromkeys(r for _, r, _ in chosen):
+    for rank in dict.fromkeys(r for r, _ in sorted(picked)):
         section = found.sections[rank]
         lines = [line for line in section.text.split("\n") if line.strip()]
-        parts.append("\n".join([f"**{lines[0]}**"] + [lines[i] for _, r, i in chosen if r == rank]))
+        title = lines[0]
+        parent = (parents or {}).get(section.number)
+        if parent:
+            title = f"{parent} → {title}"
+        parts.append("\n".join([f"**{title}**"] + [lines[i] for r, i in sorted(picked) if r == rank]))
         used.append(section)
     return "\n\n".join(parts), used
 
