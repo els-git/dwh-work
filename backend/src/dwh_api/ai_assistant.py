@@ -432,7 +432,8 @@ def help_answer(payload: HelpRequest, request: Request) -> dict:
                     "answer": NO_HELP_TEXT, "sections": []}
         screen_map = knowledge().screen_map(user) if image and not screen else None
         found = trim_found(found, f"{payload.question} {translated or ''} {screen_ru} {previous}")
-        system, user_text = help_prompt(found, payload.question, screen_map, translated, screen)
+        system, user_text = help_prompt(found, payload.question, screen_map, translated, screen,
+                                        foreign=not is_russian(payload.question))
         # Help answers are longer than reports and Azerbaijani/English text takes more tokens: 1200, not 700.
         answer = ask_model(request, request_id, settings, system, user_text, image, max_tokens=HELP_MAX_TOKENS,
                            cancel=token, history=history)
