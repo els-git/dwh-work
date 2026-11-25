@@ -140,6 +140,10 @@ sudo python3 /opt/dwh/releases/<новый выпуск>/src/tools/server/dwh_up
 - llama.cpp `llama-server`, слушает только `127.0.0.1:8081`, сетевые соединения кроме localhost запрещены;
 - пользователь создаётся systemd на время работы;
 - до 26 ГБ памяти; загрузка после запуска — до 15 минут.
+- один слот (`-np 1`, с 25.11.2026): помощник отправляет модели один запрос за раз; без него `llama-server` держал 4 слота по `LLM_CONTEXT` токенов, служба упиралась в 26 ГБ и уходила в подкачку. Проверка после перезапуска — в журнале строка `n_slots = 1`, а `VmSwap` процесса близок к нулю:
+  ```bash
+  sudo journalctl -u dwh-llm -b --no-pager | grep -E "n_slots|n_ctx" | tail -3; grep VmSwap /proc/$(systemctl show -p MainPID --value dwh-llm)/status
+  ```
 
 Обновление выпуска её не перезапускает. Настройки модели — в `/etc/dwh/llm.env`.
 
