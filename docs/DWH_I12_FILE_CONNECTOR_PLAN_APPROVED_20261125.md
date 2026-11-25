@@ -104,3 +104,7 @@ E0 PASS (база `e0_034` из `e0_033`): check 7/7, тест F01–F12, пов
 **Проверки:** тесты backend 456 OK (новые `test_file_gateway.py` 12, `test_dwh_test_files.py` 4); сборка OK, ESLint 0/0; сквозная `scratchpad/i12/e2e_files.py` 32/32 (база `e2e_i12` = `e2e_i11` + 034; API под `dwh_app`, загрузка под `dwh_etl`); репетиция приёмки `scratchpad/i12/e2e_tool.py` 21/21 (инструмент + тестовый API-сервис на `pv_src`: LATEST, ALL_NEW, повтор, копия, опоздавший, без даты, битый — сначала ждёт, потом `FAILED`, слишком большой, следующий, XML, DTD, JSON Lines); браузер `scratchpad/i12/ui/ui.cjs` 14/14 (API `scratchpad/i12/ui_server_i12.py`, порт 8773). Документы: справка 1.18.0 (5.2b), `DWH_ENGINES.md` 1.11.0 (3b), инструкция сервера 4j, `deploy/dwh.env.example`.
 
 **Далее — шаг 4:** выпуск, затем E1 пакета 034 на копии `dwh_i12_034_test`, затем E2 (каждый — с разрешения).
+
+### 7.1. E1 пакета 034 — PASS (25.11.2026)
+
+Выпуск `2026.11.68` установлен. `dwh_sql_package.py --package 034 --stage e1`: SHA256 пяти файлов OK; в `dwh` check 033 7/7; копия `dwh_i12_034_test` — `MIGRATION_034_DONE`, права по умолчанию сняты (последовательность `etl.object_file_file_id_seq` у `dwh_etl`, таблицы `etl.object_file` и `meta.object_file_config` у `dwh_app` и `dwh_etl`), check 034 7/7, check 033 7/7, тест — 15 строк PASS, `ALL_TESTS_PASS`; откат `ROLLBACK_034_DONE`, повторное применение, check 7/7; `E1_RESULT: PASS`. Копия оставлена с 034. Далее — E2 (с разрешения).
