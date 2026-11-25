@@ -102,8 +102,12 @@ def trim_found(found: SearchResult, question: str, budget: int = HELP_CONTEXT_CH
 SCRIPT_MAX_LINES = 6
 SCRIPT_MIN_SHARE = 0.5
 SCRIPT_PLACE_LINES = 2
+SCRIPT_SECTION_SHARE = 0.7
+SCRIPT_CHILD_LINES = 4
+SCRIPT_CHILD_CHARS = 300
 PLACE_WORDS = re.compile(r"вкладк|кнопк|→|меню", re.IGNORECASE)
 LIST_ITEM = re.compile(r"\s*(\d+\.|-|\*|\|)\s")
+WHERE = re.compile(r"(?<!\w)где(?!\w)", re.IGNORECASE)
 
 
 def _quoted(line: str) -> set[str]:
@@ -111,29 +115,51 @@ def _quoted(line: str) -> set[str]:
 
 
 def script_answer(found: SearchResult, question: str, weight: dict[str, float],
-                  parents: dict[str, str] | None = None) -> tuple[str, list]:
+                  parents: dict[str, str] | None = None, readable: list | None = None) -> tuple[str, list]:
     """I17-12 (R1): the answer without the model. Lines of the found sections are weighed by the rare words of the
     question (the same inverse frequency as the search); only lines close to the best one are kept (at most
     SCRIPT_MAX_LINES), under the bold title of their section, in the order of the guide.
     Where a kept line names a screen element («Файлы»), the line of the same section that says where it is
     (a tab, a button, a path with →) is added (at most SCRIPT_PLACE_LINES): the answer says where, not only what.
     parents: number of a section -> title of its parent (the title becomes "parent → section").
+    Lines are taken only from the sections close to the best one (SCRIPT_SECTION_SHARE = 0.7 of its score): a weaker
+    section that shares one word of the question does not add its lines (remark of 25.11.2026).
+    readable: the sections the user may read; a kept line that names subsections of its section («Исходные
+    системы», «Объекты источника») gets the first line of each of them (at most SCRIPT_CHILD_LINES).
     Returns the text and the sections the lines come from."""
     from dwh_api.ai_knowledge import stems
 
     wanted = stems(question)
-    scored = []
+
+    def section_score(section) -> float:
+        return sum(weight.get(w, 0.0) * (2.0 if w in section.title_words else 1.0) for w in wanted & section.words)
+
+    section_scores = [section_score(s) for s in found.sections]
+    best_section = max(section_scores, default=0.0)
+    all_scored = []
     for rank, section in enumerate(found.sections):
         lines = [line for line in section.text.split("\n") if line.strip()]
         for index, line in enumerate(lines[1:], 1):
             score = sum(weight.get(w, 0.0) for w in stems(line) & wanted)
             if score > 0:
-                scored.append((score, rank, index))
+                all_scored.append((score, rank, index))
+    scored = [x for x in all_scored if section_scores[x[1]] >= best_section * SCRIPT_SECTION_SHARE]
     if not scored:
         return "", []
     best = max(score for score, _, _ in scored)
     chosen = sorted((x for x in scored if x[0] >= best * SCRIPT_MIN_SHARE), key=lambda x: (-x[0], x[1], x[2]))
     picked = {(r, i) for _, r, i in chosen[:SCRIPT_MAX_LINES]}
+
+    def line_of(rank: int, index: int) -> str:
+        return [line for line in found.sections[rank].text.split("\n") if line.strip()][index]
+
+    if WHERE.search(question) and not any(PLACE_WORDS.search(line_of(r, i)) for r, i in picked):
+        # "Where ...?" and the kept lines name no tab, button or menu: the best line that does, from any found
+        # section ("где посмотреть ошибки загрузки" -> the line about the tab «Ошибки и история»).
+        places = sorted((x for x in all_scored if PLACE_WORDS.search(line_of(x[1], x[2]))),
+                        key=lambda x: (-x[0], x[1], x[2]))
+        if places:
+            picked.add((places[0][1], places[0][2]))
     extra = 0
     for rank, index in sorted(picked):
         lines = [line for line in found.sections[rank].text.split("\n") if line.strip()]
@@ -160,9 +186,33 @@ def script_answer(found: SearchResult, question: str, weight: dict[str, float],
         parent = (parents or {}).get(section.number)
         if parent:
             title = f"{parent} → {title}"
-        parts.append("\n".join([f"**{title}**"] + [lines[i] for r, i in sorted(picked) if r == rank]))
+        kept = [lines[i] for r, i in sorted(picked) if r == rank]
         used.append(section)
+        parts.append("\n".join([f"**{title}**"] + kept + _child_lines(section, kept, readable or [], used)))
     return "\n\n".join(parts), used
+
+
+def _child_lines(section, kept: list[str], readable: list, used: list) -> list[str]:
+    """First line of each readable subsection of `section` whose title starts with a name quoted in the kept
+    lines: «Исходные системы» -> "5.1. Исходные системы и подключение: <first line>"."""
+    names = [n.casefold() for line in kept for n in re.findall(r"«([^«»]+)»", line)]
+    out = []
+    for child in readable:
+        if len(out) >= SCRIPT_CHILD_LINES:
+            break
+        if not child.number.startswith(section.number + ".") or child in used:
+            continue
+        caption = child.title.split(". ", 1)[-1].casefold()
+        if not any(caption.startswith(n) for n in names):
+            continue
+        body = [line for line in child.text.split("\n")[1:] if line.strip()]
+        if body:
+            first = LIST_ITEM.sub("", body[0].strip(), count=1)
+            first = re.split(r"(?<=[.!?])\s", first, maxsplit=1)[0]  # the first sentence is enough here
+            first = first if len(first) <= SCRIPT_CHILD_CHARS else first[:SCRIPT_CHILD_CHARS].rstrip() + "…"
+            out.append(f"- **{child.title}** — {first}")
+            used.append(child)
+    return out
 
 
 def screen_lines(screen: list[tuple[str, str | None]]) -> str:

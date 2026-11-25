@@ -46,6 +46,26 @@ class ScriptHelpTests(unittest.TestCase):
         answer, _ = self.ask("как задать маску имени файла")
         self.assertIn("В «Маппинге» такого объекта первая вкладка — «Файлы»:", answer["answer"])
 
+    def test_answer_stays_in_the_best_section_and_opens_its_subsections(self):
+        # Remark of 25.11.2026: "Где настраиваются источники интеграций" got lines of 6.1, 5.2b and 6.2 that share
+        # one word of the question; expected: section 5 and short lines of its subsections 5.1 and 5.2.
+        answer, _ = self.ask("Где настраиваются источники интеграций")
+        self.assertEqual([s["number"] for s in answer["sections"]], ["5", "5.1", "5.2"])
+        self.assertIn("- **5.1. Исходные системы и подключение** — «Создать исходную систему»", answer["answer"])
+        self.assertIn("- **5.2. Объекты источника** — «Создать объект источника»", answer["answer"])
+        self.assertNotIn("ИИ-помощник", answer["answer"])
+        self.assertNotIn("Реестр файлов", answer["answer"])
+
+    def test_subsections_closed_to_the_role_are_not_opened(self):
+        answer, _ = self.ask("Где настраиваются источники интеграций", user=AUDIT)
+        self.assertNotIn("5.1", [s["number"] for s in answer["sections"]])
+        self.assertNotIn("Создать исходную систему", answer["answer"])
+
+    def test_where_question_gets_a_line_that_names_the_place(self):
+        answer, _ = self.ask("где посмотреть ошибки загрузки")
+        self.assertIn("2.5", [s["number"] for s in answer["sections"]])
+        self.assertIn("Кнопка «Показать ошибки»", answer["answer"])
+
     def test_model_offered_after_not_found_only_when_it_can_help(self):
         answer, _ = self.ask("погода в Баку завтра")
         self.assertFalse(answer["ai_may_help"])  # the model would search the same guide and find nothing too
