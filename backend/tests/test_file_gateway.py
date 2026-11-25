@@ -143,14 +143,23 @@ class FakeCursor:
             self.db.files[sha] = {"name": name, "actual_at": actual_at, "status": status, "rows": rows,
                                   "message": message}
             self.result = (1,)
+        elif "object_file_warning" in query:
+            if self.db.without_035:
+                import psycopg
+                raise psycopg.errors.UndefinedFunction("function etl.object_file_warning does not exist")
+            self.db.warnings.append((args[1], args[3]))
+            self.result = (True,)
 
     def fetchone(self):
         return self.result
 
 
 class FakeDwh:
-    def __init__(self):
+    def __init__(self, without_035: bool = False):
         self.files: dict = {}
+        self.warnings: list = []
+        self.without_035 = without_035
+        self.rollbacks = 0
 
     def cursor(self):
         return FakeCursor(self)
@@ -159,7 +168,7 @@ class FakeDwh:
         pass
 
     def rollback(self):
-        pass
+        self.rollbacks += 1
 
 
 class ChooseFilesTest(unittest.TestCase):
@@ -233,6 +242,27 @@ class ChooseFilesTest(unittest.TestCase):
         self.assertEqual(self.status(db), [("s_1.json", "FAILED")])
         self.write("s_1.json", "2026-11-22", [1])  # corrected file: new content
         self.assertEqual(self.run_files(db), (1, ["1"]))
+
+    def test_refused_files_are_warnings_package_035(self):
+        # I12 plan 7.7 (decision A): broken, too large and undated files are warnings; the run goes on
+        db = FakeDwh()
+        self.write("s_1.json", "2026-11-22", [1])
+        self.write("s_2.json", None, [2])
+        (self.folder / "s_3.json").write_text('{"items": [')
+        os.utime(self.folder / "s_3.json", (time.time() - 3600, time.time() - 3600))
+        self.assertEqual(self.run_files(db), (1, ["1"]))
+        self.assertEqual(sorted(db.warnings), [("s_2.json", "FILE_NO_DATE"), ("s_3.json", "FILE_BROKEN")])
+
+    def test_without_package_035_the_load_goes_on(self):
+        db = FakeDwh(without_035=True)
+        self.write("s_1.json", "2026-11-22", [1])
+        self.write("s_2.json", None, [2])
+        logs = []
+        n = self.ro.load_files(db, 1, cfg(), "PV_FILES", self.plan, lambda c: None, logs.append,
+                               root=Path(self.tmp.name))
+        self.assertEqual(n, 1)
+        self.assertEqual(db.rollbacks, 1)
+        self.assertTrue(any("package 035" in m for m in logs), logs)
 
     def test_missing_folder(self):
         with self.assertRaises(FileSourceError) as ctx:

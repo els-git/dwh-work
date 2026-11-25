@@ -1062,6 +1062,8 @@ export interface ObjectLoadStatus {
   last_request_result: string | null
   last_request_message: string | null
   has_active_request: boolean
+  // I12 (package 035): files refused by the last run of a FILE object (absent before 035)
+  file_errors?: number
 }
 
 

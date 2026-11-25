@@ -429,7 +429,10 @@ function LoadsObjectsPanel({ canRun, canDiagnose = false }: LoadsObjectsPanelPro
                             </button>
                           )
                           : null}
-                        {errorText && canDiagnose
+                        {(item.file_errors ?? 0) > 0
+                          ? <div className="loads-file-errors">⚠ {t('loads.fileErrors', { count: item.file_errors })}</div>
+                          : null}
+                        {(errorText || (item.file_errors ?? 0) > 0) && canDiagnose
                           ? (
                             <div>
                               <button type="button" className="loads-link"

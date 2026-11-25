@@ -56,6 +56,12 @@
   color: var(--text-muted);
 }
 
+/* I12 (package 035): files refused by the last run of a FILE object */
+.loads-file-errors {
+  color: #e0a63a;
+  font-size: 0.85em;
+}
+
 .loads-link {
   padding: 0;
   border: 0;

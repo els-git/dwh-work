@@ -993,6 +993,20 @@ def _record_file(dwh, run_id: int, entry, sha: str, actual_at, status: str, rows
     dwh.commit()
 
 
+def _warn_file(dwh, run_id: int, name: str, sha: str, code: str, message: str,
+               log: Callable[[str], None]) -> None:
+    """I12 (plan 7.7, decision A): a file refused while choosing is also a warning in the error journal
+    (etl.object_file_warning, package 035): visible in "Ошибки и история", once per content and code; the run
+    stays SUCCESS. Without package 035 the load goes on and only says so in its log."""
+    try:
+        with dwh.cursor() as cur:
+            cur.execute("SELECT etl.object_file_warning(%s, %s, %s, %s, %s)", (run_id, name, sha, code, message))
+        dwh.commit()
+    except psycopg.errors.UndefinedFunction:
+        dwh.rollback()
+        log("STAGE: warning not written: package 035 (etl.object_file_warning) is not applied")
+
+
 def file_records_chunks(records: list[dict], plan: Plan, *, size: int | None = None):
     """I12: rows of one file (text values in plan.written order). A mapped field absent in every record
     stops the file (SOURCE_DRIFT), as for an API answer."""
@@ -1040,6 +1054,7 @@ def choose_files(dwh, run_id: int, cfg: dict, folder, log: Callable[[str], None]
                     digest = None
                 if digest and known.get(digest) not in ("LOADED", "NOT_ACTUAL", "NO_DATE"):
                     _record_file(dwh, run_id, entry, digest, None, "FAILED", None, f"{exc.code}: {exc.message}")
+                    _warn_file(dwh, run_id, entry.name, digest, exc.code, exc.message, log)
                 log(f"STAGE: {entry.name}: {exc.code}")
             else:
                 log(f"STAGE: {entry.name}: {exc.code}, left for the next run")
@@ -1055,14 +1070,16 @@ def choose_files(dwh, run_id: int, cfg: dict, folder, log: Callable[[str], None]
                 log(f"STAGE: {entry.name}: not readable yet, changed {int(now - entry.mtime)} s ago: waiting")
                 continue
             _record_file(dwh, run_id, entry, sha, None, "FAILED", None, f"{exc.code}: {exc.message}")
+            _warn_file(dwh, run_id, entry.name, sha, exc.code, exc.message, log)
             log(f"STAGE: {entry.name}: {exc.code}")
             continue
         finally:
             del body
         if parsed.actual_at is None:
-            _record_file(dwh, run_id, entry, sha, None, "NO_DATE", None,
-                         f"No actuality date at '{cfg['date_path']}'"
-                         + (f" (value '{parsed.date_text[:40]}')" if parsed.date_text else ""))
+            reason = (f"No actuality date at '{cfg['date_path']}'"
+                      + (f" (value '{parsed.date_text[:40]}')" if parsed.date_text else ""))
+            _record_file(dwh, run_id, entry, sha, None, "NO_DATE", None, reason)
+            _warn_file(dwh, run_id, entry.name, sha, "FILE_NO_DATE", reason, log)
             log(f"STAGE: {entry.name}: no actuality date, not loaded")
             continue
         if last_at is not None and parsed.actual_at <= last_at:
