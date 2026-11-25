@@ -16,6 +16,7 @@ import {
   useSeverityLabel,
 } from './severityLabels'
 import ApiRequestPanel from './ApiRequestPanel'
+import FileSourcePanel from './FileSourcePanel'
 import OdsConfigPanel from './OdsConfigPanel'
 import { publishWithTablePlan } from './tablePlan'
 import { suggestedTargetTable } from './targetName'
@@ -174,7 +175,8 @@ function ObjectConfigPanel({
 
   // I06-05: the panel edits the source -> STG mapping or the STG -> ODS configuration.
   const isApi = sourceObject.object_type === 'API'
-  const [section, setSection] = useState<'api' | 'stg' | 'ods'>(isApi ? 'api' : 'stg')
+  const isFile = sourceObject.object_type === 'FILE'
+  const [section, setSection] = useState<'api' | 'file' | 'stg' | 'ods'>(isApi ? 'api' : isFile ? 'file' : 'stg')
 
   const [loadStrategy, setLoadStrategy] = useState<LoadStrategy>('FULL')
 
@@ -613,6 +615,17 @@ function ObjectConfigPanel({
             </button>
           )
           : null}
+        {isFile
+          ? (
+            <button
+              type="button"
+              className={section === 'file' ? 'admin-integrations-tab active' : 'admin-integrations-tab'}
+              onClick={() => setSection('file')}
+            >
+              {t('fileSource.tab')}
+            </button>
+          )
+          : null}
         <button
           type="button"
           className={section === 'stg' ? 'admin-integrations-tab active' : 'admin-integrations-tab'}
@@ -632,6 +645,15 @@ function ObjectConfigPanel({
       {
         section === 'api' && (
           <ApiRequestPanel
+            sourceObject={sourceObject}
+            onStructureSaved={() => { void reload() }}
+          />
+        )
+      }
+
+      {
+        section === 'file' && (
+          <FileSourcePanel
             sourceObject={sourceObject}
             onStructureSaved={() => { void reload() }}
           />

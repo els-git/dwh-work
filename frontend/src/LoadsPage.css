@@ -185,6 +185,16 @@
   font-size: 12px;
 }
 
+/* I12: files of a file object */
+.file-source-panel .table-scroll {
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+.file-source-panel code {
+  word-break: break-all;
+}
+
 /* I08-06: search and filters of the "Objects" tab */
 .loads-filters {
   display: flex;

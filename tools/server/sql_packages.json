@@ -568,5 +568,35 @@
       "label": "032",
       "expected": 7
     }
+  },
+  "034": {
+    "number": "034",
+    "owner": "dwh_admin",
+    "marker": "etl.object_file_record(bigint, text, bigint, text, timestamp with time zone, text, bigint, text)",
+    "copy_db": "dwh_i12_034_test",
+    "check_expected": 7,
+    "added_rows": {},
+    "migration": {
+      "path": "database/migrations/034_file_source.sql",
+      "sha256": "EF6BA46DDD1AD793CD5D65C7EA3C9806C701FBDB1BD9B3E55AC23E9CC9CC9CC0"
+    },
+    "down": {
+      "path": "database/migrations/034_file_source.down.sql",
+      "sha256": "539894598EE7A05411A5D7C08C67345301ABA277AC631C512492FAD9EEAD2ECB"
+    },
+    "check": {
+      "path": "database/checks/034_file_source_check.sql",
+      "sha256": "250F346400B845DB2455295DBD6EC573C8FBF1A7D8FF35BE4A3338AD12ECF7F4"
+    },
+    "test": {
+      "path": "database/tests/034_file_source_test.sql",
+      "sha256": "DAC75F96EB327225F998F25DAB0C96412F8CAEAEDDF9E411250891D15A3802CE"
+    },
+    "previous_check": {
+      "path": "database/checks/033_api_source_check.sql",
+      "sha256": "2D26971E3A646DD3C9FEDC16DBDDE77410FFCFCA355EA9EC2FA013D050E0FEAB",
+      "label": "033",
+      "expected": 7
+    }
   }
 }

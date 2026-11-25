@@ -64,8 +64,13 @@ function SourceConnectionPanel({
 }: SourceConnectionPanelProps) {
   const { t } = useTranslation()
 
+  // I11/I12: an API source and a file source have no connection: an API object holds its request,
+  // the files of a file source are read from its folder on the DWH server.
   const isApiSource =
-    system.source_type.trim().toUpperCase() === 'API'
+    ['API', 'FILE'].includes(system.source_type.trim().toUpperCase())
+
+  const isFileSource =
+    system.source_type.trim().toUpperCase() === 'FILE'
 
   // Connection test, object list and snapshot exist for PostgreSQL only (I04).
   const isPostgresSource =
@@ -415,7 +420,7 @@ function SourceConnectionPanel({
       {
         isApiSource
           ? (
-            <p>{t('sourceConnection.apiNote')}</p>
+            <p>{isFileSource ? t('sourceConnection.fileNote', { code: system.code }) : t('sourceConnection.apiNote')}</p>
           )
           : loading
             ? (

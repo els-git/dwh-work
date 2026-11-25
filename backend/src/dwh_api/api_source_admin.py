@@ -46,7 +46,8 @@ CREDENTIAL_MAX_LENGTH = 4000
 
 _REJECTED = ("not an api", "api source", "request code", "already used", "no draft", "must not contain credentials",
              "invalid http request", "no active credential", "has no key id", "immutable", "not active",
-             "structure must", "column needs", "not found")
+             "structure must", "column needs", "not found",
+             "not a file", "file source", "file object code", "file settings")  # I12: file objects share these
 _CONFLICT = ("in progress", "changed by another user")
 
 
