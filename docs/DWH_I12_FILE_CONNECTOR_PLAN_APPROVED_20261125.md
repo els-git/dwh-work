@@ -116,3 +116,7 @@ E0 PASS (база `e0_034` из `e0_033`): check 7/7, тест F01–F12, пов
 Замечание: инструмент E2 не приостанавливает `dwh-dispatcher` — плановые загрузки во время E2 будут давать такой STOP и дальше (доработка — только по решению пользователя).
 
 **Далее — шаг 5:** папка `/srv/dwh/files/PV_FILES` и тестовые файлы (`dwh_test_files.py --apply`), затем шаг 6 — приёмка.
+
+### 7.3. Шаг 5 — папка и тестовые файлы (25.11.2026)
+
+`dwh_test_api_setup.py --check` — `TEST_API_RESULT: PASS`. `dwh_test_files.py --apply`: папка `/srv/dwh/files/PV_FILES` (`root:dwh`, `0750`), 9 файлов по 136 строк — `svc_full_1..3.json`, `svc_inc_1..3.json` (даты 23, 24, 25.11.2026 09:00 +04:00), `svc_xml_1..2.xml`, `svc_jsonl_1.jsonl` (`root:dwh`, `0640`); `TEST_FILES_RESULT: PASS`; `sudo -u dwh ls` — файлы видны службам. Расписание `PROCESS_VIEWER` `public.app_users` выключено пользователем после E2. Далее — шаг 6, приёмка.
