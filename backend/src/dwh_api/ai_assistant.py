@@ -79,12 +79,20 @@ class HistoryItem(BaseModel):
     text: str = Field(max_length=20000)
 
 
+class ScreenLabel(BaseModel):
+    """I17-12: a selected menu item or tab of the screen in the screenshot (interface language and Russian)."""
+    label: str = Field(min_length=1, max_length=80)
+    ru: str | None = Field(default=None, max_length=80)
+
+
 class HelpRequest(BaseModel):
     question: str = Field(min_length=1, max_length=4000)
     image: str | None = Field(default=None, description="data:image/png|jpeg|webp;base64,... screenshot (I17-07)")
     client_id: str | None = Field(default=None, pattern=CLIENT_ID, description="id for the Stop button")
     history: list[HistoryItem] = Field(default_factory=list, max_length=40, description="I17-10: earlier messages")
     mode: Literal["script", "ai"] = Field(default="script", description="I17-12: script answers without the model")
+    screen: list[ScreenLabel] = Field(default_factory=list, max_length=12,
+                                      description="I17-12: selected menu item and tabs when the screenshot was taken")
 
 
 class ReportRequest(BaseModel):
@@ -400,15 +408,19 @@ def help_answer(payload: HelpRequest, request: Request) -> dict:
     # it (a script answer and a model answer of the same question come between).
     previous = last_user_text(dialogue(payload.history), payload.question)
     history = dialogue(payload.history)[-HELP_HISTORY_MESSAGES:]
+    # I17-12: the screen of a screenshot named by the interface - searched by its Russian names, without the
+    # translation request and without the map of all sections (a shorter prompt, a faster answer).
+    screen = [(s.label.strip(), (s.ru or "").strip() or None) for s in payload.screen] if image else []
+    screen_ru = " ".join(ru or label for label, ru in screen)
     with Stoppable(request, payload.client_id) as token:
         translated = None
-        if not is_russian(payload.question):
+        if not is_russian(payload.question) and not screen:
             # The guide is in Russian: a question in another language is translated for the search only;
             # the answer is given in the language of the question.
             translated = ask_model(request, request_id, settings, TRANSLATE_SYSTEM, payload.question,
                                    max_tokens=150, cancel=token, timed=False).strip()[:1000] or None
         # A follow-up question ("and how do I delete it?") is searched together with the previous question.
-        found = knowledge().search(f"{payload.question} {translated or ''} {previous}", user)
+        found = knowledge().search(f"{payload.question} {translated or ''} {screen_ru} {previous}", user)
         if found.only_denied and image is None:
             finish(request, request_id, "DENIED", "AI_SECTION_NOT_ALLOWED",
                    message="; ".join(found.denied_titles)[:4000])
@@ -418,9 +430,9 @@ def help_answer(payload: HelpRequest, request: Request) -> dict:
             finish(request, request_id, "NO_DATA", "AI_HELP_NOT_FOUND")
             return {"request_id": request_id, "status": "NO_DATA", "code": "AI_HELP_NOT_FOUND",
                     "answer": NO_HELP_TEXT, "sections": []}
-        screen_map = knowledge().screen_map(user) if image else None
-        found = trim_found(found, f"{payload.question} {translated or ''} {previous}")
-        system, user_text = help_prompt(found, payload.question, screen_map, translated)
+        screen_map = knowledge().screen_map(user) if image and not screen else None
+        found = trim_found(found, f"{payload.question} {translated or ''} {screen_ru} {previous}")
+        system, user_text = help_prompt(found, payload.question, screen_map, translated, screen)
         # Help answers are longer than reports and Azerbaijani/English text takes more tokens: 1200, not 700.
         answer = ask_model(request, request_id, settings, system, user_text, image, max_tokens=HELP_MAX_TOKENS,
                            cancel=token, history=history)

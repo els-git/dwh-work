@@ -27,6 +27,15 @@ IMAGE_NOTE = (
     "Затем расскажи развёрнуто: что на нём показано (заголовок, показатели, вкладки, таблицы, кнопки — их смысл), "
     "что пользователь может здесь сделать (действия, фильтры, выгрузка), куда можно перейти дальше и в каком "
     "разделе справки об этом подробнее. Цифры со снимка не пересказывай, если о них не спрашивают.")
+# I17-12 (remark 3): with a screenshot taken in the application, the interface sends the selected menu item and
+# tabs in the language of the interface and in Russian; the model gets them instead of the map of all sections.
+SCREEN_NOTE = (
+    "\nК вопросу приложен снимок экрана приложения DWH. Какой это экран, приложение определило само: ниже "
+    "перечислены выбранные пункт меню и вкладки — так, как они написаны в интерфейсе пользователя, и по-русски "
+    "(как в справке). Называй разделы, вкладки и кнопки только так, как они написаны в интерфейсе пользователя; "
+    "названия, которых нет в этом списке и на снимке, бери из справки по-русски в кавычках — не переводи их и не "
+    "транслитерируй. Расскажи развёрнуто: что на экране показано, что здесь можно сделать, куда перейти дальше. "
+    "Цифры со снимка не пересказывай, если о них не спрашивают.")
 REPORT_SYSTEM = (
     "Ты пишешь SQL для PostgreSQL 17 по описанию отчёта. Можно использовать только объекты и колонки из описания "
     "ниже, имена объектов всегда со схемой (dm.имя), только один SELECT, без комментариев. "
@@ -153,8 +162,14 @@ def script_answer(found: SearchResult, question: str, weight: dict[str, float],
     return "\n\n".join(parts), used
 
 
+def screen_lines(screen: list[tuple[str, str | None]]) -> str:
+    """«label» (по-русски «ru») per selected menu item or tab; the Russian name only when it differs."""
+    return "\n".join(f"- «{label}»" + (f" (по-русски «{ru}»)" if ru and ru != label else "") for label, ru in screen)
+
+
 def help_prompt(found: SearchResult, question: str, screen_map: str | None = None,
-                translated: str | None = None) -> tuple[str, str]:
+                translated: str | None = None,
+                screen: list[tuple[str, str | None]] | None = None) -> tuple[str, str]:
     """System and user messages for a help question; only the sections the user may read are included.
     With a screenshot, screen_map lists every section the user may read (title and its start) so that the
     model can recognise the screen even when the question has few words."""
@@ -170,6 +185,9 @@ def help_prompt(found: SearchResult, question: str, screen_map: str | None = Non
                  "или в разделах нет информации, не упоминай закрытые разделы и не выдумывай шаги.")
     if translated:
         question = f"{question}\n(перевод на русский: {translated}; отвечай на языке исходного вопроса)"
+    if screen:
+        return (HELP_SYSTEM + SCREEN_NOTE + note,
+                f"Экран пользователя:\n{screen_lines(screen)}\n\nСправка:\n{context}\n\nВопрос: {question}")
     if screen_map is None:
         return HELP_SYSTEM + note, f"Справка:\n{context}\n\nВопрос: {question}"
     return (HELP_SYSTEM + IMAGE_NOTE + note,
