@@ -30,11 +30,39 @@ class ScriptHelpTests(unittest.TestCase):
     def test_answer_is_the_matching_guide_lines(self):
         answer, journal = self.ask("где находится Реестр файлов")
         self.assertEqual((answer["status"], answer["mode"], answer["foreign"]), ("OK", "SCRIPT", False))
-        self.assertIn("**5.2b.", answer["answer"])
+        self.assertIn("→ 5.2b.", answer["answer"])
         self.assertIn("Реестр файлов", answer["answer"])
         self.assertLess(len(answer["answer"]), 3000)
         self.assertEqual(answer["sections"][0]["number"], "5.2b")
         self.assertEqual(journal[0][0][2:4], ("OK", "AI_HELP_SCRIPT"))
+
+    def test_answer_says_where_the_element_is(self):
+        # Remark of 25.11.2026: "on the tab «Файлы»" is not enough - the path to the tab and the section path.
+        answer, _ = self.ask("где находится Реестр файлов")
+        self.assertIn("**5. Администрирование: интеграции → 5.2b.", answer["answer"])
+        self.assertIn("«Маппинг»", answer["answer"])
+        self.assertIn("«Объекты источника»", answer["answer"])
+        # A step of a list brings the line that opens the list (where the steps are).
+        answer, _ = self.ask("как задать маску имени файла")
+        self.assertIn("В «Маппинге» такого объекта первая вкладка — «Файлы»:", answer["answer"])
+
+    def test_model_offered_after_not_found_only_when_it_can_help(self):
+        answer, _ = self.ask("погода в Баку завтра")
+        self.assertFalse(answer["ai_may_help"])  # the model would search the same guide and find nothing too
+        history = [{"role": "user", "text": "где находится Реестр файлов"}, {"role": "assistant", "text": "..."}]
+        answer, _ = self.ask("а зачем это", history=history)
+        self.assertEqual(answer["status"], "NO_DATA")
+        self.assertTrue(answer["ai_may_help"])  # a follow-up: with the previous question the guide has an answer
+        history = [{"role": "user", "text": "какая погода в Баку"}, {"role": "assistant", "text": "..."}]
+        answer, _ = self.ask("а завтра", history=history)
+        self.assertFalse(answer["ai_may_help"])  # with the previous question nothing either
+        answer, _ = self.ask("какая погода в Баку завтра",
+                             history=[{"role": "user", "text": "где находится Реестр файлов"}])
+        self.assertFalse(answer["ai_may_help"])  # unrelated new question: the previous one does not answer it
+        answer, _ = self.ask("fayllar reyestri harada yerləşir")
+        self.assertTrue(answer["ai_may_help"])  # another language: the model translates
+        answer, _ = self.ask("где находится Реестр файлов")
+        self.assertTrue(answer["ai_may_help"])
 
     def test_previous_question_does_not_answer_a_new_one(self):
         history = [{"role": "user", "text": "где находится Реестр файлов"}, {"role": "assistant", "text": "..."}]

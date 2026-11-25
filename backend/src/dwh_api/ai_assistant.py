@@ -339,6 +339,23 @@ HELP_MAX_TOKENS = 1200
 HELP_HISTORY_MESSAGES = 4
 
 
+# A follow-up refers to the previous question by a pronoun or starts with "а"/"и" ("а как его удалить?").
+FOLLOW_UP = re.compile(r"^\s*(а|и|ещё|еще|тогда)\b|\b(его|её|ее|их|него|неё|нее|них|это|этот|эта|эти|этого|этой|"
+                       r"там|туда|тут|он|она|они|оно)\b", re.IGNORECASE)
+
+
+def model_may_find(payload: HelpRequest, user: UserScope, foreign: bool) -> bool:
+    """I17-12: after "not found" by the script, may the model find more? It searches the same guide and adds
+    only a translation (a question in another language) or the previous question (a follow-up). So the model is
+    offered for a question in another language, and for a follow-up when the guide has an answer with the
+    previous question (checked here by the same search); not for an unrelated question."""
+    if foreign:
+        return True
+    previous = last_user_text(dialogue(payload.history)[-HELP_HISTORY_MESSAGES:])
+    return (bool(previous) and FOLLOW_UP.search(payload.question) is not None
+            and bool(knowledge().search(f"{payload.question} {previous}", user).sections))
+
+
 def help_by_script(payload: HelpRequest, request: Request, user: UserScope) -> dict:
     """I17-12: the answer without the model (R1, R5): the matching lines of the guide sections the role may read.
     A question that is not in Russian is searched as it is (R2): the guide is Russian, the model is not asked."""
@@ -347,19 +364,21 @@ def help_by_script(payload: HelpRequest, request: Request, user: UserScope) -> d
     # question with the previous section. A follow-up ("and how to delete it?") is the model's job (button).
     index = knowledge()
     found = index.search(payload.question, user)
-    base = {"request_id": request_id, "mode": "SCRIPT", "foreign": not is_russian(payload.question)}
+    foreign = not is_russian(payload.question)
+    base = {"request_id": request_id, "mode": "SCRIPT", "foreign": foreign, "ai_may_help": True}
     if found.only_denied:
         finish(request, request_id, "DENIED", "AI_SECTION_NOT_ALLOWED", message="; ".join(found.denied_titles)[:4000])
         return {**base, "status": "DENIED", "code": "AI_SECTION_NOT_ALLOWED", "answer": DENIED_TEXT, "sections": []}
     if not found.sections:
+        base["ai_may_help"] = model_may_find(payload, user, foreign)
         finish(request, request_id, "NO_DATA", "AI_HELP_NOT_FOUND", message="script")
         return {**base, "status": "NO_DATA", "code": "AI_HELP_NOT_FOUND", "answer": NO_HELP_TEXT, "sections": []}
-    answer, used = script_answer(found, payload.question, index.weight)
+    answer, used = script_answer(found, payload.question, index.weight, index.parents)
     if not used:
         finish(request, request_id, "NO_DATA", "AI_HELP_NOT_FOUND", message="script")
         return {**base, "status": "NO_DATA", "code": "AI_HELP_NOT_FOUND", "answer": NO_HELP_TEXT, "sections": []}
     finish(request, request_id, "OK", "AI_HELP_SCRIPT", message=", ".join(s.number for s in used)[:4000])
-    return {**base, "status": "OK", "answer": answer,
+    return {**base, "ai_may_help": True, "status": "OK", "answer": answer,
             "sections": [{"number": s.number, "title": s.title} for s in used],
             "closed_nearby": found.closed_nearby > 0}
 

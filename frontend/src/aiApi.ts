@@ -26,6 +26,7 @@ export interface AiHelpAnswer {
   mode?: 'SCRIPT' | 'AI'
   // I17-12: the question is not in Russian, the guide (and the script answer) is.
   foreign?: boolean
+  ai_may_help?: boolean
 }
 
 export type AiCell = string | number | boolean | null

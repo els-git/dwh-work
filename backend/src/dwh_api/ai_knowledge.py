@@ -181,6 +181,11 @@ class KnowledgeIndex:
             for word in section.words:
                 counts[word] = counts.get(word, 0) + 1
         self.weight = {w: math.log(1 + total / c) for w, c in counts.items()}
+        # I17-12: the title of the parent section ("5. Администрирование: интеграции" for 5.2b) - the script
+        # answer starts with the path to the screen.
+        by_number = {s.number: s.title for s in self.sections}
+        self.parents = {s.number: by_number[s.number.split(".")[0]] for s in self.sections
+                        if "." in s.number and s.number.split(".")[0] in by_number}
 
     def score(self, wanted: frozenset[str], section: Section) -> float:
         return sum(self.weight.get(w, 0.0) * (2.0 if w in section.title_words else 1.0) for w in wanted & section.words)
