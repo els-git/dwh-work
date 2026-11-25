@@ -26,6 +26,7 @@ import { AI_DIAGNOSE_EVENT, type AiDiagnoseRequest } from './aiBus'
 import './AiAssistantPanel.css'
 import { cellText, downloadReportCsv } from './reportCsv'
 import SaveReportForm from './SaveReportForm'
+import { screenLabels, type AiScreenLabel } from './screenLabels'
 
 
 // I17: chat of the AI assistant, available on every screen. Help answers come from the user guide
@@ -197,6 +198,8 @@ function AiAssistantPanel() {
   const [mode, setMode] = useState<Mode>('help')
   const [question, setQuestion] = useState('')
   const [image, setImage] = useState<string | null>(null)
+  // I17-12: the screen named by the interface when the screenshot was taken (none for an attached file).
+  const [screen, setScreen] = useState<AiScreenLabel[]>([])
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [busy, setBusy] = useState(false)
   const [busySince, setBusySince] = useState(0)
@@ -287,6 +290,7 @@ function AiAssistantPanel() {
     }
     try {
       setImage(await readFile(file))
+      setScreen([])
     } catch {
       setError(t('ai.imageRead'))
     }
@@ -295,7 +299,9 @@ function AiAssistantPanel() {
   async function takeScreenshot() {
     setError(null)
     try {
+      const labels = screenLabels(i18n)
       setImage(await captureScreen())
+      setScreen(labels)
     } catch {
       setError(t('ai.screenshotFailed'))
     }
@@ -352,13 +358,15 @@ function AiAssistantPanel() {
       return
     }
     const sentImage = mode === 'help' ? image : null
+    const sentScreen = sentImage ? screen : []
     const earlier = historyOf(messages, t('ai.historyShot'))
     push({ role: 'user', text, image: sentImage ?? undefined })
     setQuestion('')
     setImage(null)
+    setScreen([])
     await ask(async (seq, clientId, signal, spent) => {
       if (mode === 'help') {
-        const answer = await askAiHelp(text, sentImage, clientId, signal, earlier)
+        const answer = await askAiHelp(text, sentImage, clientId, signal, earlier, 'script', sentScreen)
         if (seq !== askSeq.current) {
           return
         }
@@ -677,7 +685,7 @@ function AiAssistantPanel() {
           ? (
               <div className="ai-attachment">
                 <img src={image} alt={t('ai.screenshot')} />
-                <button type="button" onClick={() => setImage(null)}>{t('ai.removeImage')}</button>
+                <button type="button" onClick={() => { setImage(null); setScreen([]) }}>{t('ai.removeImage')}</button>
               </div>
             )
           : null}

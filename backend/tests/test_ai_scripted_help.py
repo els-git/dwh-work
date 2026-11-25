@@ -134,3 +134,47 @@ class FollowUpByButtonTests(unittest.TestCase):
         found = ai_assistant.knowledge().search(
             "а зачем это  " + ai_assistant.last_user_text(history, "а зачем это"), ADMIN)
         self.assertEqual(found.sections[0].number, "5.2b")
+
+
+class ScreenshotScreenTests(unittest.TestCase):
+    """Remark 3 of 2026.11.70: an Azerbaijani question with a screenshot got a made-up transliterated section name
+    and took about 6 minutes. The interface now names the screen (its language and Russian)."""
+
+    IMAGE = "data:image/png;base64,iVBORw0KGgoAAAA="
+
+    def ask(self, question, screen):
+        calls = []
+
+        def model(request, request_id, settings, system, user_text, image=None, **kwargs):
+            calls.append((system, user_text, image))
+            return "cavab"
+
+        with mock.patch.object(ai_assistant, "user_scope", return_value=ADMIN), \
+                mock.patch.object(ai_assistant, "llm_settings", return_value=object()), \
+                mock.patch.object(ai_assistant, "begin", return_value=7), \
+                mock.patch.object(ai_assistant, "finish"), \
+                mock.patch.object(ai_assistant, "ask_model", side_effect=model):
+            answer = ai_assistant.help_answer(HelpRequest(question=question, image=self.IMAGE, screen=screen), object())
+        return answer, calls
+
+    def test_screen_names_replace_translation_and_section_map(self):
+        screen = [{"label": "İnzibatçılıq", "ru": "Администрирование"},
+                  {"label": "Süni intellekt köməkçisi", "ru": "ИИ-помощник"}]
+        answer, calls = self.ask("bu bölmə nə üçündür?", screen)
+        self.assertEqual(len(calls), 1)  # no translation request: one model call only
+        system, user_text, image = calls[0]
+        self.assertEqual(image, self.IMAGE)
+        self.assertIn("«Süni intellekt köməkçisi» (по-русски «ИИ-помощник»)", user_text)
+        self.assertIn("не переводи их и не транслитерируй", system)
+        self.assertNotIn("Карта разделов справки", user_text)  # the map of all sections is not sent
+        self.assertIn("6.1", [s["number"] for s in answer["sections"]])  # found by the Russian names
+
+    def test_attached_image_without_screen_keeps_the_section_map(self):
+        _, calls = self.ask("что на этом экране?", [])
+        self.assertIn("Карта разделов справки", calls[-1][1])
+
+    def test_screen_labels_are_limited(self):
+        with self.assertRaises(Exception):
+            HelpRequest(question="x", screen=[{"label": "a" * 81}])
+        with self.assertRaises(Exception):
+            HelpRequest(question="x", screen=[{"label": "a"}] * 13)

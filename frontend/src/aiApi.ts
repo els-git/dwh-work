@@ -1,3 +1,5 @@
+import type { AiScreenLabel } from './screenLabels'
+
 // I17: AI assistant API (/api/ai). The server decides what the session user may see (I17-08);
 // the client only shows what it gets.
 
@@ -145,9 +147,10 @@ export interface AiHistoryItem {
   text: string
 }
 
+// I17-12: screen - the selected menu item and tabs when a screenshot was taken (interface language and Russian).
 export const askAiHelp = (question: string, image: string | null, clientId: string, signal: AbortSignal,
-  history: AiHistoryItem[] = [], mode: 'script' | 'ai' = 'script') =>
-  post<AiHelpAnswer>('/api/ai/help', { question, image, client_id: clientId, history, mode }, signal)
+  history: AiHistoryItem[] = [], mode: 'script' | 'ai' = 'script', screen: AiScreenLabel[] = []) =>
+  post<AiHelpAnswer>('/api/ai/help', { question, image, client_id: clientId, history, mode, screen }, signal)
 
 export const askAiReport = (question: string, clientId: string, signal: AbortSignal, history: AiHistoryItem[] = []) =>
   post<AiReportAnswer>('/api/ai/report', { question, client_id: clientId, history }, signal)
