@@ -18,6 +18,7 @@ import {
   getObjectLoadStatus,
   setIntegrationSourceObjectActive,
   createApiObject,
+  createFileObject,
   renameIntegrationSourceObject,
   setIntegrationSourceSystemActive,
   updateIntegrationSourceObject,
@@ -608,6 +609,8 @@ function AdminIntegrationsPage() {
 
       if (apiCreate) {
         await createApiObject(objectSystemId, sourceObject.trim(), nullable(objectDescription))
+      } else if (fileCreate) {
+        await createFileObject(objectSystemId, sourceObject.trim(), nullable(objectDescription))
       } else if (editorMode === 'create') {
         await createIntegrationSourceObject({
           source_system_id:
@@ -839,11 +842,17 @@ function AdminIntegrationsPage() {
     (systems.find(item => item.source_system_id === objectSystemId)?.source_type ?? '').trim().toUpperCase() === 'API'
   const apiCreate = editorMode === 'create' && objectSystemIsApi
   const apiEdit = editorMode === 'edit' && editingObject?.object_type === 'API'
+  // I12: an object of a file source is a set of files in the folder of the source: only its code (schema file).
+  const objectSystemIsFile =
+    (systems.find(item => item.source_system_id === objectSystemId)?.source_type ?? '').trim().toUpperCase() === 'FILE'
+  const fileCreate = editorMode === 'create' && objectSystemIsFile
+  const fileEdit = editorMode === 'edit' && editingObject?.object_type === 'FILE'
+  const codeCreate = apiCreate || fileCreate
 
   const objectChanged =
     editorMode === 'create'
       ? objectSystemId !== null
-        && (apiCreate || sourceSchema.trim() !== '')
+        && (codeCreate || sourceSchema.trim() !== '')
         && sourceObject.trim() !== ''
       : identityChanged || objectFieldsChanged
 
@@ -1342,7 +1351,7 @@ function AdminIntegrationsPage() {
                               </select>
                             </label>
 
-                            {apiCreate ? null : (
+                            {codeCreate ? null : (
                             <label>
                               <span><Trans i18nKey="batch.tr0216" /></span>
                               <input
@@ -1363,7 +1372,7 @@ function AdminIntegrationsPage() {
                             )}
 
                             <label>
-                              <span>{apiCreate ? t('apiRequest.code') : <Trans i18nKey="batch.tr0224" />}</span>
+                              <span>{apiCreate ? t('apiRequest.code') : fileCreate ? t('fileSource.code') : <Trans i18nKey="batch.tr0224" />}</span>
                               <input
                                 required
                                 readOnly={
@@ -1383,8 +1392,8 @@ function AdminIntegrationsPage() {
                             <label>
                               <span><Trans i18nKey="batch.tr0205" /></span>
                               <select
-                                value={apiCreate ? 'API' : objectType}
-                                disabled={apiCreate || apiEdit}
+                                value={apiCreate ? 'API' : fileCreate ? 'FILE' : objectType}
+                                disabled={apiCreate || apiEdit || fileCreate || fileEdit}
                                 onChange={
                                   event =>
                                     setObjectType(
@@ -1401,6 +1410,7 @@ function AdminIntegrationsPage() {
                                 </option>
 
                                 {apiCreate || apiEdit ? <option value="API">API</option> : null}
+                                {fileCreate || fileEdit ? <option value="FILE">FILE</option> : null}
                               </select>
                             </label>
 

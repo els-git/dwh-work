@@ -573,6 +573,17 @@ def publish_draft(conn, token_hash: str, request_id: str, source_object_id: int,
             api_request.normalize(state["draft_request"])
         except api_request.ApiRequestError as exc:
             raise HTTPException(status_code=422, detail=f"{exc.code}: {exc.message}") from None
+    if kind and kind[0].get("object_type") == "FILE":  # I12: a file object is published with its file settings
+        (state,) = _execute(conn, request_id, "SELECT draft_config FROM app.integration_file_config_get(%s, %s)",
+                            (token_hash, source_object_id))
+        if not state["draft_config"]:
+            raise HTTPException(status_code=422, detail="Save the file settings of the file object first")
+        from dwh_api import file_gateway  # the draft may be incomplete (no date path)
+
+        try:
+            file_gateway.normalize(state["draft_config"])
+        except file_gateway.FileSourceError as exc:
+            raise HTTPException(status_code=422, detail=f"{exc.code}: {exc.message}") from None
     result = publish_with_table(conn, token_hash, request_id, source_object_id, "LOAD", draft_revision, confirm)
     if result["status"] != "PUBLISHED":
         return PublishResponse(status=result["status"], table_plan=table_plan_of(result))

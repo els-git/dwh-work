@@ -282,6 +282,22 @@ sudo python3 /opt/dwh/current/src/tools/server/dwh_http_hosts.py --remove dwh.vt
 
 Итог — `HTTP_HOSTS_RESULT`. Сертификаты проверяются с корнем `/etc/dwh/tls/ca.crt`.
 
+## 4j. Файлы JSON/XML (I12)
+
+DWH читает файлы файлового источника из `/srv/dwh/files/<код источника>` и ничего там не пишет. Папки создаёт администратор (`root:dwh`, `0750`; файлы `0640`): службы `dwh` их только читают (`ProtectSystem=strict` оставляет `/srv` доступным на чтение). Корень и предел размера можно сменить в `/etc/dwh/dwh.env` (`DWH_FILE_ROOT`, `DWH_FILE_MAX_BYTES`, по умолчанию 200 МБ), затем перезапустить `dwh-api` и `dwh-dispatcher`.
+
+Тестовые файлы `PV_FILES` (I12-07) берут строки `public.services` у тестового API-сервиса (раздел 4h, он должен работать):
+
+```bash
+sudo python3 /opt/dwh/current/src/tools/server/dwh_test_files.py              # план
+sudo python3 /opt/dwh/current/src/tools/server/dwh_test_files.py --apply      # папка и базовый набор
+sudo python3 /opt/dwh/current/src/tools/server/dwh_test_files.py --add next   # ещё файл: next / late / dup / nodate / broken / dtd / big
+sudo python3 /opt/dwh/current/src/tools/server/dwh_test_files.py --check      # список файлов
+sudo python3 /opt/dwh/current/src/tools/server/dwh_test_files.py --remove     # удалить файлы svc_*
+```
+
+Итог — `TEST_FILES_RESULT`. Базовый набор: `svc_full_1..3.json` (для режима «самый новый»), `svc_inc_1..3.json` (для «все новые»), `svc_xml_1..2.xml`, `svc_jsonl_1.jsonl`; дата актуальности — внутри файла (`meta.actual_at`, `export.header.actual_at`, `actual_at` в первой строке).
+
 ## 5. Проверки и задачи
 
 - Сеть (шаг 5), только чтение:

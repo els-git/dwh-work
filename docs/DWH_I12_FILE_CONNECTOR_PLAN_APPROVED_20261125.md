@@ -73,3 +73,34 @@ ls -ld /srv/dwh /srv/dwh/files 2>&1; df -h /srv /var/lib/postgresql; id dwh; sys
 
 Что смотрим: есть ли `/srv/dwh/files`, свободное место, под кем работают службы (`dwh`), их защита (`ProtectSystem=strict` оставляет `/srv` доступным на чтение — DWH файлы только читает), есть ли подключённые сетевые папки.
 
+### 6.1. Результат описи (25.11.2026)
+
+- `/srv/dwh/files` нет; `/srv/dwh` — `root:root`, `0755`. На `/` свободно 140 ГБ.
+- Пользователь служб `dwh` — uid 999, gid 989. `dwh-api` и `dwh-dispatcher`: `User=dwh`, `ProtectSystem=strict`, запись только в `/var/lib/dwh` и `/var/log/dwh` — `/srv` службам доступен только на чтение, что и нужно (Ф1, Ф7).
+- Сетевых папок (cifs/nfs/smb) нет.
+
+Вывод: папку `/srv/dwh/files/<код>` создаёт администратор (`root:dwh`, `0750`), менять юниты служб не нужно.
+
+## 7. Шаг 3 — песочница (25.11.2026)
+
+**Пакет 034** (`database/migrations/034_file_source.sql`, откат `.down.sql`, проверка `database/checks/034_file_source_check.sql`, тест `database/tests/034_file_source_test.sql`):
+- вид объекта `FILE` в `meta.source_object` (ограничение пересоздаётся, найдено по определению);
+- `meta.object_file_config` — настройки файла в версии объекта (меняются только в черновике, копируются в новый черновик, без `TRUNCATE`; ограничения: маска без папок, формат `JSON`/`JSONL`/`XML`, режим `LATEST`/`ALL_NEW`, без ключей-секретов);
+- реестр `etl.object_file` — одна строка на объект и SHA-256 содержимого; статусы `LOADED`/`FAILED`/`NO_DATE`/`NOT_ACTUAL` (вместо `SKIPPED_*` из раздела 3); `LOADED` неизменен, `FAILED` повторяется (попытки +1); без `TRUNCATE`;
+- `dwh_app` (сессия администратора): `app.integration_file_object_create`, `_config_get`, `_config_save`, `_object_capture`, `_registry`;
+- `dwh_etl`: `etl.object_file_state(run)` (дата последнего загруженного файла и известные содержимые), `etl.object_file_record(...)` — только для своего запуска `RUNNING` объекта `FILE`;
+- `etl.object_run_begin` — тело 033 плюс ветка `FILE` (подключение не нужно, отдаёт `file_config`); откат возвращает тело 033 и отказывает, пока есть файловые объекты, настройки или файлы в реестре;
+- права по умолчанию снимаются с новых объектов (`DEFAULT_GRANT_REVOKED`), итог — `SELECT 'MIGRATION_034_DONE'`.
+
+E0 PASS (база `e0_034` из `e0_033`): check 7/7, тест F01–F12, повторное применение отказано, откат → check 0/7 → применение → 7/7 → тест PASS; check 033 и 032 — 7/7. Тест 033 P12 после 034 падает ожидаемо: он проверял, что `FILE` ещё не допустим.
+
+**Код:**
+- `backend/src/dwh_api/file_gateway.py` — настройки (`normalize`), папка `<DWH_FILE_ROOT>/<код>` (после разворота ссылок — только внутри), список по маске (обычные файлы, без скрытых, ссылки наружу пропускаются), чтение с пределом размера и SHA-256, разбор JSON/JSON Lines/XML, дата внутри файла (ISO 8601 или `ДД.ММ.ГГГГ`), отказ `DOCTYPE`/`ENTITY`, вложенность до 64;
+- `etl/src/run_object.py` — `choose_files` (Ф4′, Ф5′, Ф11), `load_files` (файлы по одному через общие шаги STG, `LOADED`/`FAILED` в реестре), ветка `FILE`;
+- `backend/src/dwh_api/file_source_admin.py` — `/source-systems/{id}/file-objects`, `/source-objects/{id}/file-config` (+ `/check`, `/structure`), `/source-objects/{id}/files`; публикация объекта `FILE` требует полные настройки (`object_config_admin.publish_draft`);
+- интерфейс: форма объекта в файловом источнике — только «Код объекта», вкладка «Файлы» в «Маппинге» (`frontend/src/FileSourcePanel.tsx`): настройки, «Проверить файлы» (что сделает следующая загрузка, колонки), поле вручную по пути (Ф9), «Сохранить структуру», реестр файлов; у файлового источника в «Подключении» — пояснение про папку;
+- `tools/server/dwh_test_files.py` (I12-07) — папка `PV_FILES`, базовый набор (`svc_full_1..3.json`, `svc_inc_1..3.json`, `svc_xml_1..2.xml`, `svc_jsonl_1.jsonl`) по строкам тестового API-сервиса I11-05 и добавки `--add next|late|dup|nodate|broken|dtd|big`.
+
+**Проверки:** тесты backend 456 OK (новые `test_file_gateway.py` 12, `test_dwh_test_files.py` 4); сборка OK, ESLint 0/0; сквозная `scratchpad/i12/e2e_files.py` 32/32 (база `e2e_i12` = `e2e_i11` + 034; API под `dwh_app`, загрузка под `dwh_etl`); репетиция приёмки `scratchpad/i12/e2e_tool.py` 21/21 (инструмент + тестовый API-сервис на `pv_src`: LATEST, ALL_NEW, повтор, копия, опоздавший, без даты, битый — сначала ждёт, потом `FAILED`, слишком большой, следующий, XML, DTD, JSON Lines); браузер `scratchpad/i12/ui/ui.cjs` 14/14 (API `scratchpad/i12/ui_server_i12.py`, порт 8773). Документы: справка 1.18.0 (5.2b), `DWH_ENGINES.md` 1.11.0 (3b), инструкция сервера 4j, `deploy/dwh.env.example`.
+
+**Далее — шаг 4:** выпуск, затем E1 пакета 034 на копии `dwh_i12_034_test`, затем E2 (каждый — с разрешения).

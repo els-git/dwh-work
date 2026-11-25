@@ -1308,3 +1308,111 @@ export function saveApiStructure(
     method: 'POST', body: JSON.stringify({ columns }),
   })
 }
+
+// I12: file objects - settings, check of the folder, structure, register of files.
+
+export type FileFormat = 'JSON' | 'JSONL' | 'XML'
+export type FileMode = 'LATEST' | 'ALL_NEW'
+
+export interface FileConfigDocument {
+  mask: string
+  format: FileFormat
+  records_path: string
+  date_path: string
+  mode: FileMode
+  time_zone: string
+  wait_seconds: number
+}
+
+export interface FileConfigState {
+  draft_version_id: number | null
+  draft_config: FileConfigDocument | null
+  published_version_id: number | null
+  published_config: FileConfigDocument | null
+  source_code: string
+  folder: string
+  folder_exists: boolean
+  max_file_mb: number
+}
+
+export type FileVerdict = 'LOAD' | 'NOT_ACTUAL' | 'NO_DATE' | 'BROKEN' | 'WAIT' | 'LOADED_BEFORE' | 'TOO_LARGE'
+
+export interface CheckedFile {
+  name: string
+  size: number
+  modified_at: string
+  actual_at: string | null
+  records: number | null
+  verdict: FileVerdict
+  message: string | null
+}
+
+export interface FileCheckResult {
+  folder: string
+  mask: string
+  files_total: number
+  files: CheckedFile[]
+  last_loaded_at: string | null
+  sample_file: string | null
+  columns: ApiProbeColumn[]
+  type_choices: string[]
+}
+
+export interface RegisteredFile {
+  file_id: number
+  file_name: string
+  file_size: number
+  sha256: string
+  actual_at: string | null
+  status: 'LOADED' | 'FAILED' | 'NO_DATE' | 'NOT_ACTUAL'
+  run_id: number | null
+  rows_read: number | null
+  attempts: number
+  message: string | null
+  first_seen_at: string
+  updated_at: string
+}
+
+function fileObjectPath(sourceObjectId: number): string {
+  return '/api/admin/integrations/source-objects/' + encodeURIComponent(String(sourceObjectId))
+}
+
+export function createFileObject(
+  sourceSystemId: number,
+  code: string,
+  description: string | null,
+): Promise<{ source_object_id: number }> {
+  return apiRequest<{ source_object_id: number }>(
+    `/api/admin/integrations/source-systems/${encodeURIComponent(String(sourceSystemId))}/file-objects`,
+    { method: 'POST', body: JSON.stringify({ code, description }) },
+  )
+}
+
+export function getFileConfig(sourceObjectId: number): Promise<FileConfigState> {
+  return apiRequest<FileConfigState>(fileObjectPath(sourceObjectId) + '/file-config')
+}
+
+export function saveFileConfig(sourceObjectId: number, config: FileConfigDocument): Promise<{ config: FileConfigDocument }> {
+  return apiRequest<{ config: FileConfigDocument }>(fileObjectPath(sourceObjectId) + '/file-config', {
+    method: 'PUT', body: JSON.stringify({ config }),
+  })
+}
+
+export function checkFiles(sourceObjectId: number, config: FileConfigDocument | null): Promise<FileCheckResult> {
+  return apiRequest<FileCheckResult>(fileObjectPath(sourceObjectId) + '/file-config/check', {
+    method: 'POST', body: JSON.stringify({ config }),
+  })
+}
+
+export function saveFileStructure(
+  sourceObjectId: number,
+  columns: ApiProbeColumn[],
+): Promise<{ metadata_capture_id: number, columns_captured: number }> {
+  return apiRequest<{ metadata_capture_id: number, columns_captured: number }>(
+    fileObjectPath(sourceObjectId) + '/file-config/structure', { method: 'POST', body: JSON.stringify({ columns }) },
+  )
+}
+
+export function getFileRegister(sourceObjectId: number): Promise<RegisteredFile[]> {
+  return apiRequest<RegisteredFile[]>(fileObjectPath(sourceObjectId) + '/files')
+}

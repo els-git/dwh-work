@@ -984,10 +984,150 @@ def api_chunks(doc: dict, secret: str | None, plan: Plan, watermark: str | None,
         yield chunk
 
 
+def _record_file(dwh, run_id: int, entry, sha: str, actual_at, status: str, rows: int | None,
+                 message: str | None) -> None:
+    """I12: result for one file in the register (etl.object_file_record), committed at once."""
+    with dwh.cursor() as cur:
+        cur.execute("SELECT etl.object_file_record(%s, %s, %s, %s, %s, %s, %s, %s)",
+                    (run_id, entry.name, entry.size, sha, actual_at, status, rows, message))
+    dwh.commit()
+
+
+def file_records_chunks(records: list[dict], plan: Plan, *, size: int | None = None):
+    """I12: rows of one file (text values in plan.written order). A mapped field absent in every record
+    stops the file (SOURCE_DRIFT), as for an API answer."""
+    from dwh_api import api_request
+
+    size = size or chunk_rows()
+    names = [f["source_column"] for f in plan.written]
+    flat = [api_request.flatten(r) for r in records]
+    if flat:
+        seen = set().union(*(f.keys() for f in flat))
+        missing = [n for n in names if n not in seen]
+        if missing:
+            raise RunError("SOURCE_DRIFT", "Fields of the mapping are not in the file: " + ", ".join(missing[:20]))
+    for start in range(0, len(flat), size):
+        yield [[api_request.to_text(f.get(n)) for n in names] for f in flat[start:start + size]]
+
+
+def choose_files(dwh, run_id: int, cfg: dict, folder, log: Callable[[str], None], now: float) -> list[tuple]:
+    """I12 (F6, F11): files to load, oldest first, as (entry, sha, actual_at). Every other new content gets
+    its result in the register (NO_DATE, NOT_ACTUAL, FAILED); a file still being written is left for later."""
+    from datetime import datetime
+
+    from dwh_api import file_gateway as fg
+
+    with dwh.cursor() as cur:
+        cur.execute("SELECT etl.object_file_state(%s)", (run_id,))
+        state = cur.fetchone()[0]
+    dwh.commit()
+    last = state.get("last_loaded_at")
+    last_at = datetime.fromisoformat(last) if last else None
+    known = state.get("known") or {}
+    entries = fg.list_files(folder, cfg["mask"])
+    log(f"STAGE: {len(entries)} file(s) match the mask {cfg['mask']}"
+        + (f", last loaded file dated {last_at.isoformat()}" if last_at else ", nothing loaded yet"))
+    actual: list[tuple] = []
+    skipped = 0
+    for entry in entries:
+        try:
+            body, sha = fg.read_file(entry)
+        except fg.FileSourceError as exc:
+            if exc.code == "FILE_TOO_LARGE":
+                try:
+                    digest = fg.hash_file(entry)
+                except fg.FileSourceError:
+                    digest = None
+                if digest and known.get(digest) not in ("LOADED", "NOT_ACTUAL", "NO_DATE"):
+                    _record_file(dwh, run_id, entry, digest, None, "FAILED", None, f"{exc.code}: {exc.message}")
+                log(f"STAGE: {entry.name}: {exc.code}")
+            else:
+                log(f"STAGE: {entry.name}: {exc.code}, left for the next run")
+            continue
+        status = known.get(sha)
+        if status in ("LOADED", "NOT_ACTUAL", "NO_DATE"):
+            skipped += 1
+            continue
+        try:
+            parsed = fg.parse_file(body, cfg)
+        except fg.FileSourceError as exc:
+            if exc.code == "FILE_BROKEN" and now - entry.mtime < cfg["wait_seconds"]:
+                log(f"STAGE: {entry.name}: not readable yet, changed {int(now - entry.mtime)} s ago: waiting")
+                continue
+            _record_file(dwh, run_id, entry, sha, None, "FAILED", None, f"{exc.code}: {exc.message}")
+            log(f"STAGE: {entry.name}: {exc.code}")
+            continue
+        finally:
+            del body
+        if parsed.actual_at is None:
+            _record_file(dwh, run_id, entry, sha, None, "NO_DATE", None,
+                         f"No actuality date at '{cfg['date_path']}'"
+                         + (f" (value '{parsed.date_text[:40]}')" if parsed.date_text else ""))
+            log(f"STAGE: {entry.name}: no actuality date, not loaded")
+            continue
+        if last_at is not None and parsed.actual_at <= last_at:
+            _record_file(dwh, run_id, entry, sha, parsed.actual_at, "NOT_ACTUAL", None,
+                         "Not newer than the last loaded file")
+            log(f"STAGE: {entry.name}: dated {parsed.actual_at.isoformat()}, not newer than the last loaded file")
+            continue
+        actual.append((entry, sha, parsed.actual_at))
+    if skipped:
+        log(f"STAGE: {skipped} file(s) already in the register")
+    actual.sort(key=lambda item: (item[2], item[0].name))
+    chosen: list[tuple] = []
+    for item in actual:
+        if chosen and item[2] <= chosen[-1][2]:
+            _record_file(dwh, run_id, item[0], item[1], item[2], "NOT_ACTUAL", None,
+                         "Same date as another file of this run")
+            continue
+        chosen.append(item)
+    if cfg["mode"] == "LATEST" and len(chosen) > 1:
+        for entry, sha, actual_at in chosen[:-1]:
+            _record_file(dwh, run_id, entry, sha, actual_at, "NOT_ACTUAL", None, "A newer file was loaded in this run")
+        chosen = chosen[-1:]
+    return chosen
+
+
+def load_files(dwh, run_id: int, cfg: dict, code: str, plan: Plan, apply_chunks: Callable, log: Callable[[str], None],
+               *, root=None, now: float | None = None) -> int:
+    """I12: loads the chosen files one by one; each loaded file is LOADED in the register with its date.
+    A file that fails is FAILED in the register and stops the run (the rows of earlier files stay)."""
+    import time
+
+    from dwh_api import file_gateway as fg
+
+    folder = fg.source_folder(code, root)
+    log(f"STAGE: files {cfg['format']} in {folder}, mode {cfg['mode']}")
+    chosen = choose_files(dwh, run_id, cfg, folder, log, time.time() if now is None else now)
+    if not chosen:
+        log("STAGE: no new actual file")
+    for entry, sha, actual_at in chosen:
+        try:
+            body, again = fg.read_file(entry)
+            if again != sha:
+                log(f"STAGE: {entry.name}: changed while the run read it, left for the next run")
+                continue
+            parsed = fg.parse_file(body, cfg)
+            del body
+            log(f"STAGE: {entry.name}: dated {actual_at.isoformat()}, {len(parsed.records)} record(s)")
+            apply_chunks(file_records_chunks(parsed.records, plan))
+        except (RunError, fg.FileSourceError, psycopg.Error) as caught:
+            dwh.rollback()
+            error = (caught if isinstance(caught, RunError) else RunError(caught.code, caught.message)
+                     if isinstance(caught, fg.FileSourceError) else database_error(caught, "apply"))
+            _record_file(dwh, run_id, entry, sha, actual_at, "FAILED", None,
+                         f"{error.code}: {error.message}"[:2000])
+            raise RunError(error.code, f"{entry.name}: {error.message}", record_key=error.record_key,
+                           column=error.column, bad_value=error.bad_value, diagnostic=error.diagnostic) from None
+        _record_file(dwh, run_id, entry, sha, actual_at, "LOADED", len(parsed.records), None)
+    return len(chosen)
+
+
 def run_object(source_object_id: int, *, dwh_connect: Callable[[], Any], read_credential: Callable[[str], str],
                source_connect_fn: Callable[[dict, str], Any] = source_connect, row_limit: int = ROW_LIMIT,
                log: Callable[[str], None] = lambda message: None, force_full: bool = False,
-               read_object_credential: Callable[[int], str] | None = None, read_api_pages=None) -> RunResult:
+               read_object_credential: Callable[[int], str] | None = None, read_api_pages=None,
+               file_root=None) -> RunResult:
     """force_full (I08, "Full rerun"): read the whole object once even when the version is INCREMENTAL;
     the watermark of the version is not used, the run records the new one as usual."""
     dwh = dwh_connect()
@@ -1037,7 +1177,15 @@ def run_object(source_object_id: int, *, dwh_connect: Callable[[], Any], read_cr
                     log(f"STAGE: chunk {number}: {staged} rows, {inserted} inserted, {updated} updated; "
                         f"total {committed.read} rows")
 
-            if source.get("object_type") == "API":
+            if source.get("object_type") == "FILE":
+                from dwh_api import file_gateway
+
+                try:
+                    cfg = file_gateway.normalize(source.get("file_config") or {})
+                    load_files(dwh, result.run_id, cfg, source["code"], plan, apply_chunks, log, root=file_root)
+                except file_gateway.FileSourceError as exc:
+                    raise RunError(exc.code, exc.message) from None
+            elif source.get("object_type") == "API":
                 from dwh_api import api_request
 
                 try:

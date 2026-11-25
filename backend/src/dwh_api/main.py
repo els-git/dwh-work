@@ -33,6 +33,7 @@ from dwh_api.dm_builder_admin import admin_router as dm_builder_admin_router, vi
 from dwh_api.server_load import router as server_load_router, start_sampling as start_server_load_sampling
 from dwh_api.audit_log_view import router as audit_log_router
 from dwh_api.api_source_admin import router as api_source_router
+from dwh_api.file_source_admin import router as file_source_router
 from dwh_api.models import (
     ApiError,
     ApiMetadata,
@@ -792,3 +793,4 @@ app.include_router(dm_mart_view_router)
 app.include_router(server_load_router)  # I13-13: server load for administrators
 app.include_router(audit_log_router)  # I13-05: journals for administrators
 app.include_router(api_source_router)  # I11: API objects (HTTP request, cURL, credential, structure)
+app.include_router(file_source_router)  # I12: file objects (settings, check, structure, register)
