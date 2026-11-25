@@ -77,7 +77,8 @@ def main(argv: list[str] | None = None) -> int:
     sys.path.insert(0, str(SRC / "backend" / "src"))
     from dwh_api import ai_llm  # noqa: E402
     from dwh_api.ai_core import (TRANSLATE_SYSTEM, describe_report_data, fold_text_equality,  # noqa: E402
-                                  help_prompt, repair_message, report_system, report_text_columns, run_checked)
+                                  help_prompt, repair_message, report_system, report_text_columns, run_checked,
+                                  trim_found)
     from dwh_api.ai_knowledge import KnowledgeIndex, UserScope, is_russian  # noqa: E402
     from dwh_api.ai_sql_guard import AllowedObject, SqlRejected, check_text, extract_sql, limited  # noqa: E402
     from dwh_api.config import get_api_config  # noqa: E402
@@ -134,6 +135,8 @@ def main(argv: list[str] | None = None) -> int:
                 elif found.only_denied or not found.sections:
                     detail = "no allowed section found"
                 else:
+                    found = trim_found(found, f"{item['question']} {translated or ''}")  # as the application
+                    numbers = [s.number for s in found.sections]
                     system, text = help_prompt(found, item["question"], None, translated)
                     answer = ai_llm.chat(settings, system, text, None, 700)
                     section_ok = any(n in numbers for n in item["sections"])

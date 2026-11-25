@@ -44,6 +44,49 @@ TRANSLATE_SYSTEM = (
     "переводи так, как они звучат по-русски. Верни только перевод одной строкой, без пояснений.")
 
 
+# Help context (25.11.2026): the model on the server reads the prompt at a few tokens per second, so only the
+# paragraphs of the found sections that share words with the question are sent, within a character budget.
+HELP_CONTEXT_CHARS = 2400
+HELP_CONTEXT_MIN_SECTIONS = 2
+
+
+def trim_found(found: SearchResult, question: str, budget: int = HELP_CONTEXT_CHARS) -> SearchResult:
+    """The found sections cut to the lines that share words with the question (the title is always kept).
+    The first sections keep their opening lines when no line matches; later sections without a matching line are
+    dropped. The order of lines inside a section is kept; the whole context stays within `budget` characters."""
+    from dataclasses import replace
+
+    from dwh_api.ai_knowledge import stems
+
+    wanted = stems(question)
+    kept: list = []
+    left = budget
+    for rank, section in enumerate(found.sections):
+        lines = [line for line in section.text.split("\n") if line.strip()]
+        if not lines or left <= 0:
+            break
+        title, body = lines[0], lines[1:]
+        scored = [(len(stems(line) & wanted), index) for index, line in enumerate(body)]
+        matched = sorted((x for x in scored if x[0] > 0), key=lambda x: (-x[0], x[1]))
+        if not matched:
+            if rank >= HELP_CONTEXT_MIN_SECTIONS:
+                continue
+            matched = [(0, index) for index in range(len(body))]
+        share = left if rank + 1 >= len(found.sections) else max(left // 2, min(left, 600))
+        chosen: list[int] = []
+        used = len(title)
+        for _, index in matched:
+            cost = len(body[index]) + 1
+            if used + cost > share:
+                continue
+            chosen.append(index)
+            used += cost
+        text = "\n".join([title] + [body[i] for i in sorted(chosen)])
+        kept.append(replace(section, text=text))
+        left -= len(text)
+    return replace(found, sections=kept)
+
+
 def help_prompt(found: SearchResult, question: str, screen_map: str | None = None,
                 translated: str | None = None) -> tuple[str, str]:
     """System and user messages for a help question; only the sections the user may read are included.

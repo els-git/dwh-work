@@ -41,7 +41,7 @@ from pydantic import BaseModel, Field
 from dwh_api import ai_diagnosis, ai_llm
 from dwh_api.ai_core import (DENIED_TEXT, MAX_ROWS, NO_HELP_TEXT, TRANSLATE_SYSTEM, describe_report_data,
                              fold_text_equality, help_prompt, repair_message, report_system, report_text_columns,
-                             run_checked)
+                             run_checked, trim_found)
 from dwh_api.ai_knowledge import KnowledgeIndex, UserScope, is_russian
 from dwh_api.ai_sql_guard import AllowedObject, SqlRejected, check_text, extract_sql
 from dwh_api.auth import _load_auth_state
@@ -334,6 +334,8 @@ def cancel(payload: CancelRequest, request: Request) -> dict:
 
 
 HELP_MAX_TOKENS = 1200
+# Help questions keep only the last two question/answer pairs: the earlier ones slow the model down.
+HELP_HISTORY_MESSAGES = 4
 
 
 @router.post("/help")
@@ -342,7 +344,7 @@ def help_answer(payload: HelpRequest, request: Request) -> dict:
     image = check_image(payload.image)
     settings = llm_settings()
     request_id = begin(request, "HELP", payload.question, image is not None, settings)
-    history = dialogue(payload.history)
+    history = dialogue(payload.history)[-HELP_HISTORY_MESSAGES:]
     with Stoppable(request, payload.client_id) as token:
         translated = None
         if not is_russian(payload.question):
@@ -362,6 +364,7 @@ def help_answer(payload: HelpRequest, request: Request) -> dict:
             return {"request_id": request_id, "status": "NO_DATA", "code": "AI_HELP_NOT_FOUND",
                     "answer": NO_HELP_TEXT, "sections": []}
         screen_map = knowledge().screen_map(user) if image else None
+        found = trim_found(found, f"{payload.question} {translated or ''} {last_user_text(history)}")
         system, user_text = help_prompt(found, payload.question, screen_map, translated)
         # Help answers are longer than reports and Azerbaijani/English text takes more tokens: 1200, not 700.
         answer = ask_model(request, request_id, settings, system, user_text, image, max_tokens=HELP_MAX_TOKENS,
