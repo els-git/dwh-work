@@ -120,3 +120,12 @@ E0 PASS (база `e0_034` из `e0_033`): check 7/7, тест F01–F12, пов
 ### 7.3. Шаг 5 — папка и тестовые файлы (25.11.2026)
 
 `dwh_test_api_setup.py --check` — `TEST_API_RESULT: PASS`. `dwh_test_files.py --apply`: папка `/srv/dwh/files/PV_FILES` (`root:dwh`, `0750`), 9 файлов по 136 строк — `svc_full_1..3.json`, `svc_inc_1..3.json` (даты 23, 24, 25.11.2026 09:00 +04:00), `svc_xml_1..2.xml`, `svc_jsonl_1.jsonl` (`root:dwh`, `0640`); `TEST_FILES_RESULT: PASS`; `sudo -u dwh ls` — файлы видны службам. Расписание `PROCESS_VIEWER` `public.app_users` выключено пользователем после E2. Далее — шаг 6, приёмка.
+
+### 7.4. Приёмка, часть 1 — PASS (25.11.2026)
+
+Источник `PV_FILES` (вид `FILE`); объекты `file.services_full` (маска `svc_full_*.json`, «только самый новый») и `file.services_inc` (`svc_inc_*.json`, «все новые»), STG v1 и ODS v1 опубликованы (`stg.file_services_full`, `stg.file_services_inc`, `ods.*`).
+- Заявка №242 (`services_full`): STG и ODS `SUCCESS`, прочитано 136, вставлено 136; реестр — `svc_full_3.json` «Загружен» (136), `svc_full_1/2` «Не актуален».
+- Заявка №243 (`services_inc`): STG `SUCCESS`, прочитано 408, вставлено 136, обновлено 9 (версии 2 и 3 меняют описание 3 и 6 строк); реестр — три файла «Загружен» с датами 23, 24, 25.11.2026 09:00.
+- Повтор №244: STG прочитано 0 (новых актуальных файлов нет), ODS без изменений.
+
+Замечания интерфейса (не блокируют): пояснение «A newer file was loaded in this run» в реестре — по-английски; даты реестра и проверки показаны в формате браузера (`11/25/2026, 9:00:00 AM`).
