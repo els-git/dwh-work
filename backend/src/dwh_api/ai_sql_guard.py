@@ -28,6 +28,11 @@ FORBIDDEN_WORDS = {
     "query_to_xml", "table_to_xml", "cursor_to_xml", "lo_import", "lo_export", "lo_get", "txid_current",
 }
 FORBIDDEN_PREFIXES = ("pg_", "lo_", "dblink")
+# I14-07, finding H1: functions that run a query given as text read tables the plan does not show
+# (schema_to_xml('dm', ...) reads every mart). Every name with "xml" is refused, and ts_stat / ts_rewrite,
+# which also execute their text argument. Package 037 takes EXECUTE on these functions from PUBLIC as well.
+FORBIDDEN_PARTS = ("xml",)
+FORBIDDEN_WORDS |= {"ts_stat", "ts_rewrite"}
 
 
 class SqlRejected(ValueError):
@@ -55,6 +60,33 @@ def _strip_literals(sql: str) -> str:
     return STRING_RE.sub("''", sql)
 
 
+def _escape_string_prefix(sql: str) -> str | None:
+    """The prefix of the first E'...' (backslash escapes) or U&'...' (unicode escapes) literal, if any.
+
+    Such literals end at a different quote than STRING_RE assumes, so code after them could be taken for a
+    literal and skip the checks (I14-07, finding H1). They are not needed in report queries: refused."""
+    in_literal = False
+    i = 0
+    while i < len(sql):
+        ch = sql[i]
+        if in_literal:
+            if ch == "'":
+                if i + 1 < len(sql) and sql[i + 1] == "'":
+                    i += 2
+                    continue
+                in_literal = False
+        elif ch == "'":
+            before = sql[max(0, i - 2):i]
+            lead = sql[i - 3] if i >= 3 else " "
+            if before[-1:] in ("e", "E") and not (before[:1].isalnum() or before[:1] in "_$"):
+                return before[-1:]
+            if before.upper() == "U&" and not (lead.isalnum() or lead in "_$"):
+                return before
+            in_literal = True
+        i += 1
+    return None
+
+
 def check_text(sql: str, allowed: Iterable[AllowedObject], dm_relations: Iterable[str]) -> tuple[str, list[int]]:
     """Return the normalized statement and the ids of the whitelist objects it uses, or raise SqlRejected."""
     statement = (sql or "").strip().rstrip(";").strip()
@@ -66,6 +98,8 @@ def check_text(sql: str, allowed: Iterable[AllowedObject], dm_relations: Iterabl
         raise SqlRejected("AI_OBJECT_NOT_ALLOWED", "the data is not available to the user's role")
     if len(statement) > MAX_SQL_CHARS:
         raise SqlRejected("AI_SQL_TOO_LONG", "the query is too long")
+    if _escape_string_prefix(statement) is not None:
+        raise SqlRejected("AI_SQL_ESCAPE_STRING", "E'...' and U&'...' strings are not allowed")
     if QUOTED_IDENT_RE.search(_strip_literals(statement)):
         raise SqlRejected("AI_SQL_QUOTED_NAME", "quoted names are not allowed")
     bare = _strip_literals(statement)
@@ -79,7 +113,7 @@ def check_text(sql: str, allowed: Iterable[AllowedObject], dm_relations: Iterabl
     if not words or words[0] not in ("select", "with"):
         raise SqlRejected("AI_SQL_NOT_SELECT", "only SELECT is allowed")
     for word in words:
-        if word in FORBIDDEN_WORDS or word.startswith(FORBIDDEN_PREFIXES):
+        if word in FORBIDDEN_WORDS or word.startswith(FORBIDDEN_PREFIXES) or any(p in word for p in FORBIDDEN_PARTS):
             raise SqlRejected("AI_SQL_FORBIDDEN", f"forbidden word: {word}")
     allowed_by_name = {o.object_name.lower(): o for o in allowed if o.schema_name == "dm"}
     dm_names = {name.lower() for name in dm_relations}

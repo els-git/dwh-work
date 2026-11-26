@@ -63,6 +63,29 @@ class TextTests(unittest.TestCase):
     def test_no_allowed_objects(self):
         self.assertEqual(code("SELECT * FROM dm.v_retail_application_current", ()), "AI_OBJECT_NOT_ALLOWED")
 
+    def test_hidden_queries_i14_07_h1(self):
+        # functions that run a query given as text (the plan does not show what they read) and literals whose
+        # end differs from the simple parser (E'...', U&'...') are refused; ordinary literals with "e" still pass
+        hidden = "||".join(f"chr({ord(c)})" for c in "select count(*) from dm.salary_project")
+        cases = {
+            "SELECT schema_to_xml('dm', true, false, '') FROM dm.v_retail_application_current":
+                "AI_SQL_FORBIDDEN",
+            "SELECT database_to_xml(true, false, '') FROM dm.v_retail_application_current": "AI_SQL_FORBIDDEN",
+            "SELECT query_to_xml_and_xmlschema('x', true, false, '') FROM dm.v_retail_application_current":
+                "AI_SQL_FORBIDDEN",
+            "SELECT xmlagg(xmlelement(name a)) FROM dm.v_retail_application_current": "AI_SQL_FORBIDDEN",
+            "SELECT * FROM ts_stat('x'), dm.v_retail_application_current": "AI_SQL_FORBIDDEN",
+            f"SELECT E'\\'' , query_to_xml({hidden}, true, false, chr(32)) , '' AS x "
+            "FROM dm.v_retail_application_current": "AI_SQL_ESCAPE_STRING",
+            "SELECT e'x' FROM dm.v_retail_application_current": "AI_SQL_ESCAPE_STRING",
+            "SELECT U&'d\\0061' FROM dm.v_retail_application_current": "AI_SQL_ESCAPE_STRING",
+        }
+        for sql, expected in cases.items():
+            self.assertEqual(code(sql), expected, sql)
+        for sql in ("SELECT count(*) FROM dm.v_retail_application_current WHERE status_name_ru = 'done e'",
+                    "SELECT CASE WHEN 1 = 1 THEN'a' ELSE'b' END FROM dm.v_retail_application_current"):
+            self.assertEqual(code(sql), "OK", sql)
+
     def test_extract_and_limit(self):
         self.assertEqual(extract_sql("text\n```sql\nSELECT 1\n```\nmore"), "SELECT 1")
         self.assertEqual(extract_sql("SELECT 2"), "SELECT 2")

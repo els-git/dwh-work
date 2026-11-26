@@ -8,8 +8,8 @@ Plan docs/DWH_I14_V1_ACCEPTANCE_PLAN_APPROVED_20261126.md (R4 = A). Sections:
   R  release: /opt/dwh/current points to an installed release
   C  copies: the newest /backup/dwh/dwh_*.dump is at most 26 hours old and its .sha256 matches
   T  TLS (dwh_tls.py check) and SecretStore (dwh_secret_check.py) of the same release: their result lines
-  P  packages 016..036 of tools/server/sql_packages.json applied (marker present); check of the last packages
-     (036, 035) as dwh_app in a read-only transaction gives the expected number of PASS
+  P  packages 016..037 of tools/server/sql_packages.json applied (marker present); check of the last packages
+     (037, 036, 035) as dwh_app in a read-only transaction gives the expected number of PASS
   Q  queues and runs: no request of objects or marts QUEUED/CLAIMED/RUNNING longer than 2 hours, no run
      RUNNING longer than 2 hours, no enabled schedule late by more than 30 minutes (the dispatcher fires them)
   I  information only: objects by state of the last request, errors of the last 7 days by kind
@@ -39,7 +39,7 @@ CURRENT = Path("/opt/dwh/current")
 REQUIRED_UNITS = ("dwh-api.service", "dwh-dispatcher.service", "nginx.service", "postgresql.service",
                   "dwh-backup.timer")
 OPTIONAL_UNITS = ("dwh-llm.service", "dwh-test-api.service")
-CHECKED_PACKAGES = ("036", "035")
+CHECKED_PACKAGES = ("037", "036", "035")
 BACKUP_MAX_HOURS = 26
 STUCK_HOURS = 2
 SCHEDULE_LATE_MINUTES = 30
