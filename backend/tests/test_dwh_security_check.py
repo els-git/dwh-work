@@ -61,8 +61,11 @@ class SecretScanTest(unittest.TestCase):
         found = sc.scan_text(b"connect " + SECRET.encode() + b"\nAuthorization: Bearer " + b"a" * 40
                              + b"\n-----BEGIN PRIVATE KEY-----\npassword=hunter22\n")
         self.assertEqual(set(k for k, v in found.items() if v), set(sc.SECRET_PATTERNS))
+        self.assertEqual(sc.scan_text(b'{"password": "hunter22"}')["password=<value>"], 1)
+        self.assertEqual(sc.scan_text(b"host=x password=hunter22 dbname=y")["password=<value>"], 1)
         clean = sc.scan_text(b"password=*** password: <hidden> DWH_DB_PASSWORD is set password=${PW} "
-                             b"pwd: '' postgresql://127.0.0.1/dwh Bearer token missing password=None")
+                             b"pwd: '' postgresql://127.0.0.1/dwh Bearer token missing password=None "
+                             b"ROLE_CREATED dwh_ai_ro (no password: login impossible until it is set)")
         self.assertEqual(sum(clean.values()), 0, clean)
 
     def test_journal_and_reports_print_counts_not_text(self):
@@ -138,6 +141,15 @@ class ServerTest(unittest.TestCase):
             seen, bad = sc.mode_problems(patterns)
             self.assertEqual(seen, 3)
             self.assertEqual(len(bad), 2, bad)
+            os.chmod(base, 0o755)
+            os.chmod(base / "keyring", 0o755)
+            report, out = capture(lambda r: sc.check_files(r, base, patterns))
+            self.assertIn("FAIL  B9 private files (3 checked)", out)
+            os.chmod(base, 0o700)  # the folder closes the files: only a warning
+            report, out = capture(lambda r: sc.check_files(r, base, patterns))
+            os.chmod(base, 0o755)
+            self.assertIn("PASS  B9 private files (3 checked)", out)
+            self.assertIn("WARN  B9 private files with open mode, closed only by their folder: 3", out)
             release = base / "release"
             (release / "src").mkdir(parents=True)
             (release / "src" / "a.py").write_text("x")
@@ -158,7 +170,7 @@ CLEAN_DB = {
                                       "search_path=ods"]},
     "missing_roles": [], "login_superusers": [], "public_connect": False, "public_create": [], "public_tables": [],
     "definer_no_path": [], "definer_public": [], "ai_outside": [], "dm_sql_outside": [], "ro_write": [],
-    "audit_write": [], "audit_read": [], "secret_write": [], "secret_read": [],
+    "audit_write": [], "audit_insert": [], "audit_read": [], "secret_write": [], "secret_read": [],
     "default_acl": [{"owner": "dwh_admin", "schema": "audit", "type": "r", "grantees": "dwh_etl"}],
     "event_table": True,
     "event_triggers": {"trg_security_event_append_only": True, "trg_security_event_no_truncate": True},
@@ -187,6 +199,7 @@ class DatabaseTest(unittest.TestCase):
 
     def test_findings(self):
         data = dict(CLEAN_DB, ai_outside=["ods.x"], public_connect=True, audit_read=["dwh_etl audit.revoked_grant_036"],
+                    audit_write=["dwh_etl INSERT audit.revoked_grant_036"], audit_insert=["dwh_etl"],
                     event_triggers={"trg_security_event_append_only": True},
                     roles=[dict(CLEAN_DB["roles"][0], super=True)],
                     ro_settings={"dwh_ai_ro": ["statement_timeout=30s", "search_path=dm,public"]})
@@ -199,7 +212,10 @@ class DatabaseTest(unittest.TestCase):
                       out)
         self.assertIn("trg_security_event_no_truncate missing", out)
         self.assertIn("FAIL  B3 dwh_ai_ro settings: read-only -, statement_timeout 30s, search_path dm,public", out)
-        self.assertEqual(report.count("FAIL"), 5, out)
+        self.assertIn("FAIL  B3 working roles change no audit table (INSERT into audit.security_event aside): "
+                      "dwh_etl INSERT audit.revoked_grant_036", out)
+        self.assertIn("WARN  B3 roles that may INSERT into audit.security_event directly: 1: dwh_etl", out)
+        self.assertEqual(report.count("FAIL"), 6, out)
 
 
 if __name__ == "__main__":
