@@ -628,5 +628,35 @@
       "label": "034",
       "expected": 7
     }
+  },
+  "036": {
+    "number": "036",
+    "owner": "dwh_admin",
+    "marker": "audit.audit_ai_settings()",
+    "copy_db": "dwh_i13_036_test",
+    "check_expected": 7,
+    "added_rows": {},
+    "migration": {
+      "path": "database/migrations/036_least_privilege_ai_audit.sql",
+      "sha256": "43CE28DD0BCCEFBF7C15EF0B44097D94C0E2E4F816360AA82AF71E957764224F"
+    },
+    "down": {
+      "path": "database/migrations/036_least_privilege_ai_audit.down.sql",
+      "sha256": "C6B289654C6085C5B90B8CC1604EC2E074E852EBFDEFE132D57ED2A98296D110"
+    },
+    "check": {
+      "path": "database/checks/036_least_privilege_ai_audit_check.sql",
+      "sha256": "CF534107A9B1F5F64F35BDC3473BF30E58C92DBB9C59641A62B753522DDEBE36"
+    },
+    "test": {
+      "path": "database/tests/036_least_privilege_ai_audit_test.sql",
+      "sha256": "4F199AE08FAA1FC42237C9FFC448508437C3CBE0493FBD8772B6FBF2D2AB061B"
+    },
+    "previous_check": {
+      "path": "database/checks/035_file_warnings_check.sql",
+      "sha256": "D61D76363556771F2E216CE3209822803763F688F1DCD217C25F9E45CCA12118",
+      "label": "035",
+      "expected": 5
+    }
   }
 }
