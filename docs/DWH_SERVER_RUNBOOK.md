@@ -302,6 +302,14 @@ sudo python3 /opt/dwh/current/src/tools/server/dwh_test_files.py --remove     # 
 
 Итог — `TEST_FILES_RESULT`. Базовый набор: `svc_full_1..3.json` (для режима «самый новый»), `svc_inc_1..3.json` (для «все новые»), `svc_xml_1..2.xml`, `svc_jsonl_1.jsonl`; дата актуальности — внутри файла (`meta.actual_at`, `export.header.actual_at`, `actual_at` в первой строке).
 
+## 4k. Проверка сервера для приёмки v1 (I14)
+
+Только чтение, ничего не меняет:
+```bash
+sudo python3 /opt/dwh/current/src/tools/server/dwh_v1_check.py
+```
+Службы, текущий выпуск, свежесть и SHA-256 последней копии, `dwh_tls.py check` и `dwh_secret_check.py`, применение пакетов 016–036 и check последних пакетов под `dwh_app`, зависшие заявки и запуски (дольше 2 ч), опоздавшие расписания (больше 30 мин); для сведения — объекты по итогу последней заявки, ошибки за 7 дней по видам, события аудита за сутки. Итог — `V1_CHECK_RESULT`, отчёт — `/srv/dwh/incoming/v1_check_<время>.txt`. Свежая заявка в работе — `WARN`, не ошибка. Если DNS-имя другое — `--name <имя>`.
+
 ## 5. Проверки и задачи
 
 - Сеть (шаг 5), только чтение:
