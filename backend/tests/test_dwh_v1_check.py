@@ -125,7 +125,7 @@ class V1CheckTest(unittest.TestCase):
         self.assertIn("V1_CHECK_RESULT: PASS", out)
         self.assertIn("release: 2026.11.80", out)
         self.assertIn("check 036 as dwh_app (read-only): 7/7 PASS", out)
-        self.assertIn("check 035 as dwh_app (read-only): 5/5 PASS", out)
+        self.assertIn("check 038 as dwh_app (read-only): 6/6 PASS", out)
         self.assertIn(f"packages {min(PACKAGES)}..{max(PACKAGES)}: {len(PACKAGES)} applied", out)
         self.assertIn("check 037 as dwh_app (read-only): 5/5 PASS", out)
         self.assertIn("objects (active) by the last request: NEVER 1, SUCCESS 5", out)
