@@ -658,5 +658,35 @@
       "label": "035",
       "expected": 5
     }
+  },
+  "037": {
+    "number": "037",
+    "owner": "dwh_admin",
+    "marker": "audit.revoked_grant_037",
+    "copy_db": "dwh_i14_037_test",
+    "check_expected": 5,
+    "added_rows": {},
+    "migration": {
+      "path": "database/migrations/037_ai_hidden_query_functions.sql",
+      "sha256": "3BBB1A4D9B4A6B9BECF7EA0C9F217CD18C3E2854E563B6AAC645ABD052B3A5EC"
+    },
+    "down": {
+      "path": "database/migrations/037_ai_hidden_query_functions.down.sql",
+      "sha256": "06F1B8E6815EB33F9F7C4DD305B7807A691713438FF2C952AE5DD52E7526DB60"
+    },
+    "check": {
+      "path": "database/checks/037_ai_hidden_query_functions_check.sql",
+      "sha256": "D5739906FF38F2020AB63B9FA7D9E08F6B272727420288EDD722B47522EFA59A"
+    },
+    "test": {
+      "path": "database/tests/037_ai_hidden_query_functions_test.sql",
+      "sha256": "1F3BF576481B7062BED99DD71ED04FB97968AD648AC9CC274C47AD0CAE6924BF"
+    },
+    "previous_check": {
+      "path": "database/checks/036_least_privilege_ai_audit_check.sql",
+      "sha256": "CF534107A9B1F5F64F35BDC3473BF30E58C92DBB9C59641A62B753522DDEBE36",
+      "label": "036",
+      "expected": 7
+    }
   }
 }
