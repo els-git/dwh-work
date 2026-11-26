@@ -38,7 +38,8 @@
 - `ai_sql_guard.check_text`: отклоняются строки с префиксом `E`/`U&` (`AI_SQL_ESCAPE_STRING`) и любые имена с `xml`, `ts_stat`, `ts_rewrite` (`AI_SQL_FORBIDDEN`); обычные строки с буквой «e» и `ELSE'…'` проходят; тест `test_ai_sql_guard.TextTests.test_hidden_queries_i14_07_h1`;
 - пакет 037 `database/migrations/037_ai_hidden_query_functions.sql`: `REVOKE EXECUTE` у `PUBLIC`, `dwh_app`, `dwh_etl`, `dwh_ai_ro`, `dwh_dm_sql_ro` на 18 функций `pg_catalog` (16 имён: `query/table/cursor/schema/database_to_xml…`, `ts_stat`, `ts_rewrite`); снятые права — в `audit.revoked_grant_037`, откат возвращает их; **E0 PASS** (база `e0_037`: check 5/5, тест H01–H07 — каждая рабочая роль получает `42501`, `xmlelement` работает; повтор отклонён; откат и повторное применение; check 036 7/7, 035 5/5);
 - тесты backend 493 OK.
-Далее: выпуск, E1 и E2 пакета 037, проверка на сервере тестовой учётной записью (шаг 3 аудита).
+**E1 037, попытка 1 (выпуск `2026.11.81`) — STOP на H07:** check 5/5, check 036 7/7, H01–H06 PASS; новую таблицу `audit.revoked_grant_037` читают `dwh_app`/`dwh_etl` — права по умолчанию схемы `audit` на сервере, миграция снимала только `PUBLIC`. Исправлено: после создания таблицы миграция снимает права у всех, кроме владельца (`DEFAULT_GRANT_REVOKED …`, как в пакете 005); в E0 права по умолчанию схемы `audit` воспроизводятся (`ALTER DEFAULT PRIVILEGES FOR ROLE dwh_admin IN SCHEMA audit GRANT SELECT ON TABLES TO dwh_app, dwh_etl`): прежний файл — FAIL H07, новый — **E0 PASS** (H01–H07, откат и повторное применение, check 036 7/7, 035 5/5); тесты backend 492 OK.
+Далее: выпуск `2026.11.82`, E1 и E2 пакета 037, проверка на сервере тестовой учётной записью (шаг 3 аудита).
 
 ### Н2 — низкий: `/api/meta` отвечает без входа
 
@@ -47,6 +48,10 @@
 ### Н3 — низкий: нет заголовка Content-Security-Policy
 
 `deploy/nginx/dwh.conf` ставит HSTS, `X-Content-Type-Options`, `X-Frame-Options DENY`, `Referrer-Policy`, `server_tokens off`, TLS 1.2/1.3 — но не CSP. В коде интерфейса нет `dangerouslySetInnerHTML`, `innerHTML`, `eval` — риск XSS низкий; CSP — второй рубеж. Предложение: `default-src 'self'` с проверкой в браузере.
+
+### Н4 — низкий: `audit.revoked_grant_036` вероятно читают рабочие роли
+
+Пакет 036 создал `audit.revoked_grant_036` и снял права только у `PUBLIC` — та же ошибка, что у 037 в E1 (права по умолчанию схемы `audit`). Содержимое — список снятых привилегий `dwh_etl` (без данных и секретов), риск низкий. Проверить на сервере (только чтение) в составе шага 2 аудита; исправление — на решение пользователя.
 
 ## Проверено, замечаний нет
 

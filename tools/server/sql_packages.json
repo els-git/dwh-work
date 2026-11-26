@@ -668,7 +668,7 @@
     "added_rows": {},
     "migration": {
       "path": "database/migrations/037_ai_hidden_query_functions.sql",
-      "sha256": "3BBB1A4D9B4A6B9BECF7EA0C9F217CD18C3E2854E563B6AAC645ABD052B3A5EC"
+      "sha256": "689F986FBC47C9C6AB5598590FEB4C5F99C2B7712C84C6A10C9E5AFA68175049"
     },
     "down": {
       "path": "database/migrations/037_ai_hidden_query_functions.down.sql",
