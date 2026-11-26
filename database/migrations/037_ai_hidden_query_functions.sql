@@ -26,6 +26,20 @@ CREATE TABLE audit.revoked_grant_037 (
   PRIMARY KEY (function_signature, grantee)
 );
 REVOKE ALL ON audit.revoked_grant_037 FROM PUBLIC;
+-- Default privileges of schema audit may grant the new table to working roles: take them explicitly.
+DO $acl$
+DECLARE r record;
+BEGIN
+  FOR r IN SELECT DISTINCT a.grantee FROM pg_class c, aclexplode(c.relacl) a
+            WHERE c.oid = 'audit.revoked_grant_037'::regclass AND a.grantee <> c.relowner
+  LOOP
+    EXECUTE format('REVOKE ALL ON audit.revoked_grant_037 FROM %s',
+                   CASE WHEN r.grantee = 0 THEN 'PUBLIC' ELSE quote_ident(pg_get_userbyid(r.grantee)) END);
+    RAISE NOTICE 'DEFAULT_GRANT_REVOKED audit.revoked_grant_037 FROM %',
+                 CASE WHEN r.grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(r.grantee) END;
+  END LOOP;
+END
+$acl$;
 
 DO $revoke$
 DECLARE
