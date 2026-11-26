@@ -47,7 +47,7 @@ SERVICES = ("dwh-api.service", "dwh-dispatcher.service", "dwh-llm.service", "dwh
 PUBLIC_PORTS = {22, 80, 443}
 LOCAL_ONLY_PORTS = {8000: "API", 8081: "model", 8090: "test API"}
 PRIVATE_FILES = (  # (folder, glob, mask of forbidden mode bits, what); a glob with * matches files only
-    ("/etc/dwh", "*.env", 0o007, "settings"),
+    ("/etc/dwh", "*.env", 0o007, "settings"),  # except NO_SECRET_FILES
     ("/etc/dwh/keyring", "*", 0o077, "master keys"),
     ("/etc/dwh/ldap", "*", 0o077, "LDAP service password"),
     ("/etc/dwh/credentials", "*", 0o077, "service passwords"),
@@ -59,12 +59,16 @@ PRIVATE_FILES = (  # (folder, glob, mask of forbidden mode bits, what); a glob w
     ("/backup/dwh", "secrets", 0o007, "SecretStore copies folder"),
     ("/backup/dwh/secrets", "**/*", 0o007, "SecretStore copies"),
 )
+NO_SECRET_FILES = {"/etc/dwh/llm.env"}  # model files and threads of llama-server, 0644 by dwh_ai_setup.py
 SECRET_PATTERNS = {
     "connection string with password": re.compile(rb"postgres(?:ql)?://[^:@/\s]+:[^@/\s]+@"),
     "Bearer token": re.compile(rb"(?i)\bbearer\s+[A-Za-z0-9._~+/=-]{20,}"),
     "private key": re.compile(rb"-----BEGIN [A-Z ]*PRIVATE KEY-----"),
+    # password=<value> without spaces (URL, DSN, environment) or "password": "<value>" (JSON, YAML); a phrase like
+    # "no password: login impossible" is not a value.
     "password=<value>": re.compile(
-        rb"(?i)\b(?:password|passwd|pwd)\s*[=:]\s*(?![*<${%]|''|\"\"|none\b|null\b|true\b|false\b)[^\s,;'\")]{4,}"),
+        rb"(?i)\b(?:password|passwd|pwd)=(?![*<${%]|none\b|null\b)[^\s,;'\")&]{4,}"
+        rb"|[\"']?\b(?:password|passwd|pwd)[\"']?\s*:\s*[\"'](?![*<${%])[^\"'\s]{4,}[\"']"),
 }
 
 ROLES_SQL = """
@@ -111,7 +115,10 @@ SELECT json_build_object(
   'ro_write', (SELECT coalesce(json_agg(DISTINCT r || ' ' || p || ' ' || name), '[]') FROM priv
                 WHERE r IN ('dwh_ai_ro', 'dwh_dm_sql_ro') AND p <> 'SELECT'),
   'audit_write', (SELECT coalesce(json_agg(DISTINCT r || ' ' || p || ' ' || name), '[]') FROM priv
-                   WHERE nspname = 'audit' AND p IN ('UPDATE', 'DELETE', 'TRUNCATE')),
+                   WHERE nspname = 'audit' AND p <> 'SELECT'
+                     AND NOT (p = 'INSERT' AND name = 'audit.security_event')),
+  'audit_insert', (SELECT coalesce(json_agg(DISTINCT r), '[]') FROM priv
+                    WHERE name = 'audit.security_event' AND p = 'INSERT'),
   'audit_read', (SELECT coalesce(json_agg(DISTINCT r || ' ' || name), '[]') FROM priv
                   WHERE nspname = 'audit' AND p = 'SELECT'),
   'secret_write', (SELECT coalesce(json_agg(DISTINCT r || ' ' || p || ' ' || name), '[]') FROM priv
@@ -183,8 +190,10 @@ def check_database(report: Report, db: Db) -> None:
                          f"statement_timeout {conf.get('statement_timeout', '-')}, "
                          f"search_path {conf.get('search_path', '-')} (expected {schema})")
     report.check(not d["ro_write"], "B3 dwh_ai_ro and dwh_dm_sql_ro write nothing" + listing(d["ro_write"]))
-    report.check(not d["audit_write"], "B3 no working role may UPDATE/DELETE/TRUNCATE audit tables"
-                 + listing(d["audit_write"]))
+    report.check(not d["audit_write"], "B3 working roles change no audit table (INSERT into audit.security_event "
+                 "aside)" + listing(d["audit_write"]))
+    report.check(not d["audit_insert"], "B3 roles that may INSERT into audit.security_event directly: "
+                 f"{len(d['audit_insert'])}" + listing(d["audit_insert"]), warn=True)
     report.check(not d["audit_read"], "B3 audit tables read directly by working roles (N4): "
                  f"{len(d['audit_read'])}" + listing(d["audit_read"]), warn=True)
     report.check(not d["secret_write"], "B3 no working role writes secret_store tables directly"
@@ -317,7 +326,8 @@ def mode_problems(patterns=PRIVATE_FILES) -> tuple[int, list[str]]:
                 st = path.lstat()
             except OSError:
                 continue
-            if stat.S_ISLNK(st.st_mode) or ("*" in pattern and not stat.S_ISREG(st.st_mode)):
+            if stat.S_ISLNK(st.st_mode) or ("*" in pattern and not stat.S_ISREG(st.st_mode)) \
+                    or str(path) in NO_SECRET_FILES:
                 continue
             seen += 1
             if st.st_mode & mask:
@@ -339,9 +349,25 @@ def world_writable(root: Path) -> list[str]:
     return found
 
 
+def closed_parent(path: str) -> str | None:
+    """The nearest folder above the file that others cannot enter (no o+x), or None if the file is reachable."""
+    for parent in Path(path).parents:
+        try:
+            if not parent.stat().st_mode & stat.S_IXOTH:
+                return str(parent)
+        except OSError:
+            return str(parent)
+    return None
+
+
 def check_files(report: Report, current: Path = CURRENT, patterns=PRIVATE_FILES) -> None:
     seen, bad = mode_problems(patterns)
-    report.check(seen > 0 and not bad, f"B9 private files ({seen} checked) not readable by others" + listing(bad))
+    exposed = [b for b in bad if closed_parent(b.split(" ", 1)[0]) is None]
+    hidden = [f"{b} behind {closed_parent(b.split(' ', 1)[0])}" for b in bad if b not in exposed]
+    report.check(seen > 0 and not exposed, f"B9 private files ({seen} checked) not readable by others"
+                 + listing(exposed))
+    report.check(not hidden, f"B9 private files with open mode, closed only by their folder: {len(hidden)}"
+                 + listing(hidden, 3), warn=True)
     release = Path(os.path.realpath(current))
     if release.is_dir():
         found = world_writable(release)
