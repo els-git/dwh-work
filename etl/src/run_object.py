@@ -950,10 +950,16 @@ def check_free_space(src, schema: str, table: str, log: Callable[[str], None]) -
                        f"{needed // 2**20} MB, the DWH disk has {free // 2**20} MB free")
 
 
+# I13-01 (R1 = A'): pages with at least this many records are checked for the fields of the mapping
+API_DRIFT_MIN_RECORDS = 10
+
+
 def api_chunks(doc: dict, secret: str | None, plan: Plan, watermark: str | None, log: Callable[[str], None],
                *, size: int | None = None, read_pages=None):
     """I11: rows of an API object (text values in plan.written order), in chunks of at most `size` rows.
-    A mapped field that is absent in every record of the first non-empty page stops the run (SOURCE_DRIFT)."""
+    A mapped field that is absent in every record of the first non-empty page, or of any later page with at least
+    API_DRIFT_MIN_RECORDS records, stops the run before that page is written (SOURCE_DRIFT; I13-01, decision R1 = A').
+    Shorter pages are not judged: an API often omits empty fields, and a short last page may lack an optional one."""
     from dwh_api import api_request
 
     size = size or chunk_rows()
@@ -965,12 +971,12 @@ def api_chunks(doc: dict, secret: str | None, plan: Plan, watermark: str | None,
     for records in reader(doc, secret, watermark=watermark, overlap_minutes=plan.overlap_minutes, log=log):
         pages += 1
         flat = [api_request.flatten(r) for r in records]
-        if flat and not checked:
+        if flat and (not checked or len(flat) >= API_DRIFT_MIN_RECORDS):
             seen = set().union(*(f.keys() for f in flat))
             missing = [n for n in names if n not in seen]
             if missing:
-                raise RunError("SOURCE_DRIFT", "Fields of the mapping are not in the answer of the API: "
-                               + ", ".join(missing[:20]))
+                raise RunError("SOURCE_DRIFT", f"Fields of the mapping are not in page {pages} of the answer of the "
+                               "API: " + ", ".join(missing[:20]))
             checked = True
         for f in flat:
             chunk.append([api_request.to_text(f.get(n)) for n in names])

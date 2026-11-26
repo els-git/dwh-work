@@ -331,6 +331,35 @@ class EngineChunksTest(unittest.TestCase):
             list(run_object.api_chunks({}, None, plan, None, lambda m: None, read_pages=pages([[{"id": 1}]])))
         self.assertEqual(ctx.exception.code, "SOURCE_DRIFT")
 
+    def test_every_full_page_is_checked_short_pages_are_not(self):
+        """I13-01 (R1 = A'): a later page of 10+ records without a mapped field stops the run before it is written;
+        a short page (fewer than 10) may lack an optional field."""
+        import run_object
+
+        plan = run_object.Plan("stg", "t", [
+            {"target_column": "id", "source_column": "id", "source_type": "BIGINT", "target_type": "BIGINT",
+             "write_policy": "AUTHORITATIVE"},
+            {"target_column": "flag", "source_column": "flag", "source_type": "BOOLEAN", "target_type": "BOOLEAN",
+             "write_policy": "AUTHORITATIVE"}], ["id"])
+        full = [{"id": i, "flag": True} for i in range(10)]
+
+        def pages(*records):
+            def reader(doc, secret, watermark=None, overlap_minutes=0, log=None):
+                yield from records
+            return reader
+
+        rows = [r for c in run_object.api_chunks({}, None, plan, None, lambda m: None, size=100,
+                                                 read_pages=pages(full, [{"id": 99}, {"id": 98}])) for r in c]
+        self.assertEqual(len(rows), 12)
+        written = []
+        with self.assertRaises(run_object.RunError) as ctx:
+            for chunk in run_object.api_chunks({}, None, plan, None, lambda m: None, size=10,
+                                               read_pages=pages(full, [{"id": 100 + i} for i in range(10)])):
+                written.extend(chunk)
+        self.assertEqual(ctx.exception.code, "SOURCE_DRIFT")
+        self.assertIn("page 2", ctx.exception.message)
+        self.assertEqual(len(written), 10)
+
 
 if __name__ == "__main__":
     unittest.main()
