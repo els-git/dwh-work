@@ -578,6 +578,7 @@ const resources = {
         "curlTitle": "cURL of the request (credential shown as ***)"
       },
       "schedule": {
+        "filter": {"search": "Search: source, object", "state": "Schedule", "stateValue": {"ALL": "all", "ON": "enabled", "OFF": "disabled", "NONE": "no schedule"}, "last": "Last request", "lastValue": {"ALL": "all", "SUCCESS": "successful", "FAILED": "with an error", "ACTIVE": "running or queued", "NEVER": "none yet"}, "count": "Shown {{shown}} of {{total}}", "nothing": "No objects match the filters."},
         "hint": "Schedule of every object: the dispatcher creates a run request when the time comes. Time zone {{zone}}. Saving does not start a run.",
         "loading": "Loading schedules...",
         "none": "no schedule",
@@ -1989,6 +1990,7 @@ const resources = {
         "curlTitle": "cURL запроса (секрет показан как ***)"
       },
       "schedule": {
+        "filter": {"search": "Поиск: источник, объект", "state": "Расписание", "stateValue": {"ALL": "все", "ON": "включено", "OFF": "выключено", "NONE": "нет расписания"}, "last": "Последняя заявка", "lastValue": {"ALL": "все", "SUCCESS": "успешно", "FAILED": "с ошибкой", "ACTIVE": "в работе или в очереди", "NEVER": "ещё не было"}, "count": "Показано {{shown}} из {{total}}", "nothing": "Нет объектов по этим фильтрам."},
         "hint": "Расписание каждого объекта: в назначенное время диспетчер сам создаёт заявку на загрузку. Часовой пояс {{zone}}. Сохранение загрузку не запускает.",
         "loading": "Загрузка расписаний...",
         "none": "нет расписания",
@@ -3400,6 +3402,7 @@ const resources = {
         "curlTitle": "Sorğunun cURL-u (sirr *** kimi)"
       },
       "schedule": {
+        "filter": {"search": "Axtarış: mənbə, obyekt", "state": "Cədvəl", "stateValue": {"ALL": "hamısı", "ON": "aktiv", "OFF": "deaktiv", "NONE": "cədvəl yoxdur"}, "last": "Son sorğu", "lastValue": {"ALL": "hamısı", "SUCCESS": "uğurlu", "FAILED": "xəta ilə", "ACTIVE": "icrada və ya növbədə", "NEVER": "hələ olmayıb"}, "count": "Göstərilir {{shown}} / {{total}}", "nothing": "Bu filtrlərə uyğun obyekt yoxdur."},
         "hint": "Hər obyektin cədvəli: vaxt çatanda dispetçer yükləmə sorğusu yaradır. Saat qurşağı {{zone}}. Saxlama yükləməni başlatmır.",
         "loading": "Cədvəllər yüklənir...",
         "none": "cədvəl yoxdur",
