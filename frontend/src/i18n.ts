@@ -998,6 +998,28 @@ const resources = {
         "ERROR": "Critical",
         "WARNING": "Warning"
       },
+      "errorGroup": {
+        "CONNECTION": "Connection",
+        "STRUCTURE": "Structure",
+        "FORMAT": "Data format",
+        "FIELD": "Field",
+        "KEY": "Key",
+        "CONVERSION": "Conversion",
+        "DQ": "Data quality",
+        "SCHEDULE": "Run and schedule",
+        "CONFIG": "Settings",
+        "LIMIT": "Limit",
+        "SYSTEM": "System",
+        "OTHER": "Other"
+      },
+      "errorHistory": {
+        "groupFilter": "Kind of error",
+        "allGroups": "All kinds",
+        "retry": "Retry",
+        "retryOds": "Retry ODS",
+        "retryQueued": "Request #{{id}} queued",
+        "retryHint": "Run the object again (the same request as on Data Loads)"
+      },
       "navigation": {
         "loads": "Data Loads",
         "integrations": "Integration Control",
@@ -2387,6 +2409,28 @@ const resources = {
         "ERROR": "Серьёзное",
         "WARNING": "Предупреждение"
       },
+      "errorGroup": {
+        "CONNECTION": "Подключение",
+        "STRUCTURE": "Структура",
+        "FORMAT": "Формат данных",
+        "FIELD": "Поле",
+        "KEY": "Ключ",
+        "CONVERSION": "Преобразование",
+        "DQ": "Качество данных",
+        "SCHEDULE": "Запуск и расписание",
+        "CONFIG": "Настройка",
+        "LIMIT": "Предел",
+        "SYSTEM": "Система",
+        "OTHER": "Прочее"
+      },
+      "errorHistory": {
+        "groupFilter": "Вид ошибки",
+        "allGroups": "Все виды",
+        "retry": "Повторить",
+        "retryOds": "Повторить ODS",
+        "retryQueued": "Заявка №{{id}} поставлена в очередь",
+        "retryHint": "Запустить объект ещё раз (та же заявка, что в «Загрузках»)"
+      },
       "navigation": {
         "loads": "Загрузки",
         "integrations": "Управление интеграциями",
@@ -3775,6 +3819,28 @@ const resources = {
       "severity": {
         "ERROR": "Kritik",
         "WARNING": "Xəbərdarlıq"
+      },
+      "errorGroup": {
+        "CONNECTION": "Qoşulma",
+        "STRUCTURE": "Struktur",
+        "FORMAT": "Məlumat formatı",
+        "FIELD": "Sahə",
+        "KEY": "Açar",
+        "CONVERSION": "Çevirmə",
+        "DQ": "Məlumat keyfiyyəti",
+        "SCHEDULE": "İşəsalma və cədvəl",
+        "CONFIG": "Ayar",
+        "LIMIT": "Hədd",
+        "SYSTEM": "Sistem",
+        "OTHER": "Digər"
+      },
+      "errorHistory": {
+        "groupFilter": "Xəta növü",
+        "allGroups": "Bütün növlər",
+        "retry": "Təkrarla",
+        "retryOds": "ODS-i təkrarla",
+        "retryQueued": "Sorğu №{{id}} növbəyə qoyuldu",
+        "retryHint": "Obyekti yenidən işə salın (Yükləmələrdəki eyni sorğu)"
       },
       "navigation": {
         "loads": "Yükləmələr",

@@ -261,3 +261,12 @@
     margin-left: 0;
   }
 }
+
+/* I13-02: kind of the error in Errors and history */
+.integration-error-group {
+  display: inline-block;
+  padding: 0 6px;
+  border-radius: 4px;
+  font-size: 0.8em;
+  background: rgba(120, 160, 220, 0.18);
+}

@@ -2,10 +2,12 @@ import { Trans, useTranslation } from 'react-i18next'
 import { requestDiagnosis } from './aiBus'
 import {
   useEffect,
+  useMemo,
   useState,
 } from 'react'
 
 import {
+  createObjectRunRequest,
   getIntegrationHistoryEtlErrors,
   getIntegrationHistoryEtlRuns,
 } from './integrationAdminApi'
@@ -142,7 +144,12 @@ function diagnosticJson(
 interface AdminIntegrationHistoryProps {
   // I17-10: "Analyse with the assistant" for an error (AI_ASSISTANT_USE and ETL_VIEW).
   canDiagnose?: boolean
+  // I13-02 (R4): "Retry" at the newest error of an object - the same request as "Run" on Data Loads.
+  canRun?: boolean
 }
+
+// stages of the object engine whose newest error can be retried from here
+const RETRY_STAGES = new Set(['OBJECT_LOAD', 'ODS_LOAD', 'FILE_CHECK'])
 
 
 // I12 (package 035): a file refused while the load chooses files is a warning, not a failure of the run.
@@ -151,8 +158,12 @@ function isWarning(context: unknown): boolean {
     && (context as Record<string, unknown>).severity === 'WARNING'
 }
 
-export default function AdminIntegrationHistory({ canDiagnose = false }: AdminIntegrationHistoryProps) {
+export default function AdminIntegrationHistory({ canDiagnose = false, canRun = false }: AdminIntegrationHistoryProps) {
   const { t } = useTranslation()
+
+  const [groupFilter, setGroupFilter] = useState('ALL')
+  const [retryState, setRetryState] = useState<{ errorId: number, text: string, failed: boolean } | null>(null)
+  const [retryBusy, setRetryBusy] = useState<number | null>(null)
 
   const [
     mode,
@@ -184,6 +195,52 @@ export default function AdminIntegrationHistory({ canDiagnose = false }: AdminIn
     setErrorBatchRunId,
   ] = useState<number | null>(null)
 
+
+  // the kinds present in the loaded errors, in the order of the reference
+  const groupsPresent = useMemo(() => {
+    const order = ['CONNECTION', 'STRUCTURE', 'FORMAT', 'FIELD', 'KEY', 'CONVERSION', 'DQ', 'SCHEDULE', 'CONFIG',
+      'LIMIT', 'SYSTEM', 'OTHER']
+    const present = new Set(etlErrors.map(e => e.error_group ?? 'OTHER'))
+    return order.filter(g => present.has(g))
+  }, [etlErrors])
+
+  const shownErrors = useMemo(
+    () => (groupFilter === 'ALL' ? etlErrors : etlErrors.filter(e => (e.error_group ?? 'OTHER') === groupFilter)),
+    [etlErrors, groupFilter],
+  )
+
+  // the newest error of every object (the list comes newest first)
+  const newestOfObject = useMemo(() => {
+    const seen = new Set<number>()
+    const newest = new Set<number>()
+    for (const e of etlErrors) {
+      if (e.source_object_id !== null && !seen.has(e.source_object_id)) {
+        seen.add(e.source_object_id)
+        newest.add(e.error_id)
+      }
+    }
+    return newest
+  }, [etlErrors])
+
+  async function retry(item: IntegrationHistoryEtlError) {
+    if (item.source_object_id === null) {
+      return
+    }
+    setRetryBusy(item.error_id)
+    try {
+      const created = await createObjectRunRequest(
+        item.source_object_id,
+        item.error_stage === 'ODS_LOAD' ? 'CONTINUE_ODS' : 'RUN',
+      )
+      setRetryState({ errorId: item.error_id, text: t('errorHistory.retryQueued', { id: created.request_id }), failed: false })
+    }
+    catch (reason) {
+      setRetryState({ errorId: item.error_id, text: errorMessage(reason), failed: true })
+    }
+    finally {
+      setRetryBusy(null)
+    }
+  }
 
   async function loadAll(
     batchRunId: number | null = errorBatchRunId,
@@ -514,7 +571,28 @@ export default function AdminIntegrationHistory({ canDiagnose = false }: AdminIn
                 }
 
                 {
-                  etlErrors.length === 0
+                  groupsPresent.length > 1
+                    ? (
+                        <div className="integration-history-filter">
+                          <label>
+                            {t('errorHistory.groupFilter')}{' '}
+                            <select
+                              value={groupFilter}
+                              onChange={event => setGroupFilter(event.target.value)}
+                            >
+                              <option value="ALL">{t('errorHistory.allGroups')}</option>
+                              {groupsPresent.map(g => (
+                                <option key={g} value={g}>{t(`errorGroup.${g}`)}</option>
+                              ))}
+                            </select>
+                          </label>
+                        </div>
+                      )
+                    : null
+                }
+
+                {
+                  shownErrors.length === 0
                     ? (
                         <div className="integration-admin-empty">
                           <Trans i18nKey="batch.tr0260" />
@@ -539,7 +617,7 @@ export default function AdminIntegrationHistory({ canDiagnose = false }: AdminIn
 
                             <tbody>
                               {
-                                etlErrors.map(
+                                shownErrors.map(
                                   item => {
                                     const landingId =
                                       dwhLandingId(item)
@@ -564,6 +642,31 @@ export default function AdminIntegrationHistory({ canDiagnose = false }: AdminIn
                                                   >
                                                     {t('ai.diagnose')}
                                                   </button>
+                                                </div>
+                                              )
+                                            : null}
+                                          {canRun && item.source_object_id !== null && newestOfObject.has(item.error_id)
+                                            && RETRY_STAGES.has(item.error_stage ?? '')
+                                            ? (
+                                                <div>
+                                                  <button
+                                                    type="button"
+                                                    className="loads-link"
+                                                    title={t('errorHistory.retryHint')}
+                                                    disabled={retryBusy !== null}
+                                                    onClick={() => { void retry(item) }}
+                                                  >
+                                                    {item.error_stage === 'ODS_LOAD'
+                                                      ? t('errorHistory.retryOds')
+                                                      : t('errorHistory.retry')}
+                                                  </button>
+                                                  {retryState !== null && retryState.errorId === item.error_id
+                                                    ? (
+                                                        <div className={retryState.failed ? 'loads-file-errors' : undefined}>
+                                                          <small>{retryState.text}</small>
+                                                        </div>
+                                                      )
+                                                    : null}
                                                 </div>
                                               )
                                             : null}
@@ -713,6 +816,10 @@ export default function AdminIntegrationHistory({ canDiagnose = false }: AdminIn
                                         </td>
 
                                         <td className="integration-history-message">
+                                          <span className="integration-error-group">
+                                            {t(`errorGroup.${item.error_group ?? 'OTHER'}`)}
+                                          </span>
+                                          <br />
                                           {isWarning(item.diagnostic_context)
                                             ? <span className="loads-file-errors">{t('severity.WARNING')}{' · '}</span>
                                             : null}
