@@ -642,7 +642,7 @@
     },
     "down": {
       "path": "database/migrations/036_least_privilege_ai_audit.down.sql",
-      "sha256": "C6B289654C6085C5B90B8CC1604EC2E074E852EBFDEFE132D57ED2A98296D110"
+      "sha256": "0F9B1229101BF3C76FEDAA07936E1E8E6729A639456F8446346C8D1775C3E874"
     },
     "check": {
       "path": "database/checks/036_least_privilege_ai_audit_check.sql",
@@ -687,6 +687,36 @@
       "sha256": "CF534107A9B1F5F64F35BDC3473BF30E58C92DBB9C59641A62B753522DDEBE36",
       "label": "036",
       "expected": 7
+    }
+  },
+  "038": {
+    "number": "038",
+    "owner": "dwh_admin",
+    "marker": "audit.revoked_grant_038",
+    "copy_db": "dwh_i14_038_test",
+    "check_expected": 6,
+    "added_rows": {},
+    "migration": {
+      "path": "database/migrations/038_audit_schema_etl_privileges.sql",
+      "sha256": "058B2F1D83455CD0B8F8665E5DB8245597139CE07FB6C54C2A3B01FA776E1996"
+    },
+    "down": {
+      "path": "database/migrations/038_audit_schema_etl_privileges.down.sql",
+      "sha256": "7444A7BD1C38205812F3810CF2404011DD5B5C03FD46720F4E366B03E88FB2AB"
+    },
+    "check": {
+      "path": "database/checks/038_audit_schema_etl_privileges_check.sql",
+      "sha256": "4854F3D722CE8CAD7C90D9E2953D32E7CE073C7A34F5274ADFDEF35C61E7A17A"
+    },
+    "test": {
+      "path": "database/tests/038_audit_schema_etl_privileges_test.sql",
+      "sha256": "4ECB1C20561E036F2CE1D8263BBCAAADDD784C9DFDE5FE67AAB622CFC524D4E2"
+    },
+    "previous_check": {
+      "path": "database/checks/037_ai_hidden_query_functions_check.sql",
+      "sha256": "D5739906FF38F2020AB63B9FA7D9E08F6B272727420288EDD722B47522EFA59A",
+      "label": "037",
+      "expected": 5
     }
   }
 }
