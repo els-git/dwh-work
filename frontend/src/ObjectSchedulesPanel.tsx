@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from 'react'
@@ -26,6 +27,76 @@ import {
 const REFRESH_MS = 30000
 const FREQUENCIES: ScheduleFrequency[] = ['EVERY_MINUTES', 'EVERY_HOURS', 'DAILY', 'WEEKLY']
 const WEEK_DAYS = [1, 2, 3, 4, 5, 6, 7]
+
+// I08-07: search and filters as on the tab "Objects" (I08-06), applied in the browser to the loaded list;
+// the choice is kept in this browser.
+type ScheduleStateFilter = 'ALL' | 'ON' | 'OFF' | 'NONE'
+type LastRequestFilter = 'ALL' | 'SUCCESS' | 'FAILED' | 'ACTIVE' | 'NEVER'
+
+interface ScheduleFilters {
+  text: string
+  source: string
+  state: ScheduleStateFilter
+  last: LastRequestFilter
+}
+
+const EMPTY_FILTERS: ScheduleFilters = { text: '', source: '', state: 'ALL', last: 'ALL' }
+const FILTERS_KEY = 'dwh.loads.scheduleFilters'
+const SCHEDULE_STATES: ScheduleStateFilter[] = ['ALL', 'ON', 'OFF', 'NONE']
+const LAST_STATES: LastRequestFilter[] = ['ALL', 'SUCCESS', 'FAILED', 'ACTIVE', 'NEVER']
+
+function loadFilters(): ScheduleFilters {
+  try {
+    const raw = window.localStorage.getItem(FILTERS_KEY)
+    if (!raw) {
+      return EMPTY_FILTERS
+    }
+    const saved = JSON.parse(raw) as Partial<ScheduleFilters>
+    return {
+      text: typeof saved.text === 'string' ? saved.text : '',
+      source: typeof saved.source === 'string' ? saved.source : '',
+      state: SCHEDULE_STATES.includes(saved.state as ScheduleStateFilter) ? saved.state as ScheduleStateFilter : 'ALL',
+      last: LAST_STATES.includes(saved.last as LastRequestFilter) ? saved.last as LastRequestFilter : 'ALL',
+    }
+  } catch {
+    return EMPTY_FILTERS
+  }
+}
+
+function saveFilters(filters: ScheduleFilters) {
+  try {
+    window.localStorage.setItem(FILTERS_KEY, JSON.stringify(filters))
+  } catch {
+    // storage unavailable (private window): the choice lives until the page is closed
+  }
+}
+
+function scheduleState(item: ScheduledObject): ScheduleStateFilter {
+  if (item.schedule === null) {
+    return 'NONE'
+  }
+  return item.schedule.enabled ? 'ON' : 'OFF'
+}
+
+function lastState(item: ScheduledObject): LastRequestFilter {
+  const last = item.requests[0]
+  if (!last) {
+    return 'NEVER'
+  }
+  if (['QUEUED', 'CLAIMED', 'RUNNING'].includes(last.status)) {
+    return 'ACTIVE'
+  }
+  return last.status === 'SUCCESS' ? 'SUCCESS' : 'FAILED'
+}
+
+function matchesText(item: ScheduledObject, text: string): boolean {
+  const needle = text.trim().toLowerCase()
+  if (needle === '') {
+    return true
+  }
+  return [item.source_code, item.source_schema, item.source_object, `${item.source_schema}.${item.source_object}`]
+    .some(value => (value ?? '').toLowerCase().includes(needle))
+}
 
 
 interface Draft {
@@ -152,6 +223,28 @@ function ObjectSchedulesPanel() {
   const [draft, setDraft] = useState<Draft>(draftOf(null))
   const [history, setHistory] = useState<number | null>(null)
   const [saving, setSaving] = useState(false)
+  const [filters, setFilters] = useState<ScheduleFilters>(loadFilters)
+
+  function updateFilters(change: Partial<ScheduleFilters>) {
+    setFilters(current => {
+      const next = { ...current, ...change }
+      saveFilters(next)
+      return next
+    })
+  }
+
+  const sourceCodes = useMemo(
+    () => [...new Set(objects.map(item => item.source_code))].sort(),
+    [objects],
+  )
+
+  const shown = useMemo(() => objects.filter(item => matchesText(item, filters.text)
+    && (filters.source === '' || item.source_code === filters.source)
+    && (filters.state === 'ALL' || scheduleState(item) === filters.state)
+    && (filters.last === 'ALL' || lastState(item) === filters.last)), [objects, filters])
+
+  const filtered = filters.text.trim() !== '' || filters.source !== '' || filters.state !== 'ALL'
+    || filters.last !== 'ALL'
   const loadSeq = useRef(0)
 
   const refresh = useCallback(async () => {
@@ -390,6 +483,52 @@ function ObjectSchedulesPanel() {
       {error ? <div className="error"><span>{error}</span></div> : null}
       {notice ? <div className="loads-notice">{notice}</div> : null}
 
+      <div className="loads-filters">
+        <input
+          type="search"
+          className="loads-filter-text"
+          value={filters.text}
+          placeholder={t('schedule.filter.search')}
+          aria-label={t('schedule.filter.search')}
+          onChange={event => updateFilters({ text: event.target.value })}
+        />
+        <label>
+          <span>{t('loads.filter.source')}</span>
+          <select value={filters.source} onChange={event => updateFilters({ source: event.target.value })}>
+            <option value="">{t('loads.filter.all')}</option>
+            {sourceCodes.map(code => <option key={code} value={code}>{code}</option>)}
+            {filters.source !== '' && !sourceCodes.includes(filters.source)
+              ? <option value={filters.source}>{filters.source}</option>
+              : null}
+          </select>
+        </label>
+        <label>
+          <span>{t('schedule.filter.state')}</span>
+          <select value={filters.state}
+            onChange={event => updateFilters({ state: event.target.value as ScheduleStateFilter })}>
+            {SCHEDULE_STATES.map(state => (
+              <option key={state} value={state}>{t(`schedule.filter.stateValue.${state}`)}</option>
+            ))}
+          </select>
+        </label>
+        <label>
+          <span>{t('schedule.filter.last')}</span>
+          <select value={filters.last}
+            onChange={event => updateFilters({ last: event.target.value as LastRequestFilter })}>
+            {LAST_STATES.map(state => (
+              <option key={state} value={state}>{t(`schedule.filter.lastValue.${state}`)}</option>
+            ))}
+          </select>
+        </label>
+        <button type="button" className="loads-refresh" disabled={!filtered}
+          onClick={() => updateFilters(EMPTY_FILTERS)}>
+          {t('loads.filter.reset')}
+        </button>
+        {!loading
+          ? <span className="loads-filter-count">{t('schedule.filter.count', { shown: shown.length, total: objects.length })}</span>
+          : null}
+      </div>
+
       {loading
         ? <div className="loading-panel">{t('schedule.loading')}</div>
         : (
@@ -405,7 +544,14 @@ function ObjectSchedulesPanel() {
                 </tr>
               </thead>
               <tbody>
-                {objects.map(item => {
+                {shown.length === 0
+                  ? (
+                    <tr>
+                      <td colSpan={5} className="loads-muted">{t('schedule.filter.nothing')}</td>
+                    </tr>
+                  )
+                  : null}
+                {shown.map(item => {
                   const schedule = item.schedule
                   const last = item.requests[0]
                   return [
