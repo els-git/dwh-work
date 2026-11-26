@@ -182,6 +182,31 @@ class BackupTests(Temp):
         with self.assertRaises(ValueError):
             dwh_backup.make_copy(self.dir, "dwh", "../x", runner=runner)
 
+    def test_copies_are_private_i14_07_n5(self):
+        import datetime
+        import os
+        import stat
+
+        def runner(cmd, **kwargs):
+            if cmd[0] == "pg_dump":
+                Path(cmd[cmd.index("-f") + 1]).write_bytes(b"PGDMP")
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+        old = self.dir / "dwh_20261101_023000.dump"
+        old.write_bytes(b"PGDMP")
+        (self.dir / "dwh_20261101_023000.dump.sha256").write_text("x  dwh_20261101_023000.dump\n")
+        other = self.dir / "notes.txt"
+        other.write_text("not a copy")
+        for path in (old, other, self.dir / "dwh_20261101_023000.dump.sha256"):
+            os.chmod(path, 0o644)
+        target = dwh_backup.make_copy(self.dir, "dwh", None, datetime.datetime(2026, 11, 2, 2, 30), runner)
+        for path in (target, target.with_name(target.name + ".sha256"), old,
+                     self.dir / "dwh_20261101_023000.dump.sha256"):
+            self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600, path.name)
+        self.assertEqual(stat.S_IMODE(other.stat().st_mode), 0o644)  # other files are left alone
+        current = os.umask(0o022)
+        os.umask(current)
+        self.assertNotEqual(current, 0o077)  # the umask of the process is restored
+
     def test_secrets_copy(self):
         import datetime
         import tarfile
