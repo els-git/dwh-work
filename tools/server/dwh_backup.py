@@ -5,7 +5,8 @@
   dwh_backup.py --verify-restore <file.dump>             test restore into dwh_restore_test
   dwh_backup.py --secrets --dir /backup/dwh/secrets --keep 14   copy of the encrypted source passwords (root)
 
-A copy: pg_dump -Fc -> <dir>/dwh_<YYYYmmdd_HHMMSS>[_label].dump (+ .sha256), checked with
+A copy: pg_dump -Fc -> <dir>/dwh_<YYYYmmdd_HHMMSS>[_label].dump (+ .sha256; both 0600, and every run makes the
+older copies of the folder 0600 as well — I14-07 N5), checked with
 pg_restore --list. The oldest copies beyond --keep are removed (copies with a label are
 counted too). Prints BACKUP_RESULT: PASS / FAIL. No passwords: local socket, peer login.
 Uses the system python3 only (no DWH packages).
@@ -55,15 +56,30 @@ def make_copy(directory: Path, database: str, label: str | None, now: datetime.d
     stamp = (now or datetime.datetime.now()).strftime("%Y%m%d_%H%M%S")
     target = directory / (f"dwh_{stamp}" + (f"_{label}" if label else "") + ".dump")
     partial = target.with_name(target.name + ".partial")
+    old_umask = os.umask(0o077)  # I14-07 N5: pg_dump and the .sha256 are created 0600, never readable by others
     try:
         runner(["pg_dump", "-Fc", "--no-password", "-f", str(partial), database])
         runner(["pg_restore", "--list", str(partial)])  # the archive is complete and readable
         os.replace(partial, target)
+        target.with_name(target.name + ".sha256").write_text(f"{sha256_file(target)}  {target.name}\n")
     finally:
+        os.umask(old_umask)
         if partial.exists():
             partial.unlink()
-    target.with_name(target.name + ".sha256").write_text(f"{sha256_file(target)}  {target.name}\n")
+    tighten_modes(directory)
     return target
+
+
+def tighten_modes(directory: Path) -> list[Path]:
+    """I14-07 N5: copies made before the fix were 0644; every run makes all copies of the folder 0600."""
+    changed = []
+    for path in sorted(directory.iterdir()):
+        if path.is_file() and not path.is_symlink() and (
+                NAME_RE.match(path.name) or (path.name.endswith(".sha256") and NAME_RE.match(path.name[:-7]))):
+            if path.stat().st_mode & 0o077:
+                os.chmod(path, 0o600)
+                changed.append(path)
+    return changed
 
 
 def prune(directory: Path, keep: int) -> list[Path]:
