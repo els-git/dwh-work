@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 
 from dwh_api.auth import SESSION_COOKIE_NAME
 from dwh_api.config import get_api_config
+from dwh_api.error_groups import with_groups
 from dwh_api.db import connect_control, connect_readonly
 
 
@@ -1282,9 +1283,12 @@ def integration_history_etl_errors(
         LIMIT %s
     """
 
-    return _history_fetch_all(
-        sql,
-        tuple(params),
+    # I13-02: the group of every error (connection, structure, field, key, ...) from one reference in code
+    return with_groups(
+        _history_fetch_all(
+            sql,
+            tuple(params),
+        )
     )
 
 

@@ -347,6 +347,8 @@ export interface IntegrationHistoryEtlError {
   source_object: string | null
   error_stage: string | null
   error_code: string | null
+  // I13-02: kind of the error from the reference of codes (CONNECTION, STRUCTURE, FIELD, KEY, ...)
+  error_group?: string
   error_message: string | null
   error_detail: string | null
   record_key: unknown | null

@@ -497,7 +497,7 @@ function App() {
             : current === 'runs'
               ? renderEtlPage()
               : current === 'errors'
-                ? <AdminIntegrationHistory canDiagnose={canAiDiagnose} />
+                ? <AdminIntegrationHistory canDiagnose={canAiDiagnose} canRun={canIntegrationAdmin} />
                 : null
         }
       </>
