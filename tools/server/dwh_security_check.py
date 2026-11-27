@@ -17,7 +17,8 @@ Plan docs/DWH_I14_07_SECURITY_AUDIT_PLAN_APPROVED_20261126.md, step 2. Sections:
       connection string with a password, no Bearer token, no private key, no "password=<value>"; only counts and
       file names are printed, never the text found
   B9  server: TCP ports open beyond localhost (22, 80, 443 expected; the API, the model and the test API must be
-      local); nginx: server_tokens off, TLS 1.2/1.3 only, HSTS, nosniff, X-Frame-Options (CSP missing: WARN, N3);
+      local); nginx: server_tokens off, TLS 1.2/1.3 only, HSTS, nosniff, X-Frame-Options, Content-Security-Policy (N3), login limit (N8);
+      /etc/dwh/dwh.env has DWH_COOKIE_SECURE=true (N7, only this line is read);
       services run as a non-root user with NoNewPrivileges and ProtectSystem=strict; files of /etc/dwh,
       /var/lib/dwh/secrets and /backup/dwh are not readable by others, keys only by the owner; no file of the
       current release is writable by others; SSH: root login and password login (password login: WARN, risk
@@ -294,8 +295,24 @@ def check_nginx(report: Report, runner=run_cmd) -> None:
     report.check(re.search(r"server_tokens\s+off\s*;", text) is not None, "B9 nginx server_tokens off")
     for header in ("Strict-Transport-Security", "X-Content-Type-Options", "X-Frame-Options"):
         report.check(re.search(rf"add_header\s+{header}\b", text, re.I) is not None, f"B9 nginx header {header}")
-    report.check(re.search(r"add_header\s+Content-Security-Policy\b", text, re.I) is not None,
-                 "B9 nginx header Content-Security-Policy (N3)", warn=True)
+    report.check(re.search(r"add_header\s+Content-Security-Policy\s+\"default-src 'self'", text, re.I) is not None,
+                 "B9 nginx header Content-Security-Policy default-src 'self' (N3)")
+    report.check(re.search(r"limit_req_zone\s+\S+\s+zone=dwh_login:", text) is not None
+                 and re.search(r"location\s*=\s*/api/auth/login\s*\{[^}]*limit_req\s+zone=dwh_login", text) is not None,
+                 "B1 nginx limits login attempts by address (limit_req dwh_login, N8)")
+
+
+def check_cookie_setting(report: Report, env_file: Path = Path("/etc/dwh/dwh.env")) -> None:
+    """N7: the session cookie is sent with Secure. Only this one line of the file is read, nothing else is printed."""
+    try:
+        lines = env_file.read_text().splitlines()
+    except OSError as exc:
+        report.add("FAIL", f"B1 {env_file} not read: {type(exc).__name__}")
+        return
+    value = next((line.split("=", 1)[1].strip().strip('"').lower() for line in lines
+                  if line.strip().startswith("DWH_COOKIE_SECURE=")), "")
+    report.check(value in ("1", "true", "yes", "on"),
+                 f"B1 {env_file}: DWH_COOKIE_SECURE=true (session cookie with Secure, N7): {value or 'not set'}")
 
 
 def check_services(report: Report, runner=run_cmd) -> None:
@@ -412,6 +429,7 @@ def run(args, runner=safe_run) -> int:
         check_secrets(report, runner, args.reports)
         check_ports(report, runner)
         check_nginx(report, runner)
+        check_cookie_setting(report)
         check_services(report, runner)
         check_files(report, args.current)
         check_ssh(report, runner)

@@ -20,19 +20,6 @@ class HealthResponse(ApiModel):
     integration_objects: int
 
 
-class ApiMetadata(ApiModel):
-    api_name: str
-    api_version: str
-    mode: str
-
-    database_user: str
-
-    integration_objects: int
-    mapping_rules: int
-    validation_contracts: int
-    dq_rules: int
-
-
 class ApiError(ApiModel):
     error: str
     message: str

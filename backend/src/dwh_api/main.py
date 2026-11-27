@@ -36,7 +36,6 @@ from dwh_api.api_source_admin import router as api_source_router
 from dwh_api.file_source_admin import router as file_source_router
 from dwh_api.models import (
     ApiError,
-    ApiMetadata,
     EtlError,
     EtlJobRun,
     EtlRun,
@@ -236,50 +235,7 @@ def health() -> dict:
         ) from exc
 
 
-@app.get(
-    "/api/meta",
-    tags=["System"],
-    response_model=ApiMetadata,
-)
-def api_metadata() -> ApiMetadata:
-
-    row = fetch_one(
-        """
-        SELECT
-            current_user
-                AS database_user,
-
-            (
-                SELECT COUNT(*)
-                FROM meta.v_integration_control_object
-            ) AS integration_objects,
-
-            (
-                SELECT COUNT(*)
-                FROM meta.v_current_mapping
-                WHERE is_active = true
-            ) AS mapping_rules,
-
-            (
-                SELECT COUNT(*)
-                FROM meta.v_current_column_contract
-                WHERE is_active = true
-            ) AS validation_contracts,
-
-            (
-                SELECT COUNT(*)
-                FROM dq.v_current_rule
-                WHERE is_active = true
-            ) AS dq_rules
-        """
-    )
-
-    return ApiMetadata(
-        api_name=app.title,
-        api_version=app.version,
-        mode="read_only",
-        **row,
-    )
+# I14-07 (N2): /api/meta (database role and counts, without a session) removed.
 
 # ============================================================
 # ETL run history
@@ -581,7 +537,6 @@ async def authorization_middleware(
     # Public technical/authentication endpoints.
     if (
         path == "/api/health"
-        or path == "/api/meta"
         or path.startswith("/api/auth/")
     ):
         return await call_next(
