@@ -97,12 +97,28 @@ class ServerTest(unittest.TestCase):
 
     def test_nginx(self):
         report, out = capture(sc.check_nginx, Fake())
-        self.assertEqual(report.count("FAIL"), 0, out)
-        self.assertIn("WARN  B9 nginx header Content-Security-Policy", out)
+        self.assertIn("FAIL  B9 nginx header Content-Security-Policy", out)
+        self.assertIn("FAIL  B1 nginx limits login attempts", out)
+        # I14-07 N3/N8: the nginx file of the release passes everything
+        release = (Path(__file__).resolve().parents[2] / "deploy" / "nginx" / "dwh.conf").read_text()
+        report, out = capture(sc.check_nginx, Fake(nginx=release))
+        self.assertEqual(report.count("FAIL") + report.count("WARN"), 0, out)
         weak = GOOD_NGINX.replace("TLSv1.2 TLSv1.3", "TLSv1 TLSv1.2").replace("server_tokens off;", "")
         report, out = capture(sc.check_nginx, Fake(nginx=weak + "# add_header X-Frame-Options DENY;\n"))
         self.assertIn("FAIL  B9 nginx TLS protocols: TLSv1 TLSv1.2 (weak: TLSv1)", out)
         self.assertIn("FAIL  B9 nginx server_tokens off", out)
+
+    def test_cookie_setting_n7(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            env = Path(tmp) / "dwh.env"
+            env.write_text("DWH_APP_PASSWORD=secret-value\n")
+            report, out = capture(sc.check_cookie_setting, env)
+            self.assertEqual(report.levels, ["FAIL"], out)
+            self.assertNotIn("secret-value", out)
+            env.write_text("DWH_APP_PASSWORD=secret-value\nDWH_COOKIE_SECURE=true\n")
+            report, out = capture(sc.check_cookie_setting, env)
+            self.assertEqual(report.levels, ["PASS"], out)
+            self.assertNotIn("secret-value", out)
 
     def test_services(self):
         report, _ = capture(sc.check_services, Fake())

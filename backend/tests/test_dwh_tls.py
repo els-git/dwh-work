@@ -236,5 +236,58 @@ class TlsToolTest(unittest.TestCase):
         self.assertIn(f"return 301 https://{NAME}$request_uri;", text)
 
 
+class NginxOnlyTest(unittest.TestCase):
+    """I14-07 (N3, N8): only the nginx file of the release is rendered again; the certificate is not touched."""
+
+    def setUp(self):
+        self._dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self._dir.cleanup)
+        d = Path(self._dir.name)
+        self.tls = d / "tls"
+        self.tls.mkdir()
+        for f, text in (("dwh.crt", "CERT\n"), ("dwh.key", "KEY\n"), ("ca.crt", "CA\n")):
+            (self.tls / f).write_text(text)
+        self.conf = d / "dwh.conf"
+        self.old = f"server {{ server_name {NAME}; }}\n"
+        self.conf.write_text(self.old)
+
+    def go(self, *extra, ok=True, headers_ok=True, system=None, name=NAME):
+        args = dwh_tls.parse(["nginx", "--name", name, "--tls-dir", str(self.tls), "--nginx-conf", str(self.conf),
+                              "--wait", "0", *extra])
+        out = io.StringIO()
+        with redirect_stdout(out):
+            code = dwh_tls.nginx_only(args, system or FakeSystem(), lambda *a, **k: [(ok, "certificate")],
+                                      lambda *a, **k: [(headers_ok, "Content-Security-Policy")])
+        return code, out.getvalue()
+
+    def test_plan_then_apply(self):
+        code, out = self.go()
+        self.assertEqual(code, 0, out)
+        self.assertIn("TLS_RESULT: PLAN", out)
+        self.assertIn("PASS  login limit", out)
+        self.assertEqual(self.conf.read_text(), self.old)
+        system = FakeSystem()
+        code, out = self.go("--apply", system=system)
+        self.assertEqual(code, 0, out)
+        conf = self.conf.read_text()
+        self.assertIn("limit_req zone=dwh_login", conf)
+        self.assertIn("Content-Security-Policy", conf)
+        self.assertEqual(system.calls, ["nginx -t", "systemctl reload nginx"])
+        self.assertEqual((self.tls / "dwh.crt").read_text(), "CERT\n")
+
+    def test_failures_roll_back(self):
+        for kw in ({"headers_ok": False}, {"ok": False}, {"system": FakeSystem(nginx_ok=False)}):
+            code, out = self.go("--apply", **kw)
+            self.assertEqual(code, 1, out)
+            self.assertIn("TLS_RESULT: FAIL (rolled back)", out)
+            self.assertEqual(self.conf.read_text(), self.old)
+
+    def test_other_name_refused(self):
+        code, out = self.go("--apply", name="other.vtbaze.local")
+        self.assertEqual(code, 1, out)
+        self.assertIn("is not for other.vtbaze.local", out)
+        self.assertEqual(self.conf.read_text(), self.old)
+
+
 if __name__ == "__main__":
     unittest.main()

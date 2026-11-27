@@ -66,10 +66,10 @@ class FakeApi:
 
 def run(api, **kw) -> tuple[int, str]:
     args = argparse.Namespace(user="tester", base="http://x", bruteforce=kw.get("bruteforce", 0),
-                              ai=kw.get("ai", False), report=None)
+                              ai=kw.get("ai", False), report=None, web=kw.get("web"), ca="/nonexistent")
     out = io.StringIO()
     with redirect_stdout(out):
-        code = nc.run(args, "right", http=api)
+        code = nc.run(args, "right", http=api, web_http=kw.get("web_http"))
     return code, out.getvalue()
 
 
@@ -101,6 +101,31 @@ class NegativeCheckTest(unittest.TestCase):
         self.assertIn("WARN  B1 guessing", out)
         _, out = run(FakeApi(lock_after=3), bruteforce=3)
         self.assertIn("PASS  B1 guessing", out)
+
+    def test_web_limit_and_csp_n3_n8(self):
+        class Web:
+            """nginx in front of the API: CSP on the page, 429 after 2 login attempts."""
+            def __init__(self, csp=True, limit=True):
+                self.csp, self.limit, self.logins = csp, limit, 0
+
+            def __call__(self, method, path, body=None, cookie=None, headers=None, timeout=30):
+                if path == "/":
+                    return 200, ({"content-security-policy": "default-src 'self'"} if self.csp else {}), b"<html>"
+                if path != "/api/auth/login":
+                    return 200, {}, b"{}"
+                self.logins += 1
+                if self.limit and self.logins > 2:
+                    return 429, {}, b"{}"
+                return (200, {"set-cookie": GOOD_COOKIE}, b"{}") if body["password"] == "right" else (401, {}, b"{}")
+        code, out = run(FakeApi(), bruteforce=4, web="https://w", web_http=Web())
+        self.assertEqual(code, 0, out)
+        self.assertIn("PASS  B8 page Content-Security-Policy", out)
+        self.assertIn("wrong passwords: 401, 401, 429, 429; then the right one: 429", out)
+        self.assertIn("PASS  B1 guessing", out)
+        code, out = run(FakeApi(), bruteforce=4, web="https://w", web_http=Web(csp=False, limit=False))
+        self.assertEqual(code, 1, out)
+        self.assertIn("FAIL  B8 page Content-Security-Policy (N3): HTTP 200, none", out)
+        self.assertIn("FAIL  B1 guessing", out)
 
     def test_ai(self):
         _, out = run(FakeApi(), ai=True)

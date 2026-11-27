@@ -5,6 +5,8 @@
   ... the same --apply                                    install, nginx -t, reload, check the live server
   sudo python3 .../dwh_tls.py rollback                    put back the previous certificate and nginx file
   sudo python3 .../dwh_tls.py check --name dwh.vtbaze.local [--ip 10.1.20.20]   check the live server only
+  sudo python3 .../dwh_tls.py nginx --name dwh.vtbaze.local [--apply]   only the nginx file from deploy/nginx/dwh.conf
+      of this release (I14-07: login limit, Content-Security-Policy); the certificate is not touched
 
 Plan docs/DWH_I13_10_TLS_CERTIFICATE_PLAN_APPROVED_20261120.md (T1 = B: PFX from the administrators; T3 = the old
 address redirects to the DNS name). The PFX password is typed at the prompt and given to openssl on stdin; it is
@@ -237,6 +239,77 @@ def live_check(name: str, ip: str | None, ca: Path, want_sha: str | None, host: 
     return checks
 
 
+def header_check(name: str, ca: Path, host: str = "127.0.0.1", port: int = 443,
+                 timeout: float = 5.0) -> list[tuple[bool, str]]:
+    """I14-07: the page carries Content-Security-Policy (N3); the login limit (N8) is in the file, see nginx_file."""
+    ctx = ssl.create_default_context(cafile=str(ca))
+    try:
+        with socket.create_connection((host, port), timeout) as raw, ctx.wrap_socket(raw, server_hostname=name) as s:
+            s.sendall(f"GET / HTTP/1.1\r\nHost: {name}\r\nConnection: close\r\n\r\n".encode())
+            head = b""
+            while b"\r\n\r\n" not in head and len(head) < 16384:
+                chunk = s.recv(4096)
+                if not chunk:
+                    break
+                head += chunk
+    except (OSError, ssl.SSLError) as exc:
+        return [(False, f"https://{name}/: {type(exc).__name__} {exc}")]
+    lines = head.split(b"\r\n\r\n", 1)[0].decode(errors="replace").split("\r\n")
+    csp = next((line.split(":", 1)[1].strip() for line in lines if line.lower().startswith("content-security-policy:")), "")
+    return [(" 200 " in lines[0] + " ", f"https://{name}/ answers {lines[0]}"),
+            ("default-src 'self'" in csp, f"Content-Security-Policy: {csp or '(none)'}")]
+
+
+def nginx_file(conf: str) -> list[tuple[bool, str]]:
+    return [("zone=dwh_login" in conf and "location = /api/auth/login" in conf, "login limit (limit_req dwh_login)"),
+            ("Content-Security-Policy" in conf, "Content-Security-Policy header")]
+
+
+def nginx_only(args, runner=run, live=live_check, headers=header_check) -> int:
+    """Re-render the nginx file of the release with --name; the certificate files stay as they are."""
+    paths = Paths(args.tls_dir, args.nginx_conf)
+    if not paths.crt.exists() or not paths.ca.exists():
+        print(f"TLS_RESULT: FAIL (no {paths.crt} / {paths.ca}: install the certificate first)")
+        return 1
+    conf = render_nginx(args.template, args.name)
+    old = paths.nginx_conf.read_text() if paths.nginx_conf.exists() else ""
+    if f"server_name {args.name};" not in old:
+        print(f"TLS_RESULT: FAIL ({paths.nginx_conf} is not for {args.name}: check --name)")
+        return 1
+    show(nginx_file(conf))
+    diff = list(difflib.unified_diff(old.splitlines(), conf.splitlines(), str(paths.nginx_conf), "new", lineterm=""))
+    print(f"Changes in {paths.nginx_conf}:")
+    print("\n".join("    " + line for line in diff) if diff else "    (no change)")
+    if not args.apply:
+        print("TLS_RESULT: PLAN (run again with --apply)")
+        return 0
+    saved = backup(paths, datetime.datetime.now().strftime("%Y%m%d_%H%M%S_%f"))
+    print(f"Copy of the current files: {saved}")
+    try:
+        write(paths.nginx_conf, conf, 0o644)
+        nginx_reload(runner)
+        deadline = time.monotonic() + args.wait
+        while True:
+            final = live(args.name, args.ip, paths.ca, None, port=args.port) + headers(args.name, paths.ca, port=args.port)
+            if all(ok for ok, _ in final) or time.monotonic() >= deadline:
+                break
+            time.sleep(1)
+        if not show(final):
+            raise TlsError(f"live check failed (waited up to {args.wait} s after reload)")
+    except (TlsError, OSError) as exc:
+        print(f"  FAIL  {exc}")
+        restore(paths, saved)
+        try:
+            nginx_reload(runner)
+            print(f"Previous files put back from {saved}, nginx reloaded")
+        except TlsError as again:
+            print(f"Previous files put back from {saved}; nginx: {again}")
+        print("TLS_RESULT: FAIL (rolled back)")
+        return 1
+    print(f"TLS_RESULT: PASS (nginx file of the release, https://{args.name})")
+    return 0
+
+
 def show(checks: list[tuple[bool, str]]) -> bool:
     for ok, text in checks:
         print(f"  {'PASS' if ok else 'FAIL'}  {text}")
@@ -319,7 +392,7 @@ def rollback(args, runner=run) -> int:
 
 def parse(argv):
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    p.add_argument("action", choices=["install", "rollback", "check"])
+    p.add_argument("action", choices=["install", "rollback", "check", "nginx"])
     p.add_argument("--pfx", type=Path)
     p.add_argument("--name", help="DNS name users open, e.g. dwh.vtbaze.local")
     p.add_argument("--ip", help="old address, must be in the certificate and redirect to --name")
@@ -331,7 +404,7 @@ def parse(argv):
     p.add_argument("--nginx-conf", type=Path, default=NGINX_CONF)
     p.add_argument("--template", type=Path, default=TEMPLATE)
     args = p.parse_args(argv)
-    if args.action in ("install", "check"):
+    if args.action in ("install", "check", "nginx"):
         if not args.name or not NAME_RE.match(args.name.lower()):
             p.error("give --name: a full DNS name, e.g. dwh.vtbaze.local")
         args.name = args.name.lower()
@@ -350,6 +423,8 @@ def main(argv=None, password_prompt=getpass.getpass, runner=run, live=live_check
     try:
         if args.action == "rollback":
             return rollback(args, runner)
+        if args.action == "nginx":
+            return nginx_only(args, runner, live)
         if args.action == "check":
             ca = args.tls_dir / "ca.crt"
             ok = show(live(args.name, args.ip, ca, None, port=args.port))

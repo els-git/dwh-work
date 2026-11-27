@@ -316,7 +316,7 @@ sudo python3 /opt/dwh/current/src/tools/server/dwh_v1_check.py
 ```bash
 sudo python3 /opt/dwh/current/src/tools/server/dwh_security_check.py
 ```
-Роли базы (Б3): рабочие роли без прав суперпользователя, у `PUBLIC` нет `CONNECT`, `CREATE` и прав на таблицы, функции `SECURITY DEFINER` с `search_path`, `dwh_ai_ro` читает только `dm`, `dwh_dm_sql_ro` — только `ods`, ни одна рабочая роль не меняет журнал аудита и не пишет в `secret_store`; журнал аудита (Б11): защитные триггеры включены; секреты (Б7): в журнале служб за 7 дней и в отчётах `/srv/dwh/incoming` нет паролей, токенов и ключей — печатаются только счётчики и имена файлов; сервер (Б9): порты, nginx, ограничения служб, права файлов `/etc/dwh`, `/var/lib/dwh/secrets`, `/backup/dwh`, SSH. Итог — `SECURITY_CHECK_RESULT`, отчёт — `/srv/dwh/incoming/security_check_<время>.txt`. `WARN` — к сведению (например, вход по SSH по паролю — риск принят в I13-12, нет CSP — находка Н3).
+Роли базы (Б3): рабочие роли без прав суперпользователя, у `PUBLIC` нет `CONNECT`, `CREATE` и прав на таблицы, функции `SECURITY DEFINER` с `search_path`, `dwh_ai_ro` читает только `dm`, `dwh_dm_sql_ro` — только `ods`, ни одна рабочая роль не меняет журнал аудита и не пишет в `secret_store`; журнал аудита (Б11): защитные триггеры включены; секреты (Б7): в журнале служб за 7 дней и в отчётах `/srv/dwh/incoming` нет паролей, токенов и ключей — печатаются только счётчики и имена файлов; сервер (Б9): порты, nginx, ограничения служб, права файлов `/etc/dwh`, `/var/lib/dwh/secrets`, `/backup/dwh`, SSH. Итог — `SECURITY_CHECK_RESULT`, отчёт — `/srv/dwh/incoming/security_check_<время>.txt`. `WARN` — к сведению (например, вход по SSH по паролю — риск принят в I13-12). С выпуска с исправлениями Н3/Н7/Н8 нет CSP, лимита входа в nginx или `DWH_COOKIE_SECURE=true` — `FAIL`, порядок — раздел 4n.
 
 ## 4m. Отрицательные запросы под тестовой учётной записью (I14-07)
 
@@ -325,6 +325,27 @@ sudo python3 /opt/dwh/current/src/tools/server/dwh_security_check.py
 sudo /opt/dwh/current/venv/bin/python /opt/dwh/current/src/tools/server/dwh_negative_check.py --user <тестовый логин>
 ```
 Флаги: `--bruteforce 10` — 10 неверных паролей, затем верный (учётная запись может заблокироваться); `--ai` — просьба к помощнику выгрузить всю схему `dm` (нужно право `AI_REPORT_RUN`, ответ модели — несколько минут). Итог — `NEGATIVE_CHECK_RESULT`, отчёт — `/srv/dwh/incoming/negative_check_<время>.txt`.
+
+Флаг `--web https://dwh.vtbaze.local` — подбор пароля идёт через nginx (там лимит входа, Н8), и страница должна отдавать `Content-Security-Policy` (Н3); сертификат проверяется по `/etc/dwh/tls/ca.crt`.
+
+## 4n. Защита входа и страницы (I14-07: Н7, Н8, Н3)
+
+1. Cookie сессии только по HTTPS (Н7) — строка в `/etc/dwh/dwh.env`, затем перезапуск API (все входят заново):
+   ```bash
+   sudo grep -q '^DWH_COOKIE_SECURE=' /etc/dwh/dwh.env && sudo sed -i 's/^DWH_COOKIE_SECURE=.*/DWH_COOKIE_SECURE=true/' /etc/dwh/dwh.env || echo 'DWH_COOKIE_SECURE=true' | sudo tee -a /etc/dwh/dwh.env >/dev/null
+   ```
+   ```bash
+   sudo systemctl restart dwh-api
+   ```
+2. Файл nginx из шаблона выпуска — лимит входа 5 попыток в минуту с адреса (+5 сразу, дальше `429` с сообщением «Too many login attempts…», Н8) и заголовок `Content-Security-Policy` (Н3). Сертификат не меняется; сначала показ изменений, затем `--apply` (копия прежних файлов в `/etc/dwh/tls/backup/<время>`, `nginx -t`, `reload`, живая проверка; при ошибке — возврат):
+   ```bash
+   sudo python3 /opt/dwh/current/src/tools/server/dwh_tls.py nginx --name dwh.vtbaze.local
+   ```
+   ```bash
+   sudo python3 /opt/dwh/current/src/tools/server/dwh_tls.py nginx --name dwh.vtbaze.local --apply
+   ```
+   Откат — `sudo python3 /opt/dwh/current/src/tools/server/dwh_tls.py rollback`.
+3. Проверки — `dwh_security_check.py` (раздел 4l) и `dwh_negative_check.py --web https://dwh.vtbaze.local --bruteforce 10` (раздел 4m).
 
 ## 5. Проверки и задачи
 
