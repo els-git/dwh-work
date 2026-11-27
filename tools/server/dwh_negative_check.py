@@ -146,6 +146,7 @@ def check_cors(report: Report, http, cookie: str) -> None:
 
 
 def check_ai(report: Report, http, cookie: str) -> None:
+    print("B5: waiting for the assistant answer (up to 15 min) ...", flush=True)
     status, _, body = http("POST", "/api/ai/report", {"question": AI_QUESTION}, cookie=cookie, timeout=900)
     try:
         data = json.loads(body or b"{}")
