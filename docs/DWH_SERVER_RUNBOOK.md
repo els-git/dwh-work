@@ -347,6 +347,16 @@ sudo /opt/dwh/current/venv/bin/python /opt/dwh/current/src/tools/server/dwh_nega
    Откат — `sudo python3 /opt/dwh/current/src/tools/server/dwh_tls.py rollback`.
 3. Проверки — `dwh_security_check.py` (раздел 4l) и `dwh_negative_check.py --web https://dwh.vtbaze.local --bruteforce 10` (раздел 4m).
 
+## 4o. Проверка «со стороны» с ПК (I24)
+
+Запускается **на ПК** из папки проекта (после `git pull`), не на сервере; Python без дополнительных пакетов. Нужны учётные записи `pt.user` (`USER`, без ролей), `pt.reports` (`USER`, отчёты, витрины, помощник), `pt.admin` (`ADMIN`), `pt.super` (`SUPERADMIN`); пароли вводятся по запросу и нигде не сохраняются. Данные не меняются (кроме обычных строк журналов просмотра); проверки администратора касаются только `pt.*` и откатываются, если защита не сработала. Время — около 10 минут (лимит входа соблюдается паузами), с `--ai` — дольше.
+
+```powershell
+python "C:\Users\elshad.asgarov\Desktop\DWH\dwh\tools\pentest\dwh_pentest.py" --host dwh.vtbaze.local --user pt.user --reports pt.reports --admin pt.admin --super pt.super --ai
+```
+
+Итог — `PENTEST_RESULT: PASS / FIND`, отчёт `tools\pentest\pentest_<время>.txt`. После проверки учётные записи `pt.*` отключаются в «Администрирование → Пользователи».
+
 ## 5. Проверки и задачи
 
 - Сеть (шаг 5), только чтение:
