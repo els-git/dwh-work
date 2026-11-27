@@ -1,0 +1,370 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>DWH — презентация</title>
+<style>
+  :root { --bg: #0b1626; --panel: #12233a; --line: #23395a; --text: #e8eef6; --muted: #9fb2c8; --accent: #e8892f; --ok: #3fbf8a; }
+  @page { size: 1280px 720px; margin: 0; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font-family: 'DejaVu Sans', Arial, sans-serif; }
+  .slide { width: 1280px; height: 720px; position: relative; overflow: hidden; page-break-after: always; padding: 52px 64px; background: radial-gradient(circle at 92% 0%, #1b3354 0, var(--bg) 46%); }
+  .slide:last-child { page-break-after: auto; }
+  .tag { color: var(--accent); font-size: 14px; letter-spacing: 2px; text-transform: uppercase; font-weight: bold; }
+  h1 { font-size: 46px; margin: 10px 0 12px; line-height: 1.15; }
+  h2 { font-size: 32px; margin: 8px 0 18px; line-height: 1.2; }
+  p, li { font-size: 18px; line-height: 1.5; color: var(--text); }
+  .muted { color: var(--muted); }
+  ul { padding-left: 22px; margin: 8px 0; }
+  li { margin: 6px 0; }
+  li::marker { color: var(--accent); }
+  .foot { position: absolute; left: 64px; right: 64px; bottom: 22px; display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); }
+  .grid { display: grid; gap: 18px; }
+  .g2 { grid-template-columns: 1fr 1fr; } .g3 { grid-template-columns: repeat(3, 1fr); }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 18px 20px; }
+  .card h3 { margin: 0 0 8px; font-size: 19px; color: var(--accent); }
+  .card p, .card li { font-size: 15px; line-height: 1.45; margin: 4px 0; }
+  .shot { display: grid; grid-template-columns: 330px 1fr; gap: 30px; height: 100%; }
+  .shot .txt h2 { font-size: 28px; }
+  .shot .txt li { font-size: 15.5px; line-height: 1.45; }
+  .shot .img { display: flex; align-items: center; }
+  .shot img { width: 100%; border-radius: 10px; border: 1px solid var(--line); box-shadow: 0 18px 50px rgba(0,0,0,.55); }
+  .demo { font-size: 11px; color: var(--muted); margin-top: 10px; }
+  .flow { display: flex; align-items: stretch; gap: 10px; margin: 26px 0 18px; }
+  .flow .st { flex: 1; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px 12px; text-align: center; }
+  .flow .st b { display: block; font-size: 19px; color: var(--accent); margin-bottom: 6px; }
+  .flow .st span { font-size: 13.5px; color: var(--muted); line-height: 1.4; display: block; }
+  .flow .ar { align-self: center; color: var(--accent); font-size: 26px; }
+  .big { font-size: 40px; font-weight: bold; color: var(--accent); }
+  .num .card { text-align: center; } .num .card p { color: var(--muted); }
+  .title { display: flex; flex-direction: column; justify-content: center; height: 100%; }
+  .logo { width: 70px; height: 70px; border: 2px solid var(--accent); border-radius: 16px; display: flex; align-items: center; justify-content: center; font-size: 38px; font-weight: bold; color: var(--accent); margin-bottom: 26px; }
+  table { border-collapse: collapse; width: 100%; font-size: 15px; }
+  th { text-align: left; color: var(--accent); border-bottom: 2px solid var(--line); padding: 8px 10px; font-size: 14px; }
+  td { border-bottom: 1px solid var(--line); padding: 8px 10px; vertical-align: top; }
+  .pill { display: inline-block; background: rgba(63,191,138,.15); color: var(--ok); border: 1px solid rgba(63,191,138,.4); border-radius: 20px; padding: 2px 10px; font-size: 13px; margin: 2px 4px 2px 0; }
+</style>
+</head>
+<body>
+
+<!-- 1 -->
+<section class="slide">
+  <div class="title">
+    <div class="logo">A</div>
+    <div class="tag">Хранилище данных · центр управления</div>
+    <h1>DWH — единое место для данных,<br>загрузок и отчётности</h1>
+    <p class="muted" style="font-size:21px;max-width:900px">Собирает данные из систем организации, приводит их к единому виду, строит отчётные витрины и даёт сотрудникам отчёты и ИИ-помощника — с контролем доступа и полным журналом действий.</p>
+    <p class="muted" style="font-size:15px;margin-top:30px">Выпуск v1 · ноябрь 2026 · внутренняя разработка</p>
+  </div>
+</section>
+
+<!-- 2 -->
+<section class="slide">
+  <div class="tag">Зачем</div>
+  <h2>Какую задачу решает</h2>
+  <div class="grid g2">
+    <div class="card"><h3>Сейчас</h3><ul>
+      <li>Данные разбросаны по разным системам: CRM, учётные системы, сервисы, файлы.</li>
+      <li>Отчёт собирается вручную: выгрузки, Excel, письма.</li>
+      <li>Каждый новый отчёт — заявка разработчику и ожидание.</li>
+      <li>Трудно понять, кто какие данные видел и выгружал.</li>
+    </ul></div>
+    <div class="card"><h3>С DWH</h3><ul>
+      <li>Данные регулярно и автоматически забираются в одно хранилище.</li>
+      <li>Источники только читаются, их работе ничего не мешает.</li>
+      <li>Витрины и отчёты настраиваются в интерфейсе, без программирования.</li>
+      <li>Каждый видит только то, что разрешено его роли, а каждое действие записано.</li>
+    </ul></div>
+  </div>
+</section>
+
+<!-- 3 -->
+<section class="slide">
+  <div class="tag">Как устроено</div>
+  <h2>Путь данных — от источника до отчёта</h2>
+  <div class="flow">
+    <div class="st"><b>Источники</b><span>Базы PostgreSQL, REST-API, файлы JSON/XML. Только чтение</span></div><div class="ar">→</div>
+    <div class="st"><b>STG</b><span>Точная копия: типы проверены, ключи уникальны</span></div><div class="ar">→</div>
+    <div class="st"><b>ODS</b><span>Рабочий вид: понятные поля, преобразования, история изменений</span></div><div class="ar">→</div>
+    <div class="st"><b>Витрины</b><span>Готовые наборы для отчётов: из нескольких систем по общему ключу</span></div><div class="ar">→</div>
+    <div class="st"><b>Отчёты</b><span>Просмотр, фильтры, выгрузка; ИИ-помощник</span></div>
+  </div>
+  <div class="grid g3">
+    <div class="card"><h3>Без программирования</h3><p>Подключение, маппинг полей, таблицы, расписания и витрины — всё в интерфейсе. Таблицы создаёт сама система.</p></div>
+    <div class="card"><h3>По расписанию</h3><p>Загрузки идут сами по расписанию. После загрузки витрины пересобираются автоматически.</p></div>
+    <div class="card"><h3>Под контролем</h3><p>Понятные ошибки, повтор в один клик, журнал всех запусков и действий.</p></div>
+  </div>
+</section>
+
+<!-- 4 -->
+<section class="slide">
+  <div class="tag">Возможности</div>
+  <h2>Что умеет v1</h2>
+  <div class="grid g3">
+    <div class="card"><h3>Источники</h3><ul><li>Базы PostgreSQL</li><li>REST-API: JSON и XML, постраничная загрузка</li><li>Файлы JSON / XML / JSON Lines</li><li>Только чтение, пароли зашифрованы</li></ul></div>
+    <div class="card"><h3>Загрузки</h3><ul><li>Полная и инкрементальная загрузка</li><li>Большие таблицы — порциями</li><li>Расписания и автоповтор</li><li>Понятные ошибки, кнопка «Повторить»</li></ul></div>
+    <div class="card"><h3>Витрины</h3><ul><li>Конструктор из нескольких систем</li><li>Витрина по готовому SQL-запросу</li><li>Обновление без перерыва</li><li>Автоматическая пересборка после загрузки</li></ul></div>
+    <div class="card"><h3>Отчётность</h3><ul><li>Просмотр витрин с фильтрами</li><li>Выгрузка CSV / XLSX / PDF</li><li>Личные и общие папки отчётов</li></ul></div>
+    <div class="card"><h3>ИИ-помощник</h3><ul><li>Отчёт по описанию словами</li><li>Ответы по работе с системой</li><li>Разбор ошибок загрузок</li><li>Работает внутри, без интернета</li></ul></div>
+    <div class="card"><h3>Доступ и контроль</h3><ul><li>Вход через домен или локально</li><li>Роли и права</li><li>Неизменяемый журнал аудита</li><li>Мониторинг сервера</li></ul></div>
+  </div>
+</section>
+
+<!-- 5 -->
+<section class="slide">
+  <div class="shot">
+    <div class="txt">
+      <div class="tag">Источники</div>
+      <h2>Подключение систем</h2>
+      <ul>
+        <li>Для каждой системы задаются адрес и учётная запись. Пароль шифруется и больше нигде не показывается.</li>
+        <li>Система сама считывает список таблиц и полей источника.</li>
+        <li>Для каждого объекта настраиваются поля, типы, ключ и способ загрузки.</li>
+        <li>Обращения к источнику — только чтение: DWH никогда ничего в нём не меняет.</li>
+      </ul>
+      <div class="demo">Снимок экрана на демонстрационных данных</div>
+    </div>
+    <div class="img"><img src="img/13_integrations.jpg" alt=""></div>
+  </div>
+</section>
+
+<!-- 6 -->
+<section class="slide">
+  <div class="shot">
+    <div class="txt">
+      <div class="tag">Загрузки</div>
+      <h2>Состояние каждого объекта</h2>
+      <ul>
+        <li>По каждому объекту видно, когда он грузился, сколько строк прочитано, вставлено и обновлено, есть ли ошибки.</li>
+        <li>Есть кнопки «Запустить», «Заново полностью» и «Продолжить».</li>
+        <li>Поиск и фильтры по источнику, статусу и расписанию.</li>
+      </ul>
+      <div class="demo">Снимок экрана на демонстрационных данных</div>
+    </div>
+    <div class="img"><img src="img/01_loads_objects.jpg" alt=""></div>
+  </div>
+</section>
+
+<!-- 7 -->
+<section class="slide">
+  <div class="shot">
+    <div class="txt">
+      <div class="tag">Загрузки</div>
+      <h2>Расписания</h2>
+      <ul>
+        <li>У каждого объекта своё расписание: каждые N минут или часов, ежедневно, по дням недели.</li>
+        <li>При ошибке загрузка повторяется сама: число повторов и пауза настраиваются.</li>
+        <li>Видно, когда будет следующий запуск и чем закончился прошлый.</li>
+      </ul>
+      <div class="demo">Снимок экрана на демонстрационных данных</div>
+    </div>
+    <div class="img"><img src="img/02_schedules.jpg" alt=""></div>
+  </div>
+</section>
+
+<!-- 8 -->
+<section class="slide">
+  <div class="shot">
+    <div class="txt">
+      <div class="tag">Загрузки</div>
+      <h2>Понятные ошибки</h2>
+      <ul>
+        <li>Ошибка называет поле, число неверных строк, примеры значений и ключи строк.</li>
+        <li>Ошибки сгруппированы по видам: подключение, структура, поле, ключ, файл.</li>
+        <li>Если данные некорректны, загрузка останавливается без частичной записи.</li>
+        <li>«Разобрать с помощником» объясняет причину и подсказывает, что сделать.</li>
+      </ul>
+      <div class="demo">Снимок экрана на демонстрационных данных</div>
+    </div>
+    <div class="img"><img src="img/05_errors.jpg" alt=""></div>
+  </div>
+</section>
+
+<!-- 9 -->
+<section class="slide">
+  <div class="shot">
+    <div class="txt">
+      <div class="tag">Витрины</div>
+      <h2>Конструктор витрин</h2>
+      <ul>
+        <li>Одна строка витрины — одна сущность: клиент, заявка, договор.</li>
+        <li>Данные разных систем соединяются по общему ключу, даже если поля называются по-разному.</li>
+        <li>Есть агрегаты (сумма, количество), справочники, приоритет источников и фильтры.</li>
+        <li>Можно задать витрину и готовым SQL-запросом.</li>
+        <li>Публикация не прерывает работу пользователей.</li>
+      </ul>
+      <div class="demo">Снимок экрана на демонстрационных данных</div>
+    </div>
+    <div class="img"><img src="img/14b_dm_editor.jpg" alt="" style="max-height:610px;object-fit:cover;object-position:top"></div>
+  </div>
+</section>
+
+<!-- 10 -->
+<section class="slide">
+  <div class="shot">
+    <div class="txt">
+      <div class="tag">Отчётность</div>
+      <h2>Просмотр и выгрузка витрин</h2>
+      <ul>
+        <li>Пользователь видит только витрины, разрешённые его роли.</li>
+        <li>Есть фильтры, сортировка и постраничный просмотр больших витрин.</li>
+        <li>Выгрузка в CSV, XLSX и PDF.</li>
+        <li>Каждое открытие и каждая выгрузка записываются в журнал.</li>
+      </ul>
+      <div class="demo">Снимок экрана на демонстрационных данных</div>
+    </div>
+    <div class="img"><img src="img/08_mart_view.jpg" alt=""></div>
+  </div>
+</section>
+
+<!-- 11 -->
+<section class="slide">
+  <div class="shot">
+    <div class="txt">
+      <div class="tag">ИИ-помощник</div>
+      <h2>Отчёт по описанию словами</h2>
+      <ul>
+        <li>Сотрудник пишет обычными словами, что нужно. Помощник составляет запрос и показывает результат.</li>
+        <li>Запрос проверяется: только чтение и только витрины, доступные роли.</li>
+        <li>Готовый отчёт можно сохранить в личную или общую папку и скачать в CSV.</li>
+        <li>Отвечает и на вопросы о работе с системой на русском, азербайджанском и английском.</li>
+        <li>Модель работает на своём сервере, данные не уходят наружу.</li>
+      </ul>
+      <div class="demo">Снимок экрана на демонстрационных данных. На текущем сервере ответ модели занимает минуты.</div>
+    </div>
+    <div class="img"><img src="img/09_ai_chat.jpg" alt=""></div>
+  </div>
+</section>
+
+<!-- 12 -->
+<section class="slide">
+  <div class="shot">
+    <div class="txt">
+      <div class="tag">Пользователи</div>
+      <h2>Учётные записи и вход</h2>
+      <ul>
+        <li>Вход под учётной записью домена: пароль тот же, что для Windows.</li>
+        <li>Для внешних и служебных случаев — локальная учётная запись. Пароль выдаётся разово и меняется при первом входе.</li>
+        <li>Уровни: пользователь, администратор, главный администратор.</li>
+        <li>Отключение, смена способа входа и сброс пароля — в один клик.</li>
+      </ul>
+      <div class="demo">Снимок экрана на демонстрационных данных</div>
+    </div>
+    <div class="img"><img src="img/10_users.jpg" alt=""></div>
+  </div>
+</section>
+
+<!-- 13 -->
+<section class="slide">
+  <div class="shot">
+    <div class="txt">
+      <div class="tag">Права</div>
+      <h2>Роли и доступ</h2>
+      <ul>
+        <li>Права выдаются через бизнес-роли: «Оператор загрузок», «Аналитик отчётности», «Аудит» и другие.</li>
+        <li>Роль — это набор прав: видеть раздел, запускать загрузки, смотреть витрины, пользоваться помощником.</li>
+        <li>Выдача и отзыв прав сразу действуют и записываются в журнал.</li>
+      </ul>
+      <div class="demo">Снимок экрана на демонстрационных данных</div>
+    </div>
+    <div class="img"><img src="img/12_access.jpg" alt=""></div>
+  </div>
+</section>
+
+<!-- 14 -->
+<section class="slide">
+  <div class="tag">Права на практике</div>
+  <h2>Кто что видит — пример настройки</h2>
+  <table>
+    <tr><th>Роль</th><th>Кому</th><th>Что доступно</th></tr>
+    <tr><td><b>Аналитик отчётности</b></td><td>Сотрудники бизнес-подразделений</td><td>Раздел «Отчёты», разрешённые витрины, выгрузка, ИИ-помощник и отчёты по описанию</td></tr>
+    <tr><td><b>Аудит</b></td><td>Внутренний контроль</td><td>Только просмотр витрин и общих отчётов</td></tr>
+    <tr><td><b>Оператор загрузок</b></td><td>Сопровождение</td><td>Раздел «Загрузки»: состояние, запуск, ошибки, расписания</td></tr>
+    <tr><td><b>Администратор DWH</b></td><td>Владелец системы</td><td>Источники, маппинг, витрины, пользователи и роли, журналы, нагрузка сервера</td></tr>
+  </table>
+  <p class="muted" style="font-size:15px;margin-top:22px">Права проверяются дважды — в приложении и в самой базе данных. Даже администратор не может повысить себя до главного администратора.</p>
+</section>
+
+<!-- 15 -->
+<section class="slide">
+  <div class="shot">
+    <div class="txt">
+      <div class="tag">Контроль</div>
+      <h2>Журнал аудита</h2>
+      <ul>
+        <li>Записываются входы, изменения прав, запуски загрузок, публикации, просмотры и выгрузки витрин, обращения к паролям источников.</li>
+        <li>Журнал нельзя изменить или удалить — это запрещено на уровне базы.</li>
+        <li>Администраторы ищут записи по дате, пользователю, событию и объекту.</li>
+      </ul>
+      <div class="demo">Снимок экрана на демонстрационных данных</div>
+    </div>
+    <div class="img"><img src="img/16_audit.jpg" alt=""></div>
+  </div>
+</section>
+
+<!-- 16 -->
+<section class="slide">
+  <div class="shot">
+    <div class="txt">
+      <div class="tag">Сопровождение</div>
+      <h2>Нагрузка сервера</h2>
+      <ul>
+        <li>Администратор видит в интерфейсе процессор, память, диски, сеть и состояние служб за последний час.</li>
+        <li>Ночные резервные копии хранятся 14 дней, восстановление проверено.</li>
+        <li>Обновление ставится одним пакетом, при сбое — автоматический откат.</li>
+      </ul>
+      <div class="demo">Снимок экрана на демонстрационных данных</div>
+    </div>
+    <div class="img"><img src="img/17_server_load.jpg" alt=""></div>
+  </div>
+</section>
+
+<!-- 17 -->
+<section class="slide">
+  <div class="tag">Безопасность</div>
+  <h2>Защита данных — коротко</h2>
+  <div class="grid g3">
+    <div class="card"><h3>Источники</h3><p>Только чтение. Пароли зашифрованы (AES-256), выдаются только выполняемой загрузке, каждое обращение записывается.</p></div>
+    <div class="card"><h3>Вход</h3><p>Домен по защищённому каналу, лимит попыток входа, защищённые cookie сессии, срок сессии 8 часов.</p></div>
+    <div class="card"><h3>Сеть</h3><p>Снаружи открыты только HTTPS (TLS 1.2/1.3, сертификат внутреннего УЦ) и SSH для администрирования. Интернета на сервере нет.</p></div>
+    <div class="card"><h3>Права</h3><p>Роли с минимальными правами в приложении и в базе данных; витрины открываются только по праву роли.</p></div>
+    <div class="card"><h3>ИИ</h3><p>Модель работает внутри сервера. Запросы помощника проверяются, данные ему не передаются.</p></div>
+    <div class="card"><h3>Проверено</h3><p>Внутренний аудит безопасности и проверка «со стороны»: серьёзных и средних слабостей не найдено.</p></div>
+  </div>
+</section>
+
+<!-- 18 -->
+<section class="slide">
+  <div class="tag">Статус</div>
+  <h2>Где мы сейчас</h2>
+  <div class="grid g3 num" style="margin-bottom:22px">
+    <div class="card"><div class="big">v1</div><p>выпуск готов и работает на сервере во внутренней сети</p></div>
+    <div class="card"><div class="big">3</div><p>вида источников: базы PostgreSQL, API, файлы</p></div>
+    <div class="card"><div class="big">0</div><p>серьёзных находок в проверках безопасности</p></div>
+  </div>
+  <div class="grid g2">
+    <div class="card"><h3>Проверено</h3>
+      <span class="pill">загрузки и расписания</span><span class="pill">витрины</span><span class="pill">отчётность и выгрузка</span><span class="pill">ИИ-помощник</span><span class="pill">вход через домен</span><span class="pill">аудит</span><span class="pill">копии и откат</span>
+      <p class="muted" style="margin-top:10px">Пока на тестовых данных и тестовых источниках.</p></div>
+    <div class="card"><h3>Дальше</h3><ul>
+      <li>Подключение к дев-средам реальных систем — только на чтение.</li>
+      <li>Пилот с первой группой пользователей.</li>
+      <li>По плану: источник Oracle и проверки качества данных.</li>
+    </ul></div>
+  </div>
+</section>
+
+<!-- 19 -->
+<section class="slide">
+  <div class="tag">Что нужно</div>
+  <h2>Для дев-развёртывания нужно согласование ИТ</h2>
+  <div class="grid g3">
+    <div class="card"><h3>Инфраструктура</h3><ul><li>Сервер (уже выделен) — подтвердить размещение</li><li>Сетевой доступ от сервера к дев-базам источников</li><li>Резервные копии во внешнем хранилище — к промышленному запуску</li></ul></div>
+    <div class="card"><h3>Информационная безопасность</h3><ul><li>Согласовать меры защиты из технического описания</li><li>Учётные записи источников только на чтение</li><li>Решение о внешнем пентесте</li></ul></div>
+    <div class="card"><h3>Руководство</h3><ul><li>Одобрение пилота</li><li>Владельцы данных источников</li><li>Первая группа пользователей</li></ul></div>
+  </div>
+  <p class="muted" style="font-size:15px;margin-top:24px">Подробное устройство, адреса, порты и меры безопасности — в документе «DWH — техническое описание».</p>
+</section>
+
+</body>
+</html>
