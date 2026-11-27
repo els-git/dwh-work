@@ -349,10 +349,10 @@ sudo /opt/dwh/current/venv/bin/python /opt/dwh/current/src/tools/server/dwh_nega
 
 ## 4o. Проверка «со стороны» с ПК (I24)
 
-Запускается **на ПК** из папки проекта (после `git pull`), не на сервере; Python без дополнительных пакетов. Нужны учётные записи `pt.user` (`USER`, без ролей), `pt.reports` (`USER`, отчёты, витрины, помощник), `pt.admin` (`ADMIN`), `pt.super` (`SUPERADMIN`); пароли вводятся по запросу и нигде не сохраняются. Данные не меняются (кроме обычных строк журналов просмотра); проверки администратора касаются только `pt.*` и откатываются, если защита не сработала. Время — около 10 минут (лимит входа соблюдается паузами), с `--ai` — дольше.
+Запускается **на ПК** из папки проекта (после `git pull`), не на сервере; Python без дополнительных пакетов. Нужны учётные записи `pt.user` (`USER`, без ролей), `pt.reports` (`USER`, отчёты, витрины, помощник), `pt.admin` (`ADMIN`); `SUPERADMIN` через интерфейс создать нельзя, поэтому действия против суперадминистратора не проверяются (настоящий не затрагивается); пароли вводятся по запросу и нигде не сохраняются. Данные не меняются (кроме обычных строк журналов просмотра); проверки администратора касаются только `pt.*` и откатываются, если защита не сработала. Время — около 10 минут (лимит входа соблюдается паузами), с `--ai` — дольше.
 
 ```powershell
-python "C:\Users\elshad.asgarov\Desktop\DWH\dwh\tools\pentest\dwh_pentest.py" --host dwh.vtbaze.local --user pt.user --reports pt.reports --admin pt.admin --super pt.super --ai
+python "C:\Users\elshad.asgarov\Desktop\DWH\dwh\tools\pentest\dwh_pentest.py" --host dwh.vtbaze.local --user pt.user --reports pt.reports --admin pt.admin --ai
 ```
 
 Итог — `PENTEST_RESULT: PASS / FIND`, отчёт `tools\pentest\pentest_<время>.txt`. После проверки учётные записи `pt.*` отключаются в «Администрирование → Пользователи».
